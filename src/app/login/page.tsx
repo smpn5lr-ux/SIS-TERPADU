@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { School, LogIn, Mail, Lock, Loader2, UserPlus, Info } from "lucide-react"
+import { School, LogIn, Mail, Lock, Loader2, UserPlus, Info, Eye, EyeOff } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { doc, collection, query, where } from "firebase/firestore"
 import { Staff } from "@/lib/types"
@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [fullName, setFullName] = useState("")
   const [loading, setLoading] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   
   const auth = useAuth()
   const db = useFirestore()
@@ -170,13 +171,24 @@ export default function LoginPage() {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input 
                   id="password"
-                  type="password" 
+                  type={showPassword ? "text" : "password"} 
                   placeholder="••••••••" 
-                  className="pl-10"
+                  className="pl-10 pr-10"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
               </div>
               {!isLogin && <p className="text-[10px] text-muted-foreground">Minimal 6 karakter.</p>}
             </div>
