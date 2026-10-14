@@ -1,7 +1,7 @@
 
 "use client"
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { 
   CalendarClock, 
   Plus, 
@@ -26,7 +26,9 @@ import {
   ChevronDown,
   RefreshCw,
   Layers,
-  LayoutTemplate
+  CloudUpload,
+  CloudOff,
+  AlertCircle
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -88,11 +90,14 @@ export default function RosterManagementPage() {
   const [activeTab, setActiveTab] = useState("builder")
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [isAutoGenerating, setIsAutoGenerating] = useState(false)
-  const [isSyncingGlobal, setIsSyncingGlobal] = useState(false)
+  const [isSavingConfig, setIsSavingConfig] = useState(false)
+  const [isSyncingToCloud, setIsSyncingToCloud] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   
+  // State Buffer Lokal
+  const [localEntries, setLocalEntries] = useState<RosterEntry[]>([])
+  const [isDirty, setIsDirty] = useState(false)
+
   const [newEntry, setNewEntry] = useState<Partial<RosterEntry>>({
     day: "Senin",
     period: 1,
@@ -111,13 +116,20 @@ export default function RosterManagementPage() {
   const configRef = useMemoFirebase(() => db ? doc(db, 'settings', 'roster') : null, [db])
   const systemSettingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
 
-  const { data: rosterEntries, loading: loadingR } = useCollection<RosterEntry>(rosterQuery)
+  const { data: serverEntries, loading: loadingR } = useCollection<RosterEntry>(rosterQuery)
   const { data: assignments } = useCollection<TeacherAssignment>(assignmentsQuery)
   const { data: staff } = useCollection<Staff>(staffQuery)
   const { data: classes, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
   const { data: subjects } = useCollection<Subject>(subjectsQuery)
   const { data: rosterConfig, loading: loadingConfigDoc } = useDoc<RosterConfig>(configRef)
   const { data: systemSettings } = useDoc<any>(systemSettingsRef)
+
+  // Inisialisasi localEntries dari serverEntries hanya jika tidak dirty
+  useEffect(() => {
+    if (serverEntries && !isDirty) {
+      setLocalEntries(serverEntries)
+    }
+  }, [serverEntries, isDirty])
 
   const teachers = staff?.filter(s => s.role === 'Guru') || []
 
@@ -149,9 +161,9 @@ export default function RosterManagementPage() {
   }
 
   const workloadStats = useMemo(() => {
-    if (!assignments || !rosterEntries) return []
+    if (!assignments) return []
     return assignments.map(a => {
-      const scheduledCount = rosterEntries.filter(e => 
+      const scheduledCount = localEntries.filter(e => 
         e.teacherId === a.teacherId && 
         e.subjectId === a.subjectId && 
         e.classId === a.classId
@@ -163,7 +175,7 @@ export default function RosterManagementPage() {
         percent: Math.min(100, Math.round((scheduledCount / (a.totalJP || 1)) * 100))
       }
     })
-  }, [assignments, rosterEntries])
+  }, [assignments, localEntries])
 
   const teacherCoding = useMemo(() => {
     if (!assignments) return { teacherMap: new Map(), subjectColors: new Map() };
@@ -198,61 +210,84 @@ export default function RosterManagementPage() {
     return { teacherMap, subjectColors };
   }, [assignments]);
 
-  const handleSyncGlobalBlocks = async () => {
-    if (!db || !classes || !rosterEntries) return
-    setIsSyncingGlobal(true)
-    const batch = writeBatch(db)
-    let addedCount = 0
+  // Fungsi Mutasi LOKAL
+  const handleAddEntryLocal = () => {
+    const t = teachers.find(t => t.id === newEntry.teacherId)
+    const c = classes?.find(c => c.id === newEntry.classId)
+    const s = subjects?.find(s => s.id === newEntry.subjectId)
 
-    try {
-      for (const cls of classes) {
-        for (const day of DAYS) {
-          if (config.break1Active) {
-            const hasB1 = rosterEntries.some(e => e.classId === cls.id && e.day === day && e.period === config.break1Period)
-            if (!hasB1) {
-              const ref = doc(collection(db, 'rosterEntries'))
-              batch.set(ref, {
-                day, period: config.break1Period, classId: cls.id, className: cls.name,
-                isActivity: true, activityName: "ISTIRAHAT 1", createdAt: new Date().toISOString()
-              })
-              addedCount++
-            }
-          }
-          if (config.break2Active) {
-            const hasB2 = rosterEntries.some(e => e.classId === cls.id && e.day === day && e.period === config.break2Period)
-            if (!hasB2) {
-              const ref = doc(collection(db, 'rosterEntries'))
-              batch.set(ref, {
-                day, period: config.break2Period, classId: cls.id, className: cls.name,
-                isActivity: true, activityName: "ISTIRAHAT 2", createdAt: new Date().toISOString()
-              })
-              addedCount++
-            }
+    const entry: RosterEntry = {
+      id: `temp-${Date.now()}`,
+      day: newEntry.day || "Senin",
+      period: newEntry.period || 1,
+      classId: newEntry.classId || "",
+      className: c?.name || "",
+      teacherId: newEntry.isActivity ? "" : newEntry.teacherId,
+      teacherName: newEntry.isActivity ? "" : t?.fullName || "",
+      subjectId: newEntry.isActivity ? "" : newEntry.subjectId,
+      subjectName: newEntry.isActivity ? "" : s?.name || "",
+      isActivity: !!newEntry.isActivity,
+      activityName: newEntry.isActivity ? newEntry.activityName : ""
+    }
+
+    setLocalEntries([...localEntries, entry])
+    setIsDirty(true)
+    setIsAddOpen(false)
+    toast({ title: "Ditambahkan ke Buffer", description: "Perubahan belum tersimpan ke database." })
+  }
+
+  const handleDeleteEntryLocal = (id: string) => {
+    setLocalEntries(localEntries.filter(e => e.id !== id))
+    setIsDirty(true)
+  }
+
+  const handleSyncGlobalBlocksLocal = () => {
+    if (!classes) return
+    const newBlocks: RosterEntry[] = []
+    
+    classes.forEach(cls => {
+      DAYS.forEach(day => {
+        if (config.break1Active) {
+          const exists = localEntries.some(e => e.classId === cls.id && e.day === day && e.period === config.break1Period)
+          if (!exists) {
+            newBlocks.push({
+              id: `temp-b1-${cls.id}-${day}`,
+              day, period: config.break1Period, classId: cls.id, className: cls.name,
+              isActivity: true, activityName: "ISTIRAHAT 1"
+            })
           }
         }
-      }
-      await batch.commit()
-      toast({ title: "Blok Global Diterapkan", description: `${addedCount} slot istirahat telah diisi ke seluruh kelas.` })
-    } catch (e) {
-      toast({ variant: "destructive", title: "Gagal" })
-    } finally {
-      setIsSyncingGlobal(false)
+        if (config.break2Active) {
+          const exists = localEntries.some(e => e.classId === cls.id && e.day === day && e.period === config.break2Period)
+          if (!exists) {
+            newBlocks.push({
+              id: `temp-b2-${cls.id}-${day}`,
+              day, period: config.break2Period, classId: cls.id, className: cls.name,
+              isActivity: true, activityName: "ISTIRAHAT 2"
+            })
+          }
+        }
+      })
+    })
+
+    if (newBlocks.length > 0) {
+      setLocalEntries([...localEntries, ...newBlocks])
+      setIsDirty(true)
+      toast({ title: "Blok Istirahat Ditambahkan", description: `${newBlocks.length} slot disiapkan.` })
     }
   }
 
-  const handleAutoGenerate = async () => {
-    if (!db || !assignments || !rosterEntries || !classes) return
-    setIsAutoGenerating(true)
-    const batch = writeBatch(db)
+  const handleAutoGenerateLocal = () => {
+    if (!assignments || !classes) return
+    const pool = [...localEntries]
     let filledCount = 0
-    const localRoster = [...rosterEntries]
 
     const unfinished = workloadStats
       .filter(w => !w.isMet)
       .sort(() => Math.random() - 0.5)
 
     for (const job of unfinished) {
-      let remaining = (job.totalJP || 0) - job.scheduled
+      let remaining = (job.totalJP || 0) - (pool.filter(e => e.teacherId === job.teacherId && e.subjectId === job.subjectId && e.classId === job.classId).length)
       if (remaining <= 0) continue
       const targetClass = classes.find(c => c.id === job.classId)
       if (!targetClass) continue
@@ -264,99 +299,94 @@ export default function RosterManagementPage() {
           const isBreak = (config.break1Active && p === config.break1Period) || (config.break2Active && p === config.break2Period)
           if (isBreak) continue
 
-          const isSlotTaken = localRoster.some(e => e.day === day && e.period === p && e.classId === targetClass.id)
+          const isSlotTaken = pool.some(e => e.day === day && e.period === p && e.classId === targetClass.id)
           if (isSlotTaken) continue
 
-          const isTeacherBusy = localRoster.some(e => e.day === day && e.period === p && e.teacherId === job.teacherId)
+          const isTeacherBusy = pool.some(e => e.day === day && e.period === p && e.teacherId === job.teacherId)
           if (isTeacherBusy) continue
 
-          let currentBatchSize = 1
-          if (remaining >= 2 && p < MAX_PERIODS) {
+          // Coba ambil blok 2 jam jika jam genap
+          let batchSize = 1
+          if (remaining >= 2 && p % 2 !== 0 && p < MAX_PERIODS) {
             const nextP = p + 1
-            const isNextBreak = (config.break1Active && nextP === config.break1Period) || (config.break2Active && nextP === config.break2Period)
-            const isNextTaken = localRoster.some(e => e.day === day && e.period === nextP && e.classId === targetClass.id)
-            const isTeacherBusyNext = localRoster.some(e => e.day === day && e.period === nextP && e.teacherId === job.teacherId)
-            
-            if (!isNextBreak && !isNextTaken && !isTeacherBusyNext) {
-              currentBatchSize = 2
-            }
+            const nextIsBreak = (config.break1Active && nextP === config.break1Period) || (config.break2Active && nextP === config.break2Period)
+            const nextIsTaken = pool.some(e => e.day === day && e.period === nextP && e.classId === targetClass.id)
+            const nextIsBusy = pool.some(e => e.day === day && e.period === nextP && e.teacherId === job.teacherId)
+            if (!nextIsBreak && !nextIsTaken && !nextIsBusy) batchSize = 2
           }
 
-          for (let i = 0; i < currentBatchSize; i++) {
+          for (let i = 0; i < batchSize; i++) {
             const currentP = p + i
-            const newRef = doc(collection(db, 'rosterEntries'))
-            const entry = {
+            const entry: RosterEntry = {
+              id: `temp-auto-${Date.now()}-${filledCount}`,
               day, period: currentP, classId: targetClass.id, className: targetClass.name,
               teacherId: job.teacherId, teacherName: job.teacherName,
               subjectId: job.subjectId, subjectName: job.subjectName,
-              isActivity: false, createdAt: new Date().toISOString()
+              isActivity: false
             }
-            batch.set(newRef, entry)
-            localRoster.push({ id: newRef.id, ...entry } as any)
-            remaining--
+            pool.push(entry)
             filledCount++
+            remaining--
           }
-
-          if (currentBatchSize > 1) p++
+          if (batchSize > 1) p++
         }
         if (remaining <= 0) break
       }
     }
 
     if (filledCount > 0) {
-      await batch.commit()
-      toast({ title: "Generate Berhasil", description: `${filledCount} slot jadwal berhasil diisi otomatis.` })
-    } else {
-      toast({ title: "Selesai", description: "Tidak ada slot kosong lagi yang bisa diisi otomatis." })
+      setLocalEntries(pool)
+      setIsDirty(true)
+      toast({ title: "Generate Lokal Selesai", description: `${filledCount} slot baru ditambahkan ke buffer.` })
     }
-    setIsAutoGenerating(false)
+  }
+
+  // SINKRONISASI KE DATABASE
+  const handleSyncToCloud = async () => {
+    if (!db || !serverEntries) return
+    setIsSyncingToCloud(true)
+    const batch = writeBatch(db)
+
+    try {
+      // 1. Cari yang harus dihapus (Ada di server, tapi tidak ada di lokal)
+      const toDelete = serverEntries.filter(se => !localEntries.some(le => le.id === se.id))
+      toDelete.forEach(e => {
+        batch.delete(doc(db, 'rosterEntries', e.id))
+      })
+
+      // 2. Cari yang harus ditambah (Ada di lokal dengan ID temp, atau ID baru)
+      const toAdd = localEntries.filter(le => le.id.startsWith('temp-'))
+      toAdd.forEach(e => {
+        const newRef = doc(collection(db, 'rosterEntries'))
+        const { id, ...data } = e
+        batch.set(newRef, { ...data, createdAt: new Date().toISOString() })
+      })
+
+      await batch.commit()
+      setIsDirty(false)
+      toast({ title: "Sinkronisasi Berhasil", description: "Data roster telah diperbarui di cloud." })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
+    } finally {
+      setIsSyncingToCloud(false)
+    }
   }
 
   const handleSaveConfig = async () => {
     if (!configRef) return
-    setIsSaving(true)
+    setIsSavingConfig(true)
     await setDoc(configRef, config, { merge: true })
-    toast({ title: "Konfigurasi Disimpan" })
-    setIsSaving(false)
-  }
-
-  const handleDeleteEntry = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'rosterEntries', id))
-  }
-
-  const handleAddEntry = async () => {
-    if (!db || !newEntry.day || !newEntry.period || !newEntry.classId) {
-      toast({ variant: "destructive", title: "Mohon lengkapi data" })
-      return
-    }
-    setSubmitting(true)
-    const t = teachers.find(t => t.id === newEntry.teacherId)
-    const c = classes?.find(c => c.id === newEntry.classId)
-    const s = subjects?.find(s => s.id === newEntry.subjectId)
-    try {
-      await addDoc(collection(db, 'rosterEntries'), {
-        ...newEntry,
-        teacherName: newEntry.isActivity ? null : t?.fullName,
-        className: c?.name,
-        subjectName: newEntry.isActivity ? null : s?.name,
-        createdAt: new Date().toISOString()
-      })
-      toast({ title: "Jadwal Ditambahkan" })
-      setIsAddOpen(false)
-    } catch (e) {
-      toast({ variant: "destructive", title: "Gagal" })
-    } finally {
-      setSubmitting(false)
-    }
+    toast({ title: "Konfigurasi Waktu Disimpan" })
+    setIsSavingConfig(false)
   }
 
   const getEntry = (day: string, period: number, classId: string) => {
-    return rosterEntries?.find(e => e.day === day && e.period === period && e.classId === classId)
+    return localEntries.find(e => e.day === day && e.period === period && e.classId === classId)
   }
 
+  // Logika PDF tetap menggunakan localEntries
   const handleDownloadUnified = async () => {
-    if (!rosterEntries || !classes || !assignments) return;
+    if (!localEntries || !classes || !assignments) return;
     setIsExporting(true);
     try {
       const { default: jsPDF } = await import('jspdf');
@@ -364,12 +394,12 @@ export default function RosterManagementPage() {
       const doc = new jsPDF('l', 'mm', 'a4');
       const { teacherMap, subjectColors } = teacherCoding;
 
-      const schoolName = systemSettings?.schoolName || "SIS TERPADU";
-      const dinasName = systemSettings?.dinasName || "DINAS PENDIDIKAN";
+      const sName = systemSettings?.schoolName || "SIS TERPADU";
+      const dName = systemSettings?.dinasName || "DINAS PENDIDIKAN";
 
       doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(67, 97, 238);
-      doc.text(dinasName.toUpperCase(), 148.5, 12, { align: "center" });
-      doc.text(`MATRIKS JADWAL PELAJARAN TERPADU - ${schoolName.toUpperCase()}`, 148.5, 18, { align: "center" });
+      doc.text(dName.toUpperCase(), 148.5, 12, { align: "center" });
+      doc.text(`MATRIKS JADWAL PELAJARAN TERPADU - ${sName.toUpperCase()}`, 148.5, 18, { align: "center" });
       
       const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sortedClasses.map(c => c.name)]];
@@ -408,31 +438,19 @@ export default function RosterManagementPage() {
                 data.cell.rowSpan = MAX_PERIODS;
                 data.cell.styles.fillColor = [240, 240, 240];
                 data.cell.styles.fontStyle = 'bold';
-                data.cell.styles.halign = 'center';
-                data.cell.styles.valign = 'middle';
               }
             }
-
             if (data.column.index >= 3) {
-              data.cell.styles.fillColor = [255, 255, 255]; 
-              
               const currentDayIdx = Math.floor(data.row.index / MAX_PERIODS);
               const day = DAYS[currentDayIdx];
               const period = (data.row.index % MAX_PERIODS) + 1;
-              const clsIdx = data.column.index - 3;
-              const cls = sortedClasses[clsIdx];
-              
-              if (cls) {
-                const entry = getEntry(day, period, cls.id);
-                if (entry) {
-                  if (entry.isActivity) {
-                    data.cell.styles.fillColor = [220, 220, 220]; 
-                  } else {
-                    const color = subjectColors.get(`${entry.teacherId}_${entry.subjectId}`);
-                    if (color) data.cell.styles.fillColor = color;
-                    data.cell.styles.fontStyle = 'bold';
-                    data.cell.styles.textColor = [0, 0, 0];
-                  }
+              const cls = sortedClasses[data.column.index - 3];
+              const entry = getEntry(day, period, cls.id);
+              if (entry) {
+                if (entry.isActivity) data.cell.styles.fillColor = [220, 220, 220];
+                else {
+                  const color = subjectColors.get(`${entry.teacherId}_${entry.subjectId}`);
+                  if (color) data.cell.styles.fillColor = color;
                 }
               }
             }
@@ -448,16 +466,8 @@ export default function RosterManagementPage() {
           const tAsgs = assignments.filter(a => a.teacherId === id);
           const distinctSubjects = Array.from(new Set(tAsgs.map(a => a.subjectName)));
           const distinctSubjectIds = distinctSubjects.map(name => tAsgs.find(a => a.subjectName === name)?.subjectId).filter(Boolean) as string[];
-          
-          return {
-            id,
-            name: tAsgs[0].teacherName,
-            subjects: distinctSubjects,
-            subjectIds: distinctSubjectIds,
-            code: teacherMap.get(id)
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+          return { id, name: tAsgs[0].teacherName, subjects: distinctSubjects, subjectIds: distinctSubjectIds, code: teacherMap.get(id) };
+        }).sort((a, b) => a.name.localeCompare(b.name));
 
       autoTable(doc, {
         head: [['KODE', 'NAMA GURU', 'MATA PELAJARAN']],
@@ -470,38 +480,25 @@ export default function RosterManagementPage() {
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 0) {
             const t = uniqueTeachers[data.row.index];
-            const padding = 1.5;
-            const size = data.cell.width - (padding * 2);
-            const x = data.cell.x + (data.cell.width - size) / 2;
+            const size = data.cell.width - 3;
+            const x = data.cell.x + 1.5;
             const y = data.cell.y + (data.cell.height - size) / 2;
-            
             if (t.subjectIds.length >= 2) {
-              const color1 = subjectColors.get(`${t.id}_${t.subjectIds[0]}`);
-              const color2 = subjectColors.get(`${t.id}_${t.subjectIds[1]}`);
-              if (color1) {
-                doc.setFillColor(color1[0], color1[1], color1[2]);
-                doc.triangle(x, y, x + size, y, x, y + size, 'F');
-              }
-              if (color2) {
-                doc.setFillColor(color2[0], color2[1], color2[2]);
-                doc.triangle(x + size, y, x + size, y + size, x, y + size, 'F');
-              }
+              const c1 = subjectColors.get(`${t.id}_${t.subjectIds[0]}`);
+              const c2 = subjectColors.get(`${t.id}_${t.subjectIds[1]}`);
+              if (c1) { doc.setFillColor(c1[0], c1[1], c1[2]); doc.triangle(x, y, x + size, y, x, y + size, 'F'); }
+              if (c2) { doc.setFillColor(c2[0], c2[1], c2[2]); doc.triangle(x + size, y, x + size, y + size, x, y + size, 'F'); }
             } else {
               const color = subjectColors.get(`${t.id}_${t.subjectIds[0]}`);
-              if (color) doc.setFillColor(color[0], color[1], color[2]);
-              doc.rect(x, y, size, size, 'F');
+              if (color) { doc.setFillColor(color[0], color[1], color[2]); doc.rect(x, y, size, size, 'F'); }
             }
-            
-            doc.setDrawColor(0, 0, 0).setLineWidth(0.2).rect(x, y, size, size);
-            doc.setTextColor(0, 0, 0).setFontSize(9).setFont("helvetica", "bold");
-            doc.text(t.code.toString(), x + size / 2, y + size / 2 + 1, { align: 'center', baseline: 'middle' });
+            doc.setDrawColor(0).rect(x, y, size, size);
+            doc.setTextColor(0).setFontSize(9).text(t.code.toString(), x + size / 2, y + size / 2 + 1, { align: 'center', baseline: 'middle' });
           }
         }
       });
-
-      doc.save(`Roster_Matriks_Terpadu_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Matriks_Terpadu_${sName.replace(/\s+/g, '_')}.pdf`);
     } catch (e) {
-      console.error(e);
       toast({ variant: "destructive", title: "Gagal unduh" });
     } finally {
       setIsExporting(false);
@@ -515,42 +512,50 @@ export default function RosterManagementPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Manajemen Roster</h1>
-          <p className="text-muted-foreground mt-1">Plotting jadwal mengajar sesuai beban JP Dapodik.</p>
+          <div className="flex items-center gap-2 mt-1">
+             <p className="text-muted-foreground">Plotting jadwal mengajar sesuai beban JP Dapodik.</p>
+             {isDirty ? (
+               <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Ada Perubahan Belum Sinkron</Badge>
+             ) : (
+               <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Terhubung Cloud</Badge>
+             )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleSyncGlobalBlocks} disabled={isSyncingGlobal} className="gap-2 border-primary/30 text-primary">
-            {isSyncingGlobal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Layers className="w-4 h-4" />}
-            Sinkronkan Blok Global
+        <div className="flex flex-wrap gap-2">
+          {isDirty && (
+            <Button onClick={handleSyncToCloud} disabled={isSyncingToCloud} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">
+              {isSyncingToCloud ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
+              Sinkronkan ke Cloud
+            </Button>
+          )}
+          <Button variant="outline" onClick={handleSyncGlobalBlocksLocal} className="gap-2 border-primary/30 text-primary">
+            <Layers className="w-4 h-4" /> Blok Global
           </Button>
-          <Button variant="outline" onClick={handleAutoGenerate} disabled={isAutoGenerating} className="gap-2 border-accent/30 text-accent hover:bg-accent/5">
-            {isAutoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-            Generate Otomatis
+          <Button variant="outline" onClick={handleAutoGenerateLocal} className="gap-2 border-accent/30 text-accent hover:bg-accent/5">
+            <Zap className="w-4 h-4" /> Auto-Fill
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2 border-primary/30">
-                <Download className="w-4 h-4" /> Unduh Roster <ChevronDown className="w-3 h-3" />
-              </Button>
+              <Button variant="outline" className="gap-2 border-primary/30"><Download className="w-4 h-4" /> Unduh <ChevronDown className="w-3 h-3" /></Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuItem onClick={handleDownloadUnified}>Format Matriks Terpadu (2 Hal)</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast({ title: "Fitur ini segera tersedia." })}>Format Per Kelas (PDF)</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDownloadUnified}>Format Matriks Terpadu</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Jadwal</Button>
+          <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Manual</Button>
         </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-muted/50 border p-1 mb-6">
           <TabsTrigger value="builder" className="gap-2"><LayoutGrid className="w-4 h-4" /> Jadwal Mingguan</TabsTrigger>
-          <TabsTrigger value="settings" className="gap-2"><Settings2 className="w-4 h-4" /> Konfigurasi Waktu & Istirahat</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-2"><Settings2 className="w-4 h-4" /> Konfigurasi Waktu</TabsTrigger>
         </TabsList>
 
         <TabsContent value="builder" className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-1 space-y-6">
             <Card className="border-border/50 bg-primary/5">
-              <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Progress Dapodik</CardTitle></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Beban JP Dapodik</CardTitle></CardHeader>
               <CardContent className="space-y-4 pt-2">
                 <div className="max-h-[600px] overflow-y-auto space-y-4 pr-2">
                   {workloadStats.map((w, idx) => (
@@ -565,6 +570,13 @@ export default function RosterManagementPage() {
                 </div>
               </CardContent>
             </Card>
+            
+            <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
+              <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+              <p className="text-[10px] text-muted-foreground italic">
+                Sistem saat ini dalam mode <strong>Offline Buffer</strong>. Klik tombol hijau di atas untuk mengirim perubahan ke server.
+              </p>
+            </div>
           </div>
 
           <div className="lg:col-span-3 space-y-8">
@@ -589,13 +601,15 @@ export default function RosterManagementPage() {
                             </TableCell>
                             {DAYS.map(day => {
                               const entry = getEntry(day, period, cls.id)
+                              const isTemp = entry?.id.startsWith('temp-')
                               return (
                                 <TableCell key={day} className="p-1 border-r last:border-r-0 h-24 group relative">
                                   {entry ? (
-                                    <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-accent/10 border-accent/20' : 'bg-primary/10 border-primary/20'}`}>
+                                    <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-accent/10 border-accent/20' : 'bg-primary/10 border-primary/20'} ${isTemp ? 'border-dashed border-2' : ''}`}>
                                       <div className="text-[10px] font-bold truncate uppercase text-foreground leading-tight">{entry.isActivity ? (entry.activityName || "REHAT") : entry.subjectName}</div>
                                       {!entry.isActivity && <div className="text-[9px] text-muted-foreground truncate mt-1 italic">{entry.teacherName}</div>}
-                                      <Button variant="ghost" size="icon" className="absolute top-1.5 right-1.5 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive" onClick={() => handleDeleteEntry(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                      {isTemp && <div className="absolute bottom-1 right-1"><RefreshCw className="w-2 h-2 text-amber-500 animate-spin" /></div>}
+                                      <Button variant="ghost" size="icon" className="absolute top-1.5 right-1.5 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive" onClick={() => handleDeleteEntryLocal(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                     </div>
                                   ) : (
                                     <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-border/30 rounded-lg group-hover:border-primary/30 cursor-pointer bg-muted/5" onClick={() => { setNewEntry({...newEntry, day, period, classId: cls.id}); setIsAddOpen(true); }}>
@@ -623,16 +637,16 @@ export default function RosterManagementPage() {
               <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
               <CardContent className="pt-6 space-y-4">
                 <div className="space-y-2">
-                  <Label>Jam Masuk Sekolah (Jam Ke-1)</Label>
+                  <Label>Jam Masuk Sekolah</Label>
                   <Input type="time" value={config.entryTime || "07:00"} onChange={e => setDoc(configRef!, { ...config, entryTime: e.target.value || "07:00" }, { merge: true })} />
                 </div>
                 <div className="space-y-2">
                   <Label>Durasi 1 JP (Menit)</Label>
                   <Input type="number" value={config.jpDuration || 0} onChange={e => setDoc(configRef!, { ...config, jpDuration: parseInt(e.target.value) || 0 }, { merge: true })} />
                 </div>
-                <Button onClick={handleSaveConfig} disabled={isSaving} className="w-full gap-2">
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  Simpan Perubahan
+                <Button onClick={handleSaveConfig} disabled={isSavingConfig} className="w-full gap-2">
+                  {isSavingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  Simpan Konfigurasi
                 </Button>
               </CardContent>
             </Card>
@@ -645,35 +659,28 @@ export default function RosterManagementPage() {
                   {config.break1Active && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label className="text-[10px] uppercase">Pada Jam Ke- (Pilih Jam Genap)</Label>
+                        <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
                         <Select value={config.break1Period?.toString() || "4"} onValueChange={v => setDoc(configRef!, { ...config, break1Period: parseInt(v) }, { merge: true })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="6">Jam Ke-6</SelectItem></SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] uppercase">Durasi (Menit)</Label>
-                        <Input type="number" value={config.break1Duration || 0} onChange={e => setDoc(configRef!, { ...config, break1Duration: parseInt(e.target.value) || 0 }, { merge: true })} />
-                      </div>
+                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 0} onChange={e => setDoc(configRef!, { ...config, break1Duration: parseInt(e.target.value) || 0 }, { merge: true })} /></div>
                     </div>
                   )}
                 </div>
-
                 <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
                   <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Kedua</Label><Switch checked={config.break2Active} onCheckedChange={v => setDoc(configRef!, { ...config, break2Active: v }, { merge: true })} /></div>
                   {config.break2Active && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label className="text-[10px] uppercase">Pada Jam Ke- (Pilih Jam Genap)</Label>
+                        <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
                         <Select value={config.break2Period?.toString() || "6"} onValueChange={v => setDoc(configRef!, { ...config, break2Period: parseInt(v) }, { merge: true })}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="6">Jam Ke-6</SelectItem><SelectItem value="8">Jam Ke-8</SelectItem></SelectContent>
+                          <SelectContent><SelectItem value="6">Jam Ke-6</SelectItem><SelectItem value="8">Jam Ke-8</SelectItem></SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-[10px] uppercase">Durasi (Menit)</Label>
-                        <Input type="number" value={config.break2Duration || 0} onChange={e => setDoc(configRef!, { ...config, break2Duration: parseInt(e.target.value) || 0 }, { merge: true })} />
-                      </div>
+                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break2Duration || 0} onChange={e => setDoc(configRef!, { ...config, break2Duration: parseInt(e.target.value) || 0 }, { merge: true })} /></div>
                     </div>
                   )}
                 </div>
@@ -711,7 +718,7 @@ export default function RosterManagementPage() {
                </div>
             )}
           </div>
-          <DialogFooter><Button onClick={handleAddEntry} disabled={submitting} className="w-full">Simpan ke Roster</Button></DialogFooter>
+          <DialogFooter><Button onClick={handleAddEntryLocal} className="w-full">Tambahkan ke Buffer</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
