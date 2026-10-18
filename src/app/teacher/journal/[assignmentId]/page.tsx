@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useMemo, useEffect, Suspense } from 'react'
+import React, { useState, useMemo, useEffect, Suspense, useRef } from 'react'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { 
   ArrowLeft, 
@@ -20,7 +20,11 @@ import {
   Target,
   FileText,
   Pencil,
-  Search
+  Search,
+  QrCode,
+  ScanLine,
+  X,
+  Camera
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -57,6 +61,7 @@ import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc, useAuth 
 import { collection, query, where, doc, writeBatch, deleteDoc, updateDoc } from "firebase/firestore"
 import { TeacherAssignment, Applicant, Classroom, Journal } from "@/lib/types"
 import { useToast } from '@/hooks/use-toast'
+import { Html5Qrcode } from 'html5-qrcode'
 
 function TeachingJournalPageContent() {
   const { assignmentId } = useParams()
@@ -68,12 +73,16 @@ function TeachingJournalPageContent() {
   const { toast } = useToast()
   
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [isScannerOpen, setIsScannerOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null)
   const [studentSearchTerm, setStudentSearchTerm] = useState('')
   
+  const scannerRef = useRef<Html5Qrcode | null>(null)
+  const scannerDivId = "qr-reader-journal"
+
   const activeSemester = parseInt(searchParams.get('semester') || "1")
 
   const settingsRef = useMemoFirebase(() => {
@@ -163,6 +172,56 @@ function TeachingJournalPageContent() {
       setNewJournal(prev => ({ ...prev, attendanceDetail: initialAttendance }))
     }
   }, [journals, students, editingJournalId, newJournal.attendanceDetail])
+
+  // --- LOGIKA SCANNER QR ---
+  const startScanner = async () => {
+    setIsScannerOpen(true)
+    setTimeout(() => {
+      const html5QrCode = new Html5Qrcode(scannerDivId)
+      scannerRef.current = html5QrCode
+      
+      const config = { fps: 10, qrbox: { width: 250, height: 250 } }
+      
+      html5QrCode.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          handleQrScanned(decodedText)
+        },
+        () => {} // ignore errors
+      ).catch(err => {
+        toast({ variant: "destructive", title: "Kamera Tidak Diakses", description: "Pastikan izin kamera aktif." })
+        setIsScannerOpen(false)
+      })
+    }, 300)
+  }
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop()
+        scannerRef.current = null
+      } catch (e) {}
+    }
+    setIsScannerOpen(false)
+  }
+
+  const handleQrScanned = (studentId: string) => {
+    const student = students.find(s => s.id === studentId)
+    if (student) {
+      handleAttendanceChange(studentId, 'H')
+      toast({ 
+        title: "Scan Berhasil", 
+        description: `Absensi ${student.fullName} tercatat HADIR (H).`,
+        className: "bg-green-600 text-white"
+      })
+      // Berikan feedback suara/getar singkat jika bisa (browser default)
+      if (window.navigator.vibrate) window.navigator.vibrate(100)
+    } else {
+      toast({ variant: "destructive", title: "QR Tidak Dikenal", description: "Siswa tidak terdaftar di kelas ini." })
+    }
+  }
+  // --- END SCANNER ---
 
   const handleAttendanceChange = (studentId: string, status: 'H' | 'S' | 'I' | 'A') => {
     setNewJournal(prev => {
@@ -321,7 +380,6 @@ function TeachingJournalPageContent() {
       doc.text(`Guru Pengajar: ${user?.displayName || '-'}`, 14, 48)
       
       const tableData = journals.map((j) => {
-        // Menggunakan "\n" sebagai pemisah agar teks tampil sejajar ke bawah dalam cell
         const absents = Object.entries(j.attendanceDetail || {})
           .filter(([_, status]) => status !== 'H')
           .map(([id, status]) => {
@@ -525,26 +583,37 @@ function TeachingJournalPageContent() {
         )}
       </div>
 
-      <Dialog open={isAddOpen} onOpenChange={(val) => { setIsAddOpen(val); if(!val) { setEditingJournalId(null); setStudentSearchTerm(''); } }}>
+      <Dialog open={isAddOpen} onOpenChange={(val) => { setIsAddOpen(val); if(!val) { setEditingJournalId(null); setStudentSearchTerm(''); stopScanner(); } }}>
         <DialogContent className="sm:max-w-[850px] max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>{editingJournalId ? 'Edit Jurnal & Absensi' : 'Input Jurnal & Absensi Lengkap'}</DialogTitle></DialogHeader>
           <div className="space-y-6 py-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-2"><Label>Pertemuan Ke-</Label><Input type="number" value={newJournal.meetingNumber} onChange={e => setNewJournal({...newJournal, meetingNumber: parseInt(e.target.value)})} /></div>
-              <div className="space-y-2"><Label>Tanggal</Label><Input type="date" value={newJournal.date} onChange={e => setNewJournal({...newJournal, date: e.target.value})} /></div>
-              <div className="space-y-2"><Label>Jam Ke</Label><Input placeholder="1-2" value={newJournal.jamKe} onChange={e => setNewJournal({...newJournal, jamKe: e.target.value})} /></div>
-              <div className="space-y-2"><Label>JP</Label><Input type="number" value={newJournal.jp} onChange={e => setNewJournal({...newJournal, jp: parseInt(e.target.value)})} /></div>
+              <div className="space-y-2"><Label>Pertemuan Ke-</Label><Input type="number" value={newJournal.meetingNumber || 0} onChange={e => setNewJournal({...newJournal, meetingNumber: parseInt(e.target.value) || 0})} /></div>
+              <div className="space-y-2"><Label>Tanggal</Label><Input type="date" value={newJournal.date || ""} onChange={e => setNewJournal({...newJournal, date: e.target.value})} /></div>
+              <div className="space-y-2"><Label>Jam Ke</Label><Input placeholder="1-2" value={newJournal.jamKe || ""} onChange={e => setNewJournal({...newJournal, jamKe: e.target.value})} /></div>
+              <div className="space-y-2"><Label>JP</Label><Input type="number" value={newJournal.jp || 0} onChange={e => setNewJournal({...newJournal, jp: parseInt(e.target.value) || 0})} /></div>
             </div>
             
             <div className="space-y-4">
-               <div className="space-y-2"><Label>Tujuan Pembelajaran</Label><Textarea placeholder="Tujuan hari ini..." value={newJournal.learningGoal} onChange={e => setNewJournal({...newJournal, learningGoal: e.target.value})} /></div>
-               <div className="space-y-2"><Label>Materi Pembelajaran</Label><Textarea placeholder="Bahasan materi..." value={newJournal.material} onChange={e => setNewJournal({...newJournal, material: e.target.value})} /></div>
-               <div className="space-y-2"><Label>Pencapaian KKTP</Label><Input placeholder="Contoh: 80% siswa tuntas" value={newJournal.kktpAchievement} onChange={e => setNewJournal({...newJournal, kktpAchievement: e.target.value})} /></div>
+               <div className="space-y-2"><Label>Tujuan Pembelajaran</Label><Textarea placeholder="Tujuan hari ini..." value={newJournal.learningGoal || ""} onChange={e => setNewJournal({...newJournal, learningGoal: e.target.value})} /></div>
+               <div className="space-y-2"><Label>Materi Pembelajaran</Label><Textarea placeholder="Bahasan materi..." value={newJournal.material || ""} onChange={e => setNewJournal({...newJournal, material: e.target.value})} /></div>
+               <div className="space-y-2"><Label>Pencapaian KKTP</Label><Input placeholder="Contoh: 80% siswa tuntas" value={newJournal.kktpAchievement || ""} onChange={e => setNewJournal({...newJournal, kktpAchievement: e.target.value})} /></div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 pt-4 border-t">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-2">
-                <Label className="font-bold text-lg">Daftar Kehadiran & Tugas</Label>
+                <div className="flex items-center gap-3">
+                  <Label className="font-bold text-lg">Kehadiran & Tugas</Label>
+                  <Button 
+                    onClick={isScannerOpen ? stopScanner : startScanner}
+                    variant={isScannerOpen ? "destructive" : "default"}
+                    size="sm"
+                    className="gap-2 animate-pulse shadow-md"
+                  >
+                    {isScannerOpen ? <X className="w-4 h-4" /> : <ScanLine className="w-4 h-4" />}
+                    {isScannerOpen ? "Matikan Scanner" : "Absen QR Mandiri"}
+                  </Button>
+                </div>
                 <div className="relative w-full sm:w-64">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                   <Input 
@@ -555,6 +624,18 @@ function TeachingJournalPageContent() {
                   />
                 </div>
               </div>
+
+              {isScannerOpen && (
+                <div className="bg-black/90 p-4 rounded-xl border border-primary/50 relative overflow-hidden">
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-primary/20 backdrop-blur px-2 py-1 rounded border border-primary/30">
+                    <Camera className="w-3 h-3 text-primary animate-pulse" />
+                    <span className="text-[10px] text-primary font-bold">SCANNER AKTIF</span>
+                  </div>
+                  <div id={scannerDivId} className="w-full max-w-[400px] mx-auto overflow-hidden rounded-lg"></div>
+                  <p className="text-center text-[10px] text-muted-foreground mt-4 italic">Siswa: Tunjukkan QR Code kartu absensi Anda ke kamera.</p>
+                </div>
+              )}
+
               <div className="border rounded-lg overflow-hidden bg-card">
                 <Table>
                   <TableHeader className="bg-muted/50">
@@ -566,10 +647,13 @@ function TeachingJournalPageContent() {
                   </TableHeader>
                   <TableBody>
                     {filteredStudentsForAttendance.map(s => (
-                      <TableRow key={s.id}>
+                      <TableRow key={s.id} className={newJournal.attendanceDetail?.[s.id] === 'H' ? 'bg-green-500/5' : ''}>
                         <TableCell className="text-sm font-medium">
-                          <div>{s.fullName}</div>
-                          <div className="text-[10px] text-muted-foreground font-mono">{s.NISN}</div>
+                          <div className="flex items-center gap-2">
+                            {newJournal.attendanceDetail?.[s.id] === 'H' && <CheckCircle2 className="w-3 h-3 text-green-500" />}
+                            <span>{s.fullName}</span>
+                          </div>
+                          <div className="text-[10px] text-muted-foreground font-mono pl-5">{s.NISN}</div>
                         </TableCell>
                         <TableCell>
                           <RadioGroup 
@@ -610,13 +694,6 @@ function TeachingJournalPageContent() {
                         )}
                       </TableRow>
                     ))}
-                    {filteredStudentsForAttendance.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={newJournal.hasTask ? 3 : 2} className="text-center py-6 text-muted-foreground italic text-xs">
-                          Tidak ada siswa yang sesuai pencarian.
-                        </TableCell>
-                      </TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -630,7 +707,7 @@ function TeachingJournalPageContent() {
                {newJournal.hasTask && (
                   <div className="grid grid-cols-1 gap-4 bg-muted/20 p-4 rounded-xl border border-border/50">
                     <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Slot Nilai Tugas:</Label>
-                    <Select value={newJournal.taskType!} onValueChange={v => setNewJournal({...newJournal, taskType: v as any})}>
+                    <Select value={newJournal.taskType || "task1"} onValueChange={v => setNewJournal({...newJournal, taskType: v as any})}>
                       <SelectTrigger className="bg-background"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="task1">Tugas 1</SelectItem>
@@ -641,7 +718,7 @@ function TeachingJournalPageContent() {
                     </Select>
                   </div>
                )}
-               <div className="space-y-2"><Label>Keterangan Tambahan (Opsional)</Label><Textarea placeholder="Catatan kelas..." value={newJournal.notes} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} /></div>
+               <div className="space-y-2"><Label>Keterangan Tambahan (Opsional)</Label><Textarea placeholder="Catatan kelas..." value={newJournal.notes || ""} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} /></div>
             </div>
           </div>
           <DialogFooter><Button onClick={saveJournal} disabled={submitting} className="w-full md:w-auto">{submitting ? 'Menyimpan...' : (editingJournalId ? 'Perbarui Jurnal' : 'Simpan Jurnal & Absensi')}</Button></DialogFooter>

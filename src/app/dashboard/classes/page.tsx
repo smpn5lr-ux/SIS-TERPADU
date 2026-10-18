@@ -22,7 +22,8 @@ import {
   Settings2,
   ArrowLeftRight,
   UserMinus,
-  GraduationCap
+  GraduationCap,
+  QrCode
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -110,7 +111,6 @@ export default function ClassesPage() {
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   
-  // State untuk pindah murid manual
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState<string>("")
   const [movingStudent, setMovingStudent] = useState(false)
@@ -317,7 +317,6 @@ export default function ClassesPage() {
             females.sort(() => Math.random() - 0.5)
           }
 
-          // Gabungkan dalam satu antrian Round-Robin berkelanjutan
           const combinedPool = [...males, ...females]
           let currentClassIdx = 0
           combinedPool.forEach((student) => {
@@ -376,7 +375,6 @@ export default function ClassesPage() {
 
     const batch = writeBatch(db)
     
-    // Update Kelas Asal
     const sourceRef = doc(db, 'classes', selectedClassForView.id)
     const newSourceStudents = selectedClassForView.students.filter(id => id !== studentToMove.id)
     batch.update(sourceRef, {
@@ -384,7 +382,6 @@ export default function ClassesPage() {
       currentEnrollment: newSourceStudents.length
     })
 
-    // Update Kelas Tujuan
     const targetRef = doc(db, 'classes', targetClassId)
     const newTargetStudents = [...targetClass.students, studentToMove.id]
     batch.update(targetRef, {
@@ -396,7 +393,6 @@ export default function ClassesPage() {
       await batch.commit()
       toast({ title: "Berhasil Dipindahkan", description: `${studentToMove.fullName} dipindahkan ke Kelas ${targetClass.name}.` })
       
-      // Update local view state
       setSelectedClassForView({
         ...selectedClassForView,
         students: newSourceStudents,
@@ -434,7 +430,7 @@ export default function ClassesPage() {
     })
   }
 
-  const handleExportClass = async (cls: Classroom, format: 'excel' | 'pdf' | 'attendance') => {
+  const handleExportClass = async (cls: Classroom, format: 'excel' | 'pdf' | 'attendance' | 'qr') => {
     if (!applicants) return
     setIsExporting(true)
     
@@ -447,6 +443,10 @@ export default function ClassesPage() {
     const summaryLabel = `Total: ${students.length} (L: ${maleCount}, P: ${femaleCount})`
 
     try {
+      const { default: jsPDF } = await import('jspdf')
+      const { default: autoTable } = await import('jspdf-autotable')
+      const headerColor = [67, 97, 238] as [number, number, number]
+
       if (format === 'excel') {
         const headerInfo = [
           [dinasName.toUpperCase()],
@@ -472,12 +472,53 @@ export default function ClassesPage() {
         const workbook = XLSX.utils.book_new()
         XLSX.utils.book_append_sheet(workbook, worksheet, `Kelas ${cls.name}`)
         XLSX.writeFile(workbook, `Daftar_Murid_Kelas_${cls.name}.xlsx`)
-      } else {
-        const { default: jsPDF } = await import('jspdf')
-        const { default: autoTable } = await import('jspdf-autotable')
+      } else if (format === 'qr') {
         const doc = new jsPDF()
         
-        const headerColor = [67, 97, 238] as [number, number, number]
+        doc.setFontSize(14).setFont("helvetica", "bold").setTextColor(headerColor[0], headerColor[1], headerColor[2])
+        doc.text(`KARTU QR ABSENSI - KELAS ${cls.name}`, 105, 15, { align: "center" })
+        doc.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
+        doc.text(`${schoolName}`, 105, 20, { align: "center" })
+        doc.line(14, 25, 196, 25)
+
+        let x = 15;
+        let y = 35;
+        const cardWidth = 60;
+        const cardHeight = 45;
+        const margin = 5;
+
+        students.forEach((s, idx) => {
+          // Frame Kartu
+          doc.setDrawColor(200).rect(x, y, cardWidth, cardHeight)
+          doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
+          const truncatedName = s.fullName.length > 20 ? s.fullName.substring(0, 18) + "..." : s.fullName
+          doc.text(truncatedName.toUpperCase(), x + margin, y + 8)
+          
+          doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
+          doc.text(`NISN: ${s.NISN || "-"}`, x + margin, y + 12)
+
+          // QR Code Image (Using QR Server API)
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${s.id}`
+          doc.addImage(qrUrl, 'PNG', x + (cardWidth - 25) / 2, y + 15, 25, 25)
+          
+          doc.setFontSize(5).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 42, { align: "center" })
+
+          // Grid Logic
+          x += cardWidth + margin;
+          if (x + cardWidth > 200) {
+            x = 15;
+            y += cardHeight + margin;
+          }
+          if (y + cardHeight > 280) {
+            doc.addPage()
+            y = 15;
+            x = 15;
+          }
+        })
+        
+        doc.save(`Kartu_QR_Absensi_${cls.name}.pdf`)
+      } else {
+        const doc = new jsPDF()
         
         doc.setFontSize(12).setFont("helvetica", "bold").setTextColor(headerColor[0], headerColor[1], headerColor[2])
         doc.text(dinasName.toUpperCase(), 105, 15, { align: "center" })
@@ -487,7 +528,7 @@ export default function ClassesPage() {
         doc.setFontSize(14).setTextColor(headerColor[0], headerColor[1], headerColor[2]).setFont("helvetica", "bold")
         doc.text(`${format === 'attendance' ? 'DAFTAR HADIR' : 'DAFTAR MURID'} - ${cls.name}`, 14, 38)
         
-        doc.setFontSize(10).setTextColor(100, 100, 100).setFont("helvetica", "normal")
+        doc.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
         doc.text(`Wali Kelas: ${cls.homeroomTeacher || '-'}`, 14, 45)
         doc.text(summaryLabel, 14, 51)
         
@@ -540,7 +581,6 @@ export default function ClassesPage() {
     return { total: students.length, male, female }
   }
 
-  // Group classes by gradeLevel
   const groupedClasses = useMemo(() => {
     if (!classes) return {}
     const groups: Record<number, Classroom[]> = {}
@@ -637,17 +677,17 @@ export default function ClassesPage() {
                 <form onSubmit={form.handleSubmit(onClassSubmit)} className="space-y-4 pt-4">
                   <div className="grid grid-cols-2 gap-4">
                     <FormField control={form.control} name="name" render={({ field }) => (
-                      <FormItem><FormLabel>Nama Kelas</FormLabel><FormControl><Input placeholder="7-A" {...field} /></FormControl><FormMessage /></FormItem>
+                      <FormItem><FormLabel>Nama Kelas</FormLabel><FormControl><Input placeholder="7-A" {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                     )} />
                     <FormField control={form.control} name="gradeLevel" render={({ field }) => (
-                      <FormItem><FormLabel>Tingkat</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                      <FormItem><FormLabel>Tingkat</FormLabel><FormControl><Input type="number" {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                     )} />
                   </div>
                   <FormField control={form.control} name="homeroomTeacher" render={({ field }) => (
-                    <FormItem><FormLabel>Wali Kelas</FormLabel><FormControl><Input placeholder="Nama Guru" {...field} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Wali Kelas</FormLabel><FormControl><Input placeholder="Nama Guru" {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <FormField control={form.control} name="capacity" render={({ field }) => (
-                    <FormItem><FormLabel>Kapasitas</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                    <FormItem><FormLabel>Kapasitas</FormLabel><FormControl><Input type="number" {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                   )} />
                   <DialogFooter className="pt-4">
                     <Button type="submit" disabled={submitting}>{submitting ? 'Menyimpan...' : 'Simpan Kelas'}</Button>
@@ -752,6 +792,9 @@ export default function ClassesPage() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => selectedClassForView && handleExportClass(selectedClassForView, 'qr')} className="gap-2">
+                      <QrCode className="w-4 h-4 text-accent" /> Kartu QR Siswa (.pdf)
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => selectedClassForView && handleExportClass(selectedClassForView, 'attendance')} className="gap-2">
                       <ClipboardList className="w-4 h-4 text-primary" /> Daftar Hadir (.pdf)
                     </DropdownMenuItem>
@@ -833,7 +876,6 @@ export default function ClassesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Pindah Kelas Manual */}
       <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -884,7 +926,7 @@ export default function ClassesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
             <AlertDialogAction onClick={executeDeleteClass} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Hapus Kelas
+              Ya, Hapus Kelas
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
