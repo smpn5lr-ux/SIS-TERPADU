@@ -484,7 +484,7 @@ export default function ClassesPage() {
         let x = 10;
         let y = 35;
         const cardWidth = 62;
-        const cardHeight = 65; // Ukuran potret lebih tinggi
+        const cardHeight = 68; // Ukuran sedikit lebih tinggi untuk label kelas
         const margin = 2;
 
         students.forEach((s, idx) => {
@@ -497,16 +497,20 @@ export default function ClassesPage() {
           // Biodata Tengah (Centered)
           doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
           const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 23) + "..." : s.fullName
-          doc.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 15, { align: "center" })
+          doc.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 12, { align: "center" })
           
           doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
-          doc.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 20, { align: "center" })
+          doc.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 17, { align: "center" })
 
-          // QR Code Image (Using QR Server API) - Posisikan di bawah biodata
+          // Label Kelas Dinamis
+          doc.setFontSize(6).setFont("helvetica", "bold").setTextColor(headerColor[0], headerColor[1], headerColor[2])
+          doc.text(`KELAS: ${cls.name}`, x + cardWidth/2, y + 22, { align: "center" })
+
+          // QR Code Image (Using QR Server API)
           const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
-          doc.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 25, 35, 35)
+          doc.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 26, 35, 35)
           
-          doc.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 62, { align: "center" })
+          doc.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 65, { align: "center" })
 
           // Grid Logic (3 per row)
           x += cardWidth + margin;
