@@ -82,6 +82,7 @@ function TeachingJournalPageContent() {
   
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const scannerDivId = "qr-reader-journal"
+  const hasAutoStarted = useRef(false)
 
   const activeSemester = parseInt(searchParams.get('semester') || "1")
 
@@ -173,6 +174,17 @@ function TeachingJournalPageContent() {
     }
   }, [journals, students, editingJournalId, newJournal.attendanceDetail])
 
+  // --- LOGIKA AUTO-START SCANNER DARI DASHBOARD ---
+  useEffect(() => {
+    if (searchParams.get('scan') === '1' && !loadingJ && journals && !hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      handleAddNew();
+      setTimeout(() => {
+        startScanner();
+      }, 800);
+    }
+  }, [loadingJ, journals, searchParams]);
+
   // --- LOGIKA SCANNER QR ---
   const startScanner = async () => {
     setIsScannerOpen(true)
@@ -215,13 +227,11 @@ function TeachingJournalPageContent() {
         description: `Absensi ${student.fullName} tercatat HADIR (H).`,
         className: "bg-green-600 text-white"
       })
-      // Berikan feedback suara/getar singkat jika bisa (browser default)
       if (window.navigator.vibrate) window.navigator.vibrate(100)
     } else {
       toast({ variant: "destructive", title: "QR Tidak Dikenal", description: "Siswa tidak terdaftar di kelas ini." })
     }
   }
-  // --- END SCANNER ---
 
   const handleAttendanceChange = (studentId: string, status: 'H' | 'S' | 'I' | 'A') => {
     setNewJournal(prev => {

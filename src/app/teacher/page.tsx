@@ -13,7 +13,8 @@ import {
   CalendarDays,
   FileText,
   Clock,
-  ArrowRight
+  ArrowRight,
+  QrCode
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -186,6 +187,11 @@ function TeacherDashboardContent() {
                         </Link>
                       </Button>
                     </div>
+                    <Button asChild className="w-full gap-2 h-11 bg-primary hover:bg-primary/90 shadow-md shadow-primary/10">
+                      <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}&scan=1`}>
+                        <QrCode className="w-5 h-5" /> Mulai Absen QR
+                      </Link>
+                    </Button>
                   </CardContent>
                 </Card>
               ))}
