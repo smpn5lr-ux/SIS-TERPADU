@@ -473,7 +473,7 @@ export default function ClassesPage() {
         XLSX.utils.book_append_sheet(workbook, worksheet, `Kelas ${cls.name}`)
         XLSX.writeFile(workbook, `Daftar_Murid_Kelas_${cls.name}.xlsx`)
       } else if (format === 'qr') {
-        const doc = new jsPDF()
+        const doc = new jsPDF('p', 'mm', 'a4')
         
         doc.setFontSize(14).setFont("helvetica", "bold").setTextColor(headerColor[0], headerColor[1], headerColor[2])
         doc.text(`KARTU QR ABSENSI - KELAS ${cls.name}`, 105, 15, { align: "center" })
@@ -481,38 +481,43 @@ export default function ClassesPage() {
         doc.text(`${schoolName}`, 105, 20, { align: "center" })
         doc.line(14, 25, 196, 25)
 
-        let x = 15;
+        let x = 10;
         let y = 35;
-        const cardWidth = 60;
-        const cardHeight = 45;
-        const margin = 5;
+        const cardWidth = 62;
+        const cardHeight = 65; // Ukuran potret lebih tinggi
+        const margin = 2;
 
         students.forEach((s, idx) => {
-          // Frame Kartu
-          doc.setDrawColor(200).rect(x, y, cardWidth, cardHeight)
+          // Frame Kartu Modern
+          doc.setDrawColor(230).setLineWidth(0.2).rect(x, y, cardWidth, cardHeight)
+          
+          // Header Aksen Warna
+          doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]).rect(x, y, cardWidth, 5, 'F')
+          
+          // Biodata Tengah (Centered)
           doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
-          const truncatedName = s.fullName.length > 20 ? s.fullName.substring(0, 18) + "..." : s.fullName
-          doc.text(truncatedName.toUpperCase(), x + margin, y + 8)
+          const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 23) + "..." : s.fullName
+          doc.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 15, { align: "center" })
           
           doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
-          doc.text(`NISN: ${s.NISN || "-"}`, x + margin, y + 12)
+          doc.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 20, { align: "center" })
 
-          // QR Code Image (Using QR Server API)
-          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${s.id}`
-          doc.addImage(qrUrl, 'PNG', x + (cardWidth - 25) / 2, y + 15, 25, 25)
+          // QR Code Image (Using QR Server API) - Posisikan di bawah biodata
+          const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
+          doc.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 25, 35, 35)
           
-          doc.setFontSize(5).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 42, { align: "center" })
+          doc.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 62, { align: "center" })
 
-          // Grid Logic
+          // Grid Logic (3 per row)
           x += cardWidth + margin;
           if (x + cardWidth > 200) {
-            x = 15;
+            x = 10;
             y += cardHeight + margin;
           }
           if (y + cardHeight > 280) {
             doc.addPage()
             y = 15;
-            x = 15;
+            x = 10;
           }
         })
         
