@@ -12,7 +12,10 @@ import {
   Loader2,
   ShieldAlert,
   GraduationCap,
-  Info
+  Info,
+  Lock,
+  Eye,
+  EyeOff
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -60,6 +63,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -69,10 +73,14 @@ import { Staff } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { errorEmitter } from '@/firebase/error-emitter'
 import { FirestorePermissionError } from '@/firebase/errors'
+import { initializeApp, deleteApp } from "firebase/app"
+import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut } from "firebase/auth"
+import { firebaseConfig } from "@/firebase/config"
 
 const staffFormSchema = z.object({
   fullName: z.string().min(2, "Nama minimal 2 karakter"),
   email: z.string().email("Format email tidak valid"),
+  password: z.string().min(6, "Sandi minimal 6 karakter"),
   role: z.enum(['Admin', 'Pegawai', 'Guru', 'Kurikulum']),
   phone: z.string().optional(),
 })
@@ -83,6 +91,7 @@ export default function StaffManagementPage() {
   const [submitting, setSubmitting] = useState(false)
   const [staffToDelete, setStaffToDelete] = useState<Staff | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
   
   const { toast } = useToast()
   const db = useFirestore()
@@ -99,6 +108,7 @@ export default function StaffManagementPage() {
     defaultValues: {
       fullName: "",
       email: "",
+      password: "",
       role: "Pegawai",
       phone: "",
     },
@@ -115,24 +125,56 @@ export default function StaffManagementPage() {
   const onSubmit = async (values: z.infer<typeof staffFormSchema>) => {
     if (!db || submitting) return
     setSubmitting(true)
+    
+    // Gunakan Secondary Firebase App agar Admin tidak ter-logout saat membuat user baru
+    const secondaryAppName = `SecondaryApp_${Date.now()}`
+    let secondaryApp = null
+    
     try {
+      secondaryApp = initializeApp(firebaseConfig, secondaryAppName)
+      const secondaryAuth = getAuth(secondaryApp)
+      
+      // 1. Buat akun di Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, values.email, values.password)
+      await updateProfile(userCredential.user, { displayName: values.fullName })
+      
+      // 2. Simpan data profil di Firestore
       const newStaff = {
-        ...values,
+        fullName: values.fullName,
+        email: values.email,
+        role: values.role,
+        phone: values.phone || "",
         createdAt: new Date().toISOString(),
       }
+      
       await addDoc(collection(db, 'staff'), newStaff)
+      
+      // 3. Logout akun sekunder (hanya untuk memastikan)
+      await signOut(secondaryAuth)
+      
       toast({
-        title: "Pegawai Ditambahkan",
-        description: `${values.fullName} telah didaftarkan ke sistem.`,
+        title: "Pegawai Berhasil Terdaftar",
+        description: `${values.fullName} sekarang dapat login dengan email dan sandi yang dibuat.`,
       })
+      
       setIsDialogOpen(false)
       form.reset()
-    } catch (error) {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({
-        path: 'staff',
-        operation: 'create',
-      }))
+    } catch (error: any) {
+      console.error("Staff Creation Error:", error)
+      let message = "Gagal mendaftarkan pegawai."
+      if (error.code === 'auth/email-already-in-use') {
+        message = "Email sudah terdaftar di sistem Auth."
+      }
+      
+      toast({
+        variant: "destructive",
+        title: "Pendaftaran Gagal",
+        description: message,
+      })
     } finally {
+      if (secondaryApp) {
+        await deleteApp(secondaryApp)
+      }
       setSubmitting(false)
     }
   }
@@ -147,7 +189,7 @@ export default function StaffManagementPage() {
     
     try {
       await deleteDoc(doc(db, 'staff', staffToDelete.id))
-      toast({ title: "Akses Dicabut", description: "Pegawai telah dihapus dari sistem." })
+      toast({ title: "Akses Dicabut", description: "Pegawai telah dihapus dari sistem Firestore." })
       setStaffToDelete(null)
     } catch (error) {
       errorEmitter.emit('permission-error', new FirestorePermissionError({
@@ -170,69 +212,97 @@ export default function StaffManagementPage() {
               <UserPlus className="w-4 h-4" /> Tambah Pegawai
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-[500px] p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-2">
               <DialogTitle>Pendaftaran Pegawai Baru</DialogTitle>
               <DialogDescription>
-                Daftarkan email pegawai. Setelah didaftarkan, pegawai tersebut harus melakukan <strong>"Daftar Akun"</strong> di halaman login untuk mengatur kata sandi mereka.
+                Masukkan biodata dan buatkan kata sandi agar pegawai bisa langsung masuk ke sistem.
               </DialogDescription>
             </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
-                <FormField control={form.control} name="fullName" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nama Lengkap</FormLabel>
-                    <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="email" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl><Input type="email" placeholder="pegawai@sekolah.sch.id" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="phone" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nomor Telepon (Opsional)</FormLabel>
-                    <FormControl><Input placeholder="0812xxxx" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="role" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Hak Akses (Role)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+            <ScrollArea className="max-h-[70vh] px-6 py-2">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pb-6">
+                  <FormField control={form.control} name="fullName" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nama Lengkap</FormLabel>
+                      <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="email" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email Login</FormLabel>
+                      <FormControl><Input type="email" placeholder="pegawai@sekolah.sch.id" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  
+                  <FormField control={form.control} name="password" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Kata Sandi Akun</FormLabel>
                       <FormControl>
-                        <SelectTrigger><SelectValue placeholder="Pilih Role" /></SelectTrigger>
+                        <div className="relative">
+                          <Input 
+                            type={showPassword ? "text" : "password"} 
+                            placeholder="Min. 6 Karakter" 
+                            className="pr-10"
+                            {...field} 
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                          </Button>
+                        </div>
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Admin">Admin (Penuh)</SelectItem>
-                        <SelectItem value="Kurikulum">Kurikulum (Jadwal & Akademik)</SelectItem>
-                        <SelectItem value="Pegawai">Pegawai (Operasional)</SelectItem>
-                        <SelectItem value="Guru">Guru (Pengajar & Nilai)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
-                <div className="bg-primary/5 p-3 rounded-lg border border-primary/20 flex gap-3">
-                  <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                    Staf yang baru didaftarkan tidak akan memiliki password sampai mereka mendaftar sendiri secara mandiri di halaman login utama.
-                  </p>
-                </div>
+                  <FormField control={form.control} name="phone" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nomor Telepon (Opsional)</FormLabel>
+                      <FormControl><Input placeholder="0812xxxx" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="role" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Hak Akses (Role)</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger><SelectValue placeholder="Pilih Role" /></SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="Admin">Admin (Penuh)</SelectItem>
+                          <SelectItem value="Kurikulum">Kurikulum (Jadwal & Akademik)</SelectItem>
+                          <SelectItem value="Pegawai">Pegawai (Operasional)</SelectItem>
+                          <SelectItem value="Guru">Guru (Pengajar & Nilai)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
 
-                <DialogFooter className="pt-4">
-                  <Button type="submit" disabled={submitting} className="w-full">
-                    {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                    Simpan Akun Pegawai
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
+                  <div className="bg-primary/5 p-3 rounded-lg border border-primary/20 flex gap-3">
+                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-muted-foreground leading-relaxed italic">
+                      Akun akan langsung aktif di sistem Authentication. Berikan email dan sandi di atas kepada pegawai bersangkutan.
+                    </p>
+                  </div>
+                </form>
+              </Form>
+            </ScrollArea>
+            <DialogFooter className="p-6 pt-2 border-t bg-muted/10">
+              <Button onClick={form.handleSubmit(onSubmit)} disabled={submitting} className="w-full">
+                {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ShieldCheck className="w-4 h-4 mr-2" />}
+                Buat Akun & Simpan Pegawai
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
