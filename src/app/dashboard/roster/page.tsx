@@ -94,7 +94,6 @@ export default function RosterManagementPage() {
   const [isSyncingToCloud, setIsSyncingToCloud] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   
-  // State Buffer Lokal
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>([])
   const [isDirty, setIsDirty] = useState(false)
 
@@ -124,7 +123,6 @@ export default function RosterManagementPage() {
   const { data: rosterConfig, loading: loadingConfigDoc } = useDoc<RosterConfig>(configRef)
   const { data: systemSettings } = useDoc<any>(systemSettingsRef)
 
-  // Inisialisasi localEntries dari serverEntries hanya jika tidak dirty
   useEffect(() => {
     if (serverEntries && !isDirty) {
       setLocalEntries(serverEntries)
@@ -195,9 +193,9 @@ export default function RosterManagementPage() {
     });
 
     const sortedAssignments = [...assignments].sort((a, b) => {
-      const tComp = a.teacherName.localeCompare(b.teacherName);
+      const tComp = (a.teacherName || "").localeCompare(b.teacherName || "");
       if (tComp !== 0) return tComp;
-      return a.subjectName.localeCompare(b.subjectName);
+      return (a.subjectName || "").localeCompare(b.subjectName || "");
     });
 
     sortedAssignments.forEach((asg, idx) => {
@@ -210,7 +208,6 @@ export default function RosterManagementPage() {
     return { teacherMap, subjectColors };
   }, [assignments]);
 
-  // Fungsi Mutasi LOKAL
   const handleAddEntryLocal = () => {
     const t = teachers.find(t => t.id === newEntry.teacherId)
     const c = classes?.find(c => c.id === newEntry.classId)
@@ -305,7 +302,6 @@ export default function RosterManagementPage() {
           const isTeacherBusy = pool.some(e => e.day === day && e.period === p && e.teacherId === job.teacherId)
           if (isTeacherBusy) continue
 
-          // Coba ambil blok 2 jam jika jam genap
           let batchSize = 1
           if (remaining >= 2 && p % 2 !== 0 && p < MAX_PERIODS) {
             const nextP = p + 1
@@ -341,20 +337,17 @@ export default function RosterManagementPage() {
     }
   }
 
-  // SINKRONISASI KE DATABASE
   const handleSyncToCloud = async () => {
     if (!db || !serverEntries) return
     setIsSyncingToCloud(true)
     const batch = writeBatch(db)
 
     try {
-      // 1. Cari yang harus dihapus (Ada di server, tapi tidak ada di lokal)
       const toDelete = serverEntries.filter(se => !localEntries.some(le => le.id === se.id))
       toDelete.forEach(e => {
         batch.delete(doc(db, 'rosterEntries', e.id))
       })
 
-      // 2. Cari yang harus ditambah (Ada di lokal dengan ID temp, atau ID baru)
       const toAdd = localEntries.filter(le => le.id.startsWith('temp-'))
       toAdd.forEach(e => {
         const newRef = doc(collection(db, 'rosterEntries'))
@@ -375,16 +368,20 @@ export default function RosterManagementPage() {
   const handleSaveConfig = async () => {
     if (!configRef) return
     setIsSavingConfig(true)
-    await setDoc(configRef, config, { merge: true })
-    toast({ title: "Konfigurasi Waktu Disimpan" })
-    setIsSavingConfig(false)
+    try {
+      await setDoc(configRef, config, { merge: true })
+      toast({ title: "Konfigurasi Waktu Disimpan" })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal menyimpan konfigurasi" })
+    } finally {
+      setIsSavingConfig(false)
+    }
   }
 
   const getEntry = (day: string, period: number, classId: string) => {
     return localEntries.find(e => e.day === day && e.period === period && e.classId === classId)
   }
 
-  // Logika PDF tetap menggunakan localEntries
   const handleDownloadUnified = async () => {
     if (!localEntries || !classes || !assignments) return;
     setIsExporting(true);
@@ -467,7 +464,7 @@ export default function RosterManagementPage() {
           const distinctSubjects = Array.from(new Set(tAsgs.map(a => a.subjectName)));
           const distinctSubjectIds = distinctSubjects.map(name => tAsgs.find(a => a.subjectName === name)?.subjectId).filter(Boolean) as string[];
           return { id, name: tAsgs[0].teacherName, subjects: distinctSubjects, subjectIds: distinctSubjectIds, code: teacherMap.get(id) };
-        }).sort((a, b) => a.name.localeCompare(b.name));
+        }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
       autoTable(doc, {
         head: [['KODE', 'NAMA GURU', 'MATA PELAJARAN']],
@@ -493,11 +490,11 @@ export default function RosterManagementPage() {
               if (color) { doc.setFillColor(color[0], color[1], color[2]); doc.rect(x, y, size, size, 'F'); }
             }
             doc.setDrawColor(0).rect(x, y, size, size);
-            doc.setTextColor(0).setFontSize(9).text(t.code.toString(), x + size / 2, y + size / 2 + 1, { align: 'center', baseline: 'middle' });
+            doc.setTextColor(0).setFontSize(9).text((t.code || "").toString(), x + size / 2, y + size / 2 + 1, { align: 'center', baseline: 'middle' });
           }
         }
       });
-      doc.save(`Roster_Matriks_Terpadu_${sName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Matriks_Terpadu_${(sName || "School").replace(/\s+/g, '_')}.pdf`);
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
     } finally {
@@ -638,11 +635,17 @@ export default function RosterManagementPage() {
               <CardContent className="pt-6 space-y-4">
                 <div className="space-y-2">
                   <Label>Jam Masuk Sekolah</Label>
-                  <Input type="time" value={config.entryTime || "07:00"} onChange={e => setDoc(configRef!, { ...config, entryTime: e.target.value || "07:00" }, { merge: true })} />
+                  <Input type="time" value={config.entryTime || "07:00"} onChange={e => {
+                    const newTime = e.target.value || "07:00"
+                    if (configRef) setDoc(configRef, { ...config, entryTime: newTime }, { merge: true }).catch(() => {})
+                  }} />
                 </div>
                 <div className="space-y-2">
                   <Label>Durasi 1 JP (Menit)</Label>
-                  <Input type="number" value={config.jpDuration || 0} onChange={e => setDoc(configRef!, { ...config, jpDuration: parseInt(e.target.value) || 0 }, { merge: true })} />
+                  <Input type="number" value={config.jpDuration || 0} onChange={e => {
+                    const newDur = parseInt(e.target.value) || 0
+                    if (configRef) setDoc(configRef, { ...config, jpDuration: newDur }, { merge: true }).catch(() => {})
+                  }} />
                 </div>
                 <Button onClick={handleSaveConfig} disabled={isSavingConfig} className="w-full gap-2">
                   {isSavingConfig ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -655,32 +658,46 @@ export default function RosterManagementPage() {
               <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Coffee className="w-5 h-5 text-accent" /> Konfigurasi Istirahat</CardTitle></CardHeader>
               <CardContent className="pt-6 space-y-8">
                 <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                  <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Pertama</Label><Switch checked={config.break1Active} onCheckedChange={v => setDoc(configRef!, { ...config, break1Active: v }, { merge: true })} /></div>
+                  <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Pertama</Label><Switch checked={config.break1Active} onCheckedChange={v => {
+                    if (configRef) setDoc(configRef, { ...config, break1Active: v }, { merge: true }).catch(() => {})
+                  }} /></div>
                   {config.break1Active && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                        <Select value={config.break1Period?.toString() || "4"} onValueChange={v => setDoc(configRef!, { ...config, break1Period: parseInt(v) }, { merge: true })}>
+                        <Select value={config.break1Period?.toString() || "4"} onValueChange={v => {
+                           if (configRef) setDoc(configRef, { ...config, break1Period: parseInt(v) }, { merge: true }).catch(() => {})
+                        }}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="6">Jam Ke-6</SelectItem></SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 0} onChange={e => setDoc(configRef!, { ...config, break1Duration: parseInt(e.target.value) || 0 }, { merge: true })} /></div>
+                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 0} onChange={e => {
+                        const newDur = parseInt(e.target.value) || 0
+                        if (configRef) setDoc(configRef, { ...config, break1Duration: newDur }, { merge: true }).catch(() => {})
+                      }} /></div>
                     </div>
                   )}
                 </div>
                 <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                  <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Kedua</Label><Switch checked={config.break2Active} onCheckedChange={v => setDoc(configRef!, { ...config, break2Active: v }, { merge: true })} /></div>
+                  <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Kedua</Label><Switch checked={config.break2Active} onCheckedChange={v => {
+                    if (configRef) setDoc(configRef, { ...config, break2Active: v }, { merge: true }).catch(() => {})
+                  }} /></div>
                   {config.break2Active && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                        <Select value={config.break2Period?.toString() || "6"} onValueChange={v => setDoc(configRef!, { ...config, break2Period: parseInt(v) }, { merge: true })}>
+                        <Select value={config.break2Period?.toString() || "6"} onValueChange={v => {
+                           if (configRef) setDoc(configRef, { ...config, break2Period: parseInt(v) }, { merge: true }).catch(() => {})
+                        }}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent><SelectItem value="6">Jam Ke-6</SelectItem><SelectItem value="8">Jam Ke-8</SelectItem></SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break2Duration || 0} onChange={e => setDoc(configRef!, { ...config, break2Duration: parseInt(e.target.value) || 0 }, { merge: true })} /></div>
+                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break2Duration || 0} onChange={e => {
+                        const newDur = parseInt(e.target.value) || 0
+                        if (configRef) setDoc(configRef, { ...config, break2Duration: newDur }, { merge: true }).catch(() => {})
+                      }} /></div>
                     </div>
                   )}
                 </div>

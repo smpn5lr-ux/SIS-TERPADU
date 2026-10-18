@@ -39,7 +39,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
 import {
   AlertDialog,
@@ -77,14 +76,14 @@ import { Staff } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { errorEmitter } from '@/firebase/error-emitter'
 import { FirestorePermissionError } from '@/firebase/errors'
-import { initializeApp, deleteApp } from "firebase/app"
+import { initializeApp, deleteApp, getApps } from "firebase/app"
 import { getAuth, createUserWithEmailAndPassword, updateProfile, signOut, sendPasswordResetEmail } from "firebase/auth"
 import { firebaseConfig } from "@/firebase/config"
 
 const staffFormSchema = z.object({
   fullName: z.string().min(2, "Nama minimal 2 karakter"),
   email: z.string().email("Format email tidak valid"),
-  password: z.string().optional(), // Opsional saat edit
+  password: z.string().optional(),
   role: z.enum(['Admin', 'Pegawai', 'Guru', 'Kurikulum']),
   phone: z.string().optional(),
 })
@@ -124,8 +123,8 @@ export default function StaffManagementPage() {
   const filteredStaff = useMemo(() => {
     if (!staffList) return []
     return staffList.filter(s => 
-      s.fullName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      s.email.toLowerCase().includes(searchTerm.toLowerCase())
+      (s.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+      (s.email || "").toLowerCase().includes(searchTerm.toLowerCase())
     )
   }, [staffList, searchTerm])
 
@@ -136,7 +135,7 @@ export default function StaffManagementPage() {
       email: staff.email,
       role: staff.role,
       phone: staff.phone || "",
-      password: "", // Kosongkan password saat edit
+      password: "",
     })
     setIsDialogOpen(true)
   }
@@ -178,7 +177,6 @@ export default function StaffManagementPage() {
     setSubmitting(true)
 
     if (editingStaff) {
-      // MODE UPDATE FIRESTORE
       try {
         const staffRef = doc(db, 'staff', editingStaff.id)
         await updateDoc(staffRef, {
@@ -200,7 +198,6 @@ export default function StaffManagementPage() {
       return
     }
     
-    // MODE CREATE NEW USER (Firebase Auth + Firestore)
     if (!values.password || values.password.length < 6) {
       toast({ variant: "destructive", title: "Sandi Kurang", description: "Sandi baru minimal 6 karakter." })
       setSubmitting(false)
@@ -308,7 +305,7 @@ export default function StaffManagementPage() {
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                      {staff.fullName.charAt(0)}
+                      {(staff.fullName || "P").charAt(0)}
                     </div>
                     <div>
                       <div className="font-medium">{staff.fullName}</div>
@@ -337,7 +334,7 @@ export default function StaffManagementPage() {
                   </Badge>
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">
-                  {new Date(staff.createdAt).toLocaleDateString('id-ID')}
+                  {staff.createdAt ? new Date(staff.createdAt).toLocaleDateString('id-ID') : '-'}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
@@ -390,7 +387,7 @@ export default function StaffManagementPage() {
                 <FormField control={form.control} name="fullName" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nama Lengkap</FormLabel>
-                    <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} /></FormControl>
+                    <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} value={field.value || ""} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -403,6 +400,7 @@ export default function StaffManagementPage() {
                         placeholder="pegawai@sekolah.sch.id" 
                         disabled={!!editingStaff}
                         {...field} 
+                        value={field.value || ""}
                       />
                     </FormControl>
                     {editingStaff && <p className="text-[10px] text-muted-foreground italic">Email tidak dapat diubah setelah terdaftar.</p>}
@@ -421,6 +419,7 @@ export default function StaffManagementPage() {
                             placeholder="Min. 6 Karakter" 
                             className="pr-10"
                             {...field} 
+                            value={field.value || ""}
                           />
                           <Button
                             type="button"
@@ -441,7 +440,7 @@ export default function StaffManagementPage() {
                 <FormField control={form.control} name="phone" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Nomor Telepon (Opsional)</FormLabel>
-                    <FormControl><Input placeholder="0812xxxx" {...field} /></FormControl>
+                    <FormControl><Input placeholder="0812xxxx" {...field} value={field.value || ""} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

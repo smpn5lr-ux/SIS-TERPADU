@@ -12,10 +12,15 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: {
       bodySizeLimit: '10mb',
+      allowedOrigins: [
+        '*.cloudworkstations.dev',
+        '*.google.com'
+      ]
     },
     allowedDevOrigins: [
       '6000-firebase-studio-1780665152844.cluster-m7dwy2bmizezqukxkuxd55k5ka.cloudworkstations.dev',
-      '*.cloudworkstations.dev'
+      '*.cloudworkstations.dev',
+      '*.cluster-m7dwy2bmizezqukxkuxd55k5ka.cloudworkstations.dev'
     ]
   },
   images: {
