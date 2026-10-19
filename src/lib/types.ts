@@ -1,7 +1,7 @@
 
 export type AdmissionPath = 'Zonasi' | 'Prestasi' | 'Afirmasi' | 'Perpindahan Orang Tua';
 export type VerificationStatus = 'Belum Diverifikasi' | 'Lengkap' | 'Perlu Perbaikan' | 'Ditolak';
-export type AdmissionStatus = 'accepted' | 'waitlisted' | 'rejected' | 'pending';
+export type AdmissionStatus = 'accepted' | 'waitlisted' | 'rejected' | 'pending' | 'graduated';
 export type WelfareType = 'PIP' | 'PKH' | 'KKS' | 'KPS' | 'Tidak Ada';
 export type UserRole = 'Admin' | 'Pegawai' | 'Guru' | 'Kurikulum';
 
@@ -54,6 +54,7 @@ export interface Applicant {
   fatherBirthYear?: string;
   fatherEducation?: string;
   fatherJob?: string;
+  fatherInputIncome?: string;
   fatherIncome?: string;
   
   motherName?: string;

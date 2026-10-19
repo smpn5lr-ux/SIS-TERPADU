@@ -79,8 +79,8 @@ export default function StudentDatabasePage() {
 
   const studentsQuery = useMemoFirebase(() => {
     if (!db) return null
-    // Filter hanya siswa yang diterima (accepted) sebagai Siswa Aktif
-    return query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), orderBy('fullName', 'asc'))
+    // Filter siswa yang diterima atau sudah lulus
+    return query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated']), orderBy('fullName', 'asc'))
   }, [db])
 
   const { data: serverStudents, loading } = useCollection<Applicant>(studentsQuery)
@@ -175,26 +175,35 @@ export default function StudentDatabasePage() {
             {loading && !localStudents.length ? (
               <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredStudents.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada data siswa aktif.</TableCell></TableRow>
-            ) : filteredStudents.map((s) => (
-              <TableRow key={s.id} className="hover:bg-muted/10 transition-colors">
-                <TableCell className="font-mono text-xs font-bold text-primary">{s.registrationNumber || s.registrationSequence}</TableCell>
-                <TableCell className="font-mono text-xs font-bold text-accent">{s.NISN || "-"}</TableCell>
-                <TableCell className="font-medium">{s.fullName}</TableCell>
-                <TableCell>
-                  <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1.5 py-1 px-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                    SISWA AKTIF
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" title="Ubah Data" onClick={() => handleEdit(s)}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" title="Lihat Biodata" asChild><Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link></Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada data siswa.</TableCell></TableRow>
+            ) : filteredStudents.map((s) => {
+              const isGraduated = s.admissionStatus === 'graduated';
+              return (
+                <TableRow key={s.id} className="hover:bg-muted/10 transition-colors">
+                  <TableCell className="font-mono text-xs font-bold text-primary">{s.registrationNumber || s.registrationSequence}</TableCell>
+                  <TableCell className="font-mono text-xs font-bold text-accent">{s.NISN || "-"}</TableCell>
+                  <TableCell className="font-medium">{s.fullName}</TableCell>
+                  <TableCell>
+                    {isGraduated ? (
+                      <Badge variant="outline" className="bg-muted text-muted-foreground border-muted-foreground/20 gap-1.5 py-1 px-3">
+                        LULUSAN
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1.5 py-1 px-3">
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                        SISWA AKTIF
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" title="Ubah Data" onClick={() => handleEdit(s)}><Pencil className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" title="Lihat Biodata" asChild><Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>

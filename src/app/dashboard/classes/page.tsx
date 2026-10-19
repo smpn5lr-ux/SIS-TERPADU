@@ -1,8 +1,9 @@
+
 "use client"
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -60,6 +61,9 @@ export default function ClassesPage() {
   const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+
+  const [isPromotionDialogOpen, setIsPromotionDialogOpen] = useState(false)
+  const [classToPromote, setClassToPromote] = useState<Classroom | null>(null)
   
   const [studentSearch, setStudentSearch] = useState("")
   
@@ -67,7 +71,7 @@ export default function ClassesPage() {
   const db = useFirestore()
 
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
-  const applicantsQuery = useMemoFirebase(() => db ? collection(db, 'applicants') : null, [db])
+  const applicantsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants')) : null, [db])
 
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
   const { data: serverApplicants } = useCollection<Applicant>(applicantsQuery)
@@ -146,6 +150,40 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsDeleteDialogOpen(false)
     setClassToDelete(null)
+  }
+
+  const handlePromoteClassLocal = () => {
+    if (!classToPromote) return
+    const isGrade9 = classToPromote.gradeLevel >= 9
+    const studentIds = classToPromote.students || []
+
+    if (studentIds.length === 0) {
+      toast({ variant: "destructive", title: "Gagal", description: "Kelas ini tidak memiliki murid." })
+      return
+    }
+
+    // 1. Kosongkan murid dari kelas tersebut
+    const updatedClass = { ...classToPromote, students: [], currentEnrollment: 0 }
+    setLocalClasses(prev => prev.map(c => c.id === classToPromote.id ? updatedClass : c))
+
+    // 2. Jika kelas 9, ubah status pendaftar menjadi 'graduated'
+    if (isGrade9) {
+      setLocalApplicants(prev => prev.map(a => {
+        if (studentIds.includes(a.id)) {
+          return { ...a, admissionStatus: 'graduated' as any, updatedAt: new Date().toISOString() }
+        }
+        return a
+      }))
+    }
+    // Jika kelas 7/8, mereka otomatis jadi 'available' karena sudah tidak punya kelas (status tetap 'accepted')
+
+    setIsDirty(true)
+    setIsPromotionDialogOpen(false)
+    setClassToPromote(null)
+    toast({ 
+      title: isGrade9 ? "Proses Kelulusan Berhasil (Buffer)" : "Proses Kenaikan Berhasil (Buffer)",
+      description: isGrade9 ? `${studentIds.length} murid ditandai lulus.` : `${studentIds.length} murid siap dipindah ke tingkat berikutnya.`
+    })
   }
 
   const handleSyncToCloud = async () => {
@@ -412,7 +450,15 @@ export default function ClassesPage() {
                   <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                 )} />
                 <FormField control={studentEditForm.control} name="gender" render={({ field }) => (
-                  <FormItem><FormLabel>Jenis Kelamin</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Laki-laki">Laki-laki</SelectItem><SelectItem value="Perempuan">Perempuan</SelectItem></SelectContent></Select></FormItem>
+                  <FormItem><FormLabel>Jenis Kelamin</FormLabel>
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                      <SelectContent>
+                        <SelectItem value="Laki-laki">Laki-laki</SelectItem>
+                        <SelectItem value="Perempuan">Perempuan</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormItem>
                 )} />
                 <DialogFooter className="pt-4"><Button type="submit" className="w-full">Simpan Perubahan Draf</Button></DialogFooter>
               </form>
@@ -458,14 +504,29 @@ export default function ClassesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {groupedClasses[level].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
+                const isGrade9 = cls.gradeLevel >= 9
+
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
                     <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => handleDeleteTrigger(cls)}><Trash2 className="w-4 h-4" /></Button>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-xl">Kelas {cls.name} {isTemp && <RefreshCw className="w-4 h-4 text-amber-500 animate-spin" />}</CardTitle>
-                      <CardDescription className="flex items-center gap-2 mt-1">
-                        <Users className="w-3.5 h-3.5" />
-                        <span className="font-bold text-foreground">{cls.currentEnrollment || 0}</span> / {cls.capacity} Murid
+                      <CardDescription className="flex items-center justify-between mt-1">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-3.5 h-3.5" />
+                          <span className="font-bold text-foreground">{cls.currentEnrollment || 0}</span> / {cls.capacity} Murid
+                        </div>
+                        {cls.currentEnrollment > 0 && (
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className={`h-7 text-[9px] font-bold uppercase gap-1 ${isGrade9 ? 'text-green-500 border-green-500/20' : 'text-accent border-accent/20'}`}
+                            onClick={() => { setClassToPromote(cls); setIsPromotionDialogOpen(true); }}
+                          >
+                            {isGrade9 ? <CheckCircle2 className="w-3 h-3" /> : <ArrowUpCircle className="w-3 h-3" />}
+                            {isGrade9 ? "Lulus" : "Naik"}
+                          </Button>
+                        )}
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
@@ -530,6 +591,33 @@ export default function ClassesPage() {
             <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda. Murid di dalamnya akan dikeluarkan dari rombel tapi data profil mereka aman.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Kelas</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ALERT DIALOG KENAIKAN / KELULUSAN */}
+      <AlertDialog open={isPromotionDialogOpen} onOpenChange={setIsPromotionDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              {classToPromote?.gradeLevel && classToPromote.gradeLevel >= 9 ? <School className="w-5 h-5 text-green-500" /> : <ArrowUpCircle className="w-5 h-5 text-accent" />}
+              {classToPromote?.gradeLevel && classToPromote.gradeLevel >= 9 ? "Konfirmasi Kelulusan Massal" : "Konfirmasi Kenaikan Kelas"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {classToPromote?.gradeLevel && classToPromote.gradeLevel >= 9 
+                ? `Apakah Anda yakin ingin meluluskan seluruh murid (${classToPromote.currentEnrollment}) dari Kelas ${classToPromote.name}? Status mereka akan diubah menjadi LULUS.`
+                : `Murid dari Kelas ${classToPromote?.name} akan dikeluarkan dari rombel ini agar Anda dapat memasukkan mereka ke kelas tingkat berikutnya. Lanjutkan?`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handlePromoteClassLocal} 
+              className={classToPromote?.gradeLevel && classToPromote.gradeLevel >= 9 ? "bg-green-600 hover:bg-green-700" : "bg-accent hover:bg-accent/90"}
+            >
+              Ya, Proses Sekarang
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
