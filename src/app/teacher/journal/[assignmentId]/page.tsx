@@ -123,11 +123,27 @@ function TeachingJournalPageContent() {
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
 
+  // -- PERSISTENSI LOKAL (LOCALSTORAGE BACKUP) --
   useEffect(() => {
     if (serverJournals && !isDirty) {
-      setLocalJournals(serverJournals.filter(j => j.semester === activeSemester))
+      // Coba ambil dari localStorage dulu jika ada draf yang belum sinkron
+      const savedBuffer = localStorage.getItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
+      if (savedBuffer) {
+        setLocalJournals(JSON.parse(savedBuffer));
+        setIsDirty(true);
+      } else {
+        setLocalJournals(serverJournals.filter(j => j.semester === activeSemester));
+      }
     }
-  }, [serverJournals, isDirty, activeSemester])
+  }, [serverJournals, assignmentId, activeSemester]);
+
+  useEffect(() => {
+    if (isDirty && localJournals.length > 0) {
+      localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(localJournals));
+    } else if (!isDirty) {
+      localStorage.removeItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
+    }
+  }, [localJournals, isDirty, assignmentId, activeSemester]);
 
   const journals = useMemo(() => {
     return [...localJournals].sort((a, b) => (a.meetingNumber || 0) - (b.meetingNumber || 0))
@@ -158,7 +174,6 @@ function TeachingJournalPageContent() {
     const today = new Date().toISOString().split('T')[0];
     const existingToday = localJournals.find(j => j.date === today);
     
-    // Sinkronkan Set Ref dengan data yang sudah ada agar tidak duplikat dari pindaian sebelumnya
     const initialScanned = new Set<string>();
     if (existingToday) {
       Object.entries(existingToday.attendanceDetail || {}).forEach(([id, status]) => {
@@ -227,7 +242,6 @@ function TeachingJournalPageContent() {
       return;
     }
 
-    // Cek duplikasi menggunakan Ref (Sinkron)
     if (scannedIdsRef.current.has(studentId)) {
       toast({ 
         title: "Sudah Absen", 
@@ -237,10 +251,8 @@ function TeachingJournalPageContent() {
       return;
     }
 
-    // Tandai sebagai sudah di-scan
     scannedIdsRef.current.add(studentId);
 
-    // Update state (Murni, tanpa pemanggilan toast di dalam updater)
     setNewJournal(prev => ({
       ...prev,
       attendanceDetail: {
@@ -249,7 +261,6 @@ function TeachingJournalPageContent() {
       }
     }));
 
-    // Berikan feedback sukses (Diluar updater)
     toast({ 
       title: "Scan Berhasil", 
       description: `${student.fullName} hadir.`,
@@ -277,7 +288,7 @@ function TeachingJournalPageContent() {
     setIsDirty(true)
     setActiveView('list')
     setEditingJournalId(null)
-    toast({ title: "Jurnal Disimpan di Buffer" })
+    toast({ title: "Draf Disimpan", description: "Absensi tersimpan di memori browser." })
   }
 
   const handleSyncToCloud = async () => {
@@ -329,7 +340,8 @@ function TeachingJournalPageContent() {
 
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Data Berhasil Sinkron" })
+      localStorage.removeItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
+      toast({ title: "Data Berhasil Sinkron", description: "Data sudah aman di server dan bisa dibuka di perangkat lain." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -568,15 +580,11 @@ function TeachingJournalPageContent() {
           <div className="space-y-6">
              <Card className="border-primary/20 bg-primary/5">
                 <CardHeader className="pb-2">
-                   <CardTitle className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> KKTp Pembelajaran</CardTitle>
+                   <CardTitle className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> Catatan Tambahan</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 pt-2">
-                   <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                     Catatan ini akan otomatis masuk ke draf nilai tugas harian jika Anda mengisi nilai pada kolom tugas.
-                   </p>
-                   <Separator className="opacity-30" />
                    <div className="space-y-2">
-                     <Label className="text-[10px] font-bold uppercase">Catatan Guru (Opsional):</Label>
+                     <Label className="text-[10px] font-bold uppercase">Catatan Guru:</Label>
                      <Textarea value={newJournal.notes || ""} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} placeholder="Catatan kelas, hambatan, dll..." className="text-xs h-32" />
                    </div>
                 </CardContent>
@@ -585,7 +593,7 @@ function TeachingJournalPageContent() {
              <div className="bg-amber-500/5 p-4 rounded-xl border border-amber-500/20 flex gap-4">
                 <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Data yang diinput belum tersimpan di server pusat. Klik <strong>"Simpan ke Buffer"</strong> untuk mengamankan draf di browser Anda, lalu lakukan <strong>"Simpan Cloud"</strong> di halaman utama jurnal.
+                  Data yang diinput otomatis dicadangkan di browser ini. Klik <strong>"Simpan Cloud"</strong> agar data muncul di laptop atau HP lain.
                 </p>
              </div>
           </div>
@@ -604,9 +612,9 @@ function TeachingJournalPageContent() {
             <div className="flex items-center gap-2 mt-1">
                <Badge variant="outline" className="font-mono bg-muted/20">Kelas {assignment?.className}</Badge>
                {isDirty ? (
-                 <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1 border-amber-500/20"><CloudOff className="w-3 h-3" /> Ada Draf Baru</Badge>
+                 <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1 border-amber-500/20">Draf Belum Sinkron</Badge>
                ) : (
-                 <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron</Badge>
+                 <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron Cloud</Badge>
                )}
             </div>
           </div>
@@ -682,8 +690,8 @@ function TeachingJournalPageContent() {
       <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 flex gap-4 mt-8 shadow-sm">
          <div className="p-3 bg-primary/10 rounded-xl shrink-0 h-fit"><Info className="w-5 h-5 text-primary" /></div>
          <div className="text-xs text-muted-foreground leading-relaxed">
-           <p className="font-bold text-primary mb-1 uppercase tracking-widest text-[10px]">Pusat Kendali Jurnal Mengajar</p>
-           Setiap data absensi yang diproses melalui **Absen QR** akan otomatis menghitung persentase kehadiran siswa.
+           <p className="font-bold text-primary mb-1 uppercase tracking-widest text-[10px]">Tips Penggunaan Offline</p>
+           Sistem ini menyimpan data secara otomatis di perangkat Anda. Jika Anda mengabsen di kelas menggunakan HP, pastikan menekan **Simpan Cloud** agar data tersebut masuk ke database sekolah dan bisa dilihat di komputer kantor.
          </div>
       </div>
 
