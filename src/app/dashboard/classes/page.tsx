@@ -267,8 +267,8 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const ws = XLSX.utils.json_to_sheet([
-      { "NO": 1, "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789" },
-      { "NO": 2, "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321" }
+      { "NO": 1, "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789", "JENIS KELAMIN": "Laki-laki" },
+      { "NO": 2, "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321", "JENIS KELAMIN": "Perempuan" }
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template_Impor")
@@ -297,6 +297,7 @@ export default function ClassesPage() {
         const keys = Object.keys(firstRow);
         const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA LENGKAP";
         const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
+        const genderKey = keys.find(k => k.toUpperCase().includes("KELAMIN") || k.toUpperCase().includes("GENDER") || k.toUpperCase().includes("JK")) || "JENIS KELAMIN";
 
         let addedCount = 0
         let createdCount = 0
@@ -307,7 +308,14 @@ export default function ClassesPage() {
           const rawName = String(row[nameKey] || "").trim()
           const name = rawName.toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
+          let rawGender = String(row[genderKey] || "Laki-laki").trim()
           
+          // Normalisasi Gender
+          let gender: 'Laki-laki' | 'Perempuan' = 'Laki-laki'
+          if (rawGender.toLowerCase().startsWith('p') || rawGender.toLowerCase().includes('wanita') || rawGender.toLowerCase().includes('perempuan')) {
+            gender = 'Perempuan'
+          }
+
           if (!rawName && !nisn) return;
 
           // 1. Cari di local database
@@ -323,7 +331,7 @@ export default function ClassesPage() {
                id: `temp-new-${Date.now()}-${createdCount}`,
                fullName: rawName,
                NISN: nisn,
-               gender: "Laki-laki",
+               gender: gender,
                admissionStatus: "accepted",
                verificationStatus: "Lengkap",
                createdAt: new Date().toISOString(),
@@ -331,6 +339,9 @@ export default function ClassesPage() {
              } as Applicant
              currentApplicants.push(student)
              createdCount++
+          } else {
+            // Update gender jika berbeda
+            student.gender = gender;
           }
 
           // 3. Masukkan ke kelas jika belum ada
@@ -340,7 +351,7 @@ export default function ClassesPage() {
           }
         })
 
-        if (addedCount > 0) {
+        if (addedCount > 0 || createdCount > 0) {
           setLocalApplicants(currentApplicants)
           const updatedClass = { ...selectedClassForStudents, students: currentStudents, currentEnrollment: currentStudents.length }
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
@@ -348,7 +359,7 @@ export default function ClassesPage() {
           setIsDirty(true)
           toast({ 
             title: "Impor Berhasil", 
-            description: `${addedCount} murid ditambahkan (${createdCount} murid baru terdaftar otomatis).` 
+            description: `${addedCount} murid dimasukkan ke kelas (${createdCount} murid baru terdaftar).` 
           })
         }
       } catch (err) {
@@ -418,7 +429,7 @@ export default function ClassesPage() {
                 <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-muted/50 border border-border/40 bg-muted/20 transition-all group">
                    <div className="flex flex-col">
                      <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
-                     <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.originSchool || "Siswa Baru"}</span>
+                     <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.gender}</span>
                    </div>
                    <Button size="sm" variant="outline" className="h-8 px-4 text-primary border-primary/20 hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s.id)}>Pilih <ChevronRight className="w-3 h-3 ml-1" /></Button>
                 </div>
@@ -440,13 +451,14 @@ export default function ClassesPage() {
                     <TableHead className="w-16 text-center font-bold">No</TableHead>
                     <TableHead className="font-bold">Nama Lengkap</TableHead>
                     <TableHead className="font-bold">NISN</TableHead>
+                    <TableHead className="font-bold text-center">JK</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {currentClassStudents.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
+                    <TableRow><TableCell colSpan={6} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                       <GraduationCap className="w-16 h-16 opacity-5" />
                       <p>Belum ada murid di kelas ini. Klik tombol "Tambah Murid" atau "Impor Excel" untuk mengisi rombel.</p>
                     </TableCell></TableRow>
@@ -455,6 +467,11 @@ export default function ClassesPage() {
                       <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge variant="outline" className="text-[9px] font-bold">
+                          {s.gender === 'Laki-laki' ? 'L' : 'P'}
+                        </Badge>
+                      </TableCell>
                       <TableCell>
                         <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] py-0.5 px-3 font-bold gap-1.5">
                           <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
