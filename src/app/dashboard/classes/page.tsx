@@ -162,11 +162,9 @@ export default function ClassesPage() {
       return
     }
 
-    // 1. Kosongkan murid dari kelas tersebut
     const updatedClass = { ...classToPromote, students: [], currentEnrollment: 0 }
     setLocalClasses(prev => prev.map(c => c.id === classToPromote.id ? updatedClass : c))
 
-    // 2. Jika kelas 9, ubah status pendaftar menjadi 'graduated'
     if (isGrade9) {
       setLocalApplicants(prev => prev.map(a => {
         if (studentIds.includes(a.id)) {
@@ -175,7 +173,6 @@ export default function ClassesPage() {
         return a
       }))
     }
-    // Jika kelas 7/8, mereka otomatis jadi 'available' karena sudah tidak punya kelas (status tetap 'accepted')
 
     setIsDirty(true)
     setIsPromotionDialogOpen(false)
@@ -224,18 +221,18 @@ export default function ClassesPage() {
     }
   }
 
+  const availableStudents = useMemo(() => {
+    if (!localApplicants || !localClasses) return []
+    const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
+    return localApplicants.filter(a => a.admissionStatus === 'accepted' && !assignedIds.has(a.id) && !a.isDeleted)
+  }, [localApplicants, localClasses])
+
   const currentClassStudents = useMemo(() => {
     if (!selectedClassForStudents || !localApplicants) return []
     return localApplicants
       .filter(a => selectedClassForStudents.students?.includes(a.id))
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
   }, [selectedClassForStudents, localApplicants])
-
-  const availableStudents = useMemo(() => {
-    if (!localApplicants || !localClasses) return []
-    const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
-    return localApplicants.filter(a => a.admissionStatus === 'accepted' && !assignedIds.has(a.id) && !a.isDeleted)
-  }, [localApplicants, localClasses])
 
   const handleAddStudentToClass = (studentId: string) => {
     if (!selectedClassForStudents) return
@@ -275,33 +272,67 @@ export default function ClassesPage() {
     if (!file || !selectedClassForStudents) return
     const reader = new FileReader()
     reader.onload = (evt) => {
-      const bstr = evt.target?.result
-      const wb = XLSX.read(bstr, { type: 'binary' })
-      const wsname = wb.SheetNames[0]
-      const ws = wb.Sheets[wsname]
-      const data = XLSX.utils.sheet_to_json(ws) as any[]
-      let addedCount = 0
-      const currentStudents = [...(selectedClassForStudents.students || [])]
-      data.forEach(row => {
-        const name = String(row.NAMA || "").toLowerCase()
-        const nisn = String(row.NISN || "")
-        const match = availableStudents.find(a => (a.NISN === nisn && nisn !== "") || (a.fullName.toLowerCase() === name && name !== ""))
-        if (match && !currentStudents.includes(match.id)) {
-          currentStudents.push(match.id)
-          addedCount++
+      try {
+        const bstr = evt.target?.result
+        const wb = XLSX.read(bstr, { type: 'binary' })
+        const wsname = wb.SheetNames[0]
+        const ws = wb.Sheets[wsname]
+        const data = XLSX.utils.sheet_to_json(ws) as any[]
+        
+        if (data.length === 0) {
+          toast({ variant: "destructive", title: "Impor Gagal", description: "File Excel kosong." });
+          return;
         }
-      })
-      if (addedCount > 0) {
-        const updatedClass = { ...selectedClassForStudents, students: currentStudents, currentEnrollment: currentStudents.length }
-        setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-        setSelectedClassForStudents(updatedClass)
-        setIsDirty(true)
-        toast({ title: "Impor Berhasil", description: `${addedCount} murid ditambahkan ke draf.` })
-      } else {
-        toast({ variant: "destructive", title: "Impor Gagal", description: "Tidak ada murid yang cocok atau sudah ada di kelas lain." })
+
+        // Deteksi kolom secara fleksibel (mencari kunci yang mengandung kata kunci)
+        const firstRow = data[0];
+        const keys = Object.keys(firstRow);
+        const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA";
+        const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
+
+        let addedCount = 0
+        const currentStudents = [...(selectedClassForStudents.students || [])]
+        
+        data.forEach(row => {
+          const name = String(row[nameKey] || "").trim().toLowerCase()
+          const nisn = String(row[nisnKey] || "").trim()
+          
+          // Cari di pendaftar yang statusnya 'accepted' (Lengkap) dan belum punya kelas
+          const match = availableStudents.find(a => {
+            const dbNisn = (a.NISN || "").trim();
+            const dbName = (a.fullName || "").trim().toLowerCase();
+            
+            const nisnMatch = nisn !== "" && dbNisn === nisn;
+            const nameMatch = name !== "" && dbName === name;
+            
+            return nisnMatch || nameMatch;
+          });
+
+          if (match && !currentStudents.includes(match.id)) {
+            currentStudents.push(match.id)
+            addedCount++
+          }
+        })
+
+        if (addedCount > 0) {
+          const updatedClass = { ...selectedClassForStudents, students: currentStudents, currentEnrollment: currentStudents.length }
+          setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+          setSelectedClassForStudents(updatedClass)
+          setIsDirty(true)
+          toast({ title: "Impor Berhasil", description: `${addedCount} murid ditambahkan ke draf.` })
+        } else {
+          toast({ 
+            variant: "destructive", 
+            title: "Impor Gagal", 
+            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah berstatus 'Lengkap' dan belum memiliki kelas." 
+          })
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Kesalahan File", description: "Format file tidak dikenali." });
       }
     }
     reader.readAsBinaryString(file)
+    e.target.value = ''; // Reset input agar bisa pilih file yang sama
   }
 
   const groupedClasses = useMemo(() => {
@@ -434,7 +465,6 @@ export default function ClassesPage() {
            </div>
         </div>
 
-        {/* DIALOG EDIT BIODATA SISWA (QUICK EDIT) */}
         <Dialog open={isEditStudentOpen} onOpenChange={setIsEditStudentOpen}>
           <DialogContent className="sm:max-w-[400px]">
             <DialogHeader>
@@ -557,7 +587,6 @@ export default function ClassesPage() {
          </div>
       </div>
 
-      {/* DIALOG TAMBAH/EDIT KELAS */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader><DialogTitle className="font-headline">{editingClass ? 'Ubah Informasi Rombel' : 'Tambah Rombongan Belajar'}</DialogTitle></DialogHeader>
@@ -583,7 +612,6 @@ export default function ClassesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ALERT DIALOG HAPUS ROMBEL */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -594,7 +622,6 @@ export default function ClassesPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* ALERT DIALOG KENAIKAN / KELULUSAN */}
       <AlertDialog open={isPromotionDialogOpen} onOpenChange={setIsPromotionDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
