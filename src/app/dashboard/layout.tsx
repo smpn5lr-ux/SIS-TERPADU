@@ -22,7 +22,8 @@ import {
   BookOpen,
   UserCheck,
   GraduationCap,
-  CalendarClock
+  CalendarClock,
+  Contact
 } from "lucide-react"
 import { 
   Sidebar, 
@@ -153,6 +154,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const academicNav = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Data Induk Siswa', href: '/dashboard/students', icon: Contact },
     { name: 'Manajemen Kelas', href: '/dashboard/classes', icon: School },
     { name: 'Kurikulum & Mapel', href: '/dashboard/subjects', icon: BookOpen },
     { name: 'Penugasan Guru', href: '/dashboard/assignments', icon: UserCheck },
