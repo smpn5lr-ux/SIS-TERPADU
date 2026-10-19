@@ -325,62 +325,98 @@ function TeachingJournalPageContent() {
   if (activeView === 'scanner') {
     const scanCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v === 'H').length;
     return (
-      <div className="flex flex-col h-[calc(100vh-4rem)] -m-6 animate-in fade-in duration-300">
-        <div className="bg-card border-b p-4 flex items-center justify-between sticky top-0 z-20">
-          <div className="flex items-center gap-3">
-             <Button variant="ghost" size="icon" onClick={stopScanner}><ChevronLeft className="w-5 h-5" /></Button>
+      <div className="flex flex-col h-[calc(100vh-4rem)] animate-in fade-in duration-300">
+        <style dangerouslySetInnerHTML={{ __html: `
+          #qr-reader-journal-full video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover !important;
+            border-radius: 1rem;
+          }
+          #qr-reader-journal-full {
+            border: none !important;
+          }
+        ` }} />
+        
+        <div className="bg-card border-b p-4 sm:p-6 flex items-center justify-between sticky top-0 z-30">
+          <div className="flex items-center gap-4">
+             <Button variant="ghost" size="icon" onClick={stopScanner} className="h-10 w-10 border hover:bg-muted"><ChevronLeft className="w-6 h-6" /></Button>
              <div>
-               <h1 className="font-bold text-lg leading-tight">Absensi QR</h1>
-               <p className="text-[10px] text-muted-foreground uppercase tracking-widest">{assignment?.subjectName} - Kelas {assignment?.className}</p>
+               <h1 className="font-bold text-xl leading-tight">Absensi QR</h1>
+               <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-widest font-bold">{assignment?.subjectName}</p>
+                  <div className="w-1 h-1 rounded-full bg-muted-foreground/30"></div>
+                  <p className="text-[10px] sm:text-xs text-primary font-bold">KELAS {assignment?.className}</p>
+               </div>
              </div>
           </div>
-          <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary h-9 gap-2 shadow-lg shadow-primary/20">
-            <CheckCircle2 className="w-4 h-4" /> Simpan {scanCount} Murid
+          <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
+            <CheckCircle2 className="w-5 h-5" /> Simpan {scanCount} Murid
           </Button>
         </div>
 
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden">
-           <div className="relative bg-black flex flex-col items-center justify-center p-4">
-              <div id={scannerDivId} className="w-full max-w-[450px] aspect-square rounded-2xl overflow-hidden border-4 border-primary/20 shadow-2xl relative">
-                 {/* Overlay scanning UI */}
-                 <div className="absolute inset-0 z-10 pointer-events-none border-[40px] border-black/40"></div>
-                 <div className="absolute inset-[40px] z-10 pointer-events-none border-2 border-primary animate-pulse">
-                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-primary -ml-1 -mt-1"></div>
-                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-primary -mr-1 -mt-1"></div>
-                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-primary -ml-1 -mb-1"></div>
-                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-primary -mr-1 -mb-1"></div>
+           <div className="relative bg-black/90 flex flex-col items-center justify-center p-6 sm:p-10">
+              <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden border-4 border-primary/30 shadow-[0_0_50px_rgba(67,97,238,0.2)] relative bg-slate-900">
+                 <div id={scannerDivId} className="absolute inset-0 z-10"></div>
+                 
+                 {/* Visual Overlays */}
+                 <div className="absolute inset-0 z-20 pointer-events-none border-[60px] border-black/50"></div>
+                 <div className="absolute inset-[60px] z-20 pointer-events-none border-2 border-primary/50 animate-pulse">
+                    <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-primary -ml-1 -mt-1"></div>
+                    <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-primary -mr-1 -mt-1"></div>
+                    <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-primary -ml-1 -mb-1"></div>
+                    <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-primary -mr-1 -mb-1"></div>
                  </div>
               </div>
-              <p className="text-white/60 text-xs mt-6 italic flex items-center gap-2">
-                <Camera className="w-3 h-3" /> Arahkan kamera ke Kartu QR Siswa
-              </p>
+              
+              <div className="mt-8 flex flex-col items-center gap-2">
+                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30 py-1.5 px-4 text-xs font-bold gap-2">
+                  <Camera className="w-4 h-4" /> KAMERA AKTIF
+                </Badge>
+                <p className="text-white/50 text-[10px] uppercase tracking-[0.2em] font-medium text-center">
+                  Arahkan ke Kartu QR Siswa untuk Absensi Otomatis
+                </p>
+              </div>
            </div>
 
            <div className="bg-background flex flex-col overflow-hidden border-l">
-              <div className="p-4 border-b bg-muted/20 flex items-center justify-between">
-                 <h3 className="text-xs font-bold uppercase text-primary tracking-tighter">Hasil Pemindaian Terbaru</h3>
-                 <Badge variant="outline" className="bg-primary/10 text-primary font-mono">{scanCount} / {students.length}</Badge>
+              <div className="p-4 sm:p-5 border-b bg-muted/20 flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    <ScanLine className="w-4 h-4 text-primary animate-pulse" />
+                    <h3 className="text-xs font-bold uppercase text-foreground tracking-widest">Siswa Terdeteksi</h3>
+                 </div>
+                 <Badge className="bg-primary text-white font-mono px-3 py-1 text-sm">{scanCount} / {students.length}</Badge>
               </div>
               <ScrollArea className="flex-1">
-                 <div className="p-4 space-y-2">
+                 <div className="p-4 sm:p-6 space-y-3">
                     {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
                        const s = students.find(x => x.id === id);
                        return (
-                         <div key={id} className="flex items-center justify-between p-3 bg-card border rounded-xl animate-in slide-in-from-right-4">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold">{s?.fullName}</span>
-                              <span className="text-[10px] text-muted-foreground font-mono">{s?.NISN}</span>
+                         <div key={id} className="flex items-center justify-between p-4 bg-card border border-border/50 rounded-2xl animate-in slide-in-from-right-4 shadow-sm group hover:border-primary/30 transition-all">
+                            <div className="flex items-center gap-4">
+                               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                                  {s?.fullName?.charAt(0)}
+                               </div>
+                               <div className="flex flex-col">
+                                 <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{s?.fullName}</span>
+                                 <span className="text-[10px] text-muted-foreground font-mono mt-0.5">{s?.NISN}</span>
+                               </div>
                             </div>
-                            <div className="bg-green-500/20 p-1.5 rounded-full">
+                            <div className="bg-green-500/10 p-2 rounded-full border border-green-500/20">
                                <Check className="w-4 h-4 text-green-500" />
                             </div>
                          </div>
                        )
                     })}
                     {scanCount === 0 && (
-                      <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
-                        <ScanLine className="w-12 h-12 opacity-10 mb-4 animate-pulse" />
-                        <p className="text-sm">Menunggu data QR...</p>
+                      <div className="flex flex-col items-center justify-center py-32 text-center text-muted-foreground/40">
+                        <div className="relative mb-6">
+                           <QrCode className="w-20 h-20 opacity-10" />
+                           <div className="absolute inset-0 border-t-2 border-primary/20 animate-[bounce_2s_infinite]"></div>
+                        </div>
+                        <p className="text-sm font-medium tracking-wide uppercase">Menunggu Pemindaian...</p>
+                        <p className="text-[10px] mt-2">Daftar kehadiran akan muncul di sini</p>
                       </div>
                     )}
                  </div>
