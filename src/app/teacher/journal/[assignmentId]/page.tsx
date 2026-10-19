@@ -343,7 +343,7 @@ function TeachingJournalPageContent() {
              <Button variant="ghost" size="icon" onClick={stopScanner} className="h-10 w-10 border hover:bg-muted"><ChevronLeft className="w-6 h-6" /></Button>
              <div>
                <h1 className="font-bold text-xl leading-tight">Absensi QR</h1>
-               <div className="flex items-center gap-2 mt-0.5">
+               <div className="flex items-center gap-2 mt-1">
                   <p className="text-[10px] sm:text-xs text-muted-foreground uppercase tracking-widest font-bold">{assignment?.subjectName}</p>
                   <div className="w-1 h-1 rounded-full bg-muted-foreground/30"></div>
                   <p className="text-[10px] sm:text-xs text-primary font-bold">KELAS {assignment?.className}</p>
@@ -360,13 +360,13 @@ function TeachingJournalPageContent() {
               <div className="w-full max-w-[500px] aspect-square rounded-2xl overflow-hidden border-4 border-primary/30 shadow-[0_0_50px_rgba(67,97,238,0.2)] relative bg-slate-900">
                  <div id={scannerDivId} className="absolute inset-0 z-10"></div>
                  
-                 {/* Visual Overlays */}
-                 <div className="absolute inset-0 z-20 pointer-events-none border-[60px] border-black/50"></div>
-                 <div className="absolute inset-[60px] z-20 pointer-events-none border-2 border-primary/50 animate-pulse">
-                    <div className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-primary -ml-1 -mt-1"></div>
-                    <div className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-primary -mr-1 -mt-1"></div>
-                    <div className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-primary -ml-1 -mb-1"></div>
-                    <div className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-primary -mr-1 -mb-1"></div>
+                 {/* Visual Overlays: Single Outer Box */}
+                 <div className="absolute inset-0 z-20 pointer-events-none border-[50px] border-black/50"></div>
+                 <div className="absolute inset-[50px] z-20 pointer-events-none border-2 border-primary">
+                    <div className="absolute top-0 left-0 w-12 h-12 border-t-8 border-l-8 border-primary -ml-2 -mt-2"></div>
+                    <div className="absolute top-0 right-0 w-12 h-12 border-t-8 border-r-8 border-primary -mr-2 -mt-2"></div>
+                    <div className="absolute bottom-0 left-0 w-12 h-12 border-b-8 border-l-8 border-primary -ml-2 -mb-2"></div>
+                    <div className="absolute bottom-0 right-0 w-12 h-12 border-b-8 border-r-8 border-primary -mr-2 -mb-2"></div>
                  </div>
               </div>
               
@@ -375,7 +375,7 @@ function TeachingJournalPageContent() {
                   <Camera className="w-4 h-4" /> KAMERA AKTIF
                 </Badge>
                 <p className="text-white/50 text-[10px] uppercase tracking-[0.2em] font-medium text-center">
-                  Arahkan ke Kartu QR Siswa untuk Absensi Otomatis
+                  Tempatkan Kartu QR Siswa di Tengah Kotak
                 </p>
               </div>
            </div>
