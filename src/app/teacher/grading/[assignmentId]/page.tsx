@@ -17,7 +17,9 @@ import {
   Download,
   Settings2,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  ChevronLeft,
+  LayoutGrid
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -32,19 +34,10 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
-import { collection, query, where, doc, writeBatch, setDoc } from "firebase/firestore"
+import { collection, query, where, doc, writeBatch } from "firebase/firestore"
 import { TeacherAssignment, Applicant, Classroom, Assessment, GradingConfig } from "@/lib/types"
 import { useToast } from '@/hooks/use-toast'
 import Link from 'next/link'
@@ -65,6 +58,8 @@ const GRADE_FIELDS = [
   { id: 'finalExam', label: 'UAS' },
 ]
 
+type GradingView = 'table' | 'config'
+
 function GradingPageContent() {
   const { assignmentId } = useParams()
   const router = useRouter()
@@ -73,10 +68,10 @@ function GradingPageContent() {
   const { user, loading: userLoading } = useUser()
   const { toast } = useToast()
   
+  const [activeView, setActiveView] = useState<GradingView>('table')
   const [isSaving, setIsSaving] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [isConfigOpen, setIsConfigOpen] = useState(false)
   
   const settingsRef = useMemoFirebase(() => {
     if (!db || userLoading || !user) return null
@@ -205,6 +200,7 @@ function GradingPageContent() {
       
       await batch.commit()
       toast({ title: "Buku Nilai & Konfigurasi Disimpan" })
+      if (activeView === 'config') setActiveView('table')
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal menyimpan" })
     } finally {
@@ -273,6 +269,120 @@ function GradingPageContent() {
     </div>
   )
 
+  // --- VIEW: CONFIGURATION ---
+  if (activeView === 'config') {
+    return (
+      <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setActiveView('table')} className="rounded-full border"><ArrowLeft className="w-4 h-4" /></Button>
+            <div>
+               <h1 className="text-2xl font-bold">Konfigurasi Buku Nilai</h1>
+               <p className="text-muted-foreground text-xs uppercase font-bold text-primary tracking-widest">{assignment?.subjectName} • KELAS {assignment?.className}</p>
+            </div>
+          </div>
+          <Button onClick={saveAllGrades} disabled={isSaving || totalWeight !== 100} className="gap-2 shadow-lg shadow-primary/20 h-11 px-8">
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            Terapkan & Simpan
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+           <div className="lg:col-span-2 space-y-6">
+              <Card className="border-border/50 shadow-md">
+                <CardHeader className="bg-muted/10 border-b">
+                   <CardTitle className="text-base flex items-center gap-2"><LayoutGrid className="w-4 h-4 text-primary" /> Pilih Komponen Nilai</CardTitle>
+                   <CardDescription>Ceklis komponen yang ingin ditampilkan dan isi bobot persentasenya.</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                   <ScrollArea className="max-h-[600px]">
+                      <div className="divide-y divide-border/30">
+                        {GRADE_FIELDS.map((f) => (
+                          <div key={f.id} className="flex items-center justify-between p-4 px-6 hover:bg-muted/10 transition-colors">
+                            <div className="flex items-center gap-4">
+                              <Checkbox 
+                                id={`check-${f.id}`}
+                                checked={localConfig.visibility[f.id]}
+                                onCheckedChange={(checked) => {
+                                  setLocalConfig(prev => ({
+                                    ...prev,
+                                    visibility: { ...prev.visibility, [f.id]: !!checked },
+                                    weights: { ...prev.weights, [f.id]: checked ? (prev.weights[f.id] || 0) : 0 }
+                                  }))
+                                }}
+                                className="h-5 w-5"
+                              />
+                              <Label htmlFor={`check-${f.id}`} className="font-bold text-sm cursor-pointer">{f.label}</Label>
+                            </div>
+                            {localConfig.visibility[f.id] && (
+                              <div className="flex items-center gap-3">
+                                <Input 
+                                  type="number" 
+                                  className="w-24 h-10 text-center font-bold text-lg bg-background border-primary/20 focus:border-primary transition-all" 
+                                  value={localConfig.weights[f.id] || 0}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value) || 0
+                                    setLocalConfig(prev => ({
+                                      ...prev,
+                                      weights: { ...prev.weights, [f.id]: val }
+                                    }))
+                                  }}
+                                />
+                                <span className="text-sm font-bold text-muted-foreground">%</span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                   </ScrollArea>
+                </CardContent>
+              </Card>
+           </div>
+
+           <div className="space-y-6">
+              <Card className={`border-2 transition-all shadow-xl sticky top-24 ${totalWeight === 100 ? 'bg-green-500/5 border-green-500/20' : 'bg-amber-500/5 border-amber-500/20'}`}>
+                <CardHeader className="pb-2">
+                   <CardTitle className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                     <Info className="w-4 h-4" /> Ringkasan Bobot
+                   </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                   <div className="flex flex-col items-center justify-center py-6">
+                      <span className={`text-6xl font-black ${totalWeight === 100 ? 'text-green-500' : 'text-amber-500'}`}>
+                        {totalWeight}%
+                      </span>
+                      <p className="text-[10px] mt-2 font-bold uppercase tracking-widest text-muted-foreground">Total Persentase</p>
+                   </div>
+                   
+                   <Separator className="opacity-30" />
+
+                   <div className="space-y-3">
+                      {totalWeight === 100 ? (
+                        <div className="flex items-start gap-3 p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-600">
+                           <CheckCircle2 className="w-5 h-5 shrink-0" />
+                           <p className="text-xs font-medium leading-relaxed">Bobot sudah seimbang (100%). Anda dapat menyimpan konfigurasi sekarang.</p>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-600">
+                           <AlertTriangle className="w-5 h-5 shrink-0" />
+                           <p className="text-xs font-medium leading-relaxed">Total bobot harus tepat 100% agar nilai akhir dapat dihitung secara valid.</p>
+                        </div>
+                      )}
+                   </div>
+
+                   <Button onClick={saveAllGrades} disabled={isSaving || totalWeight !== 100} className="w-full h-12 shadow-lg">
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                      Simpan Permanen
+                   </Button>
+                </CardContent>
+              </Card>
+           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // --- VIEW: MAIN TABLE ---
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -296,7 +406,7 @@ function GradingPageContent() {
               className="pl-9 w-48 bg-muted/20"
             />
           </div>
-          <Button variant="outline" onClick={() => setIsConfigOpen(true)} className="gap-2 border-primary/30 text-primary">
+          <Button variant="outline" onClick={() => setActiveView('config')} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
             <Settings2 className="w-4 h-4" /> Pengaturan Kolom & Bobot
           </Button>
           <Button variant="outline" onClick={handleDownloadPDF} disabled={isExporting} className="gap-2 border-primary/30">
@@ -412,72 +522,6 @@ function GradingPageContent() {
           </Card>
         </div>
       </div>
-
-      {/* DIALOG CONFIGURATION */}
-      <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[85vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="p-6 pb-2">
-            <DialogTitle className="flex items-center gap-2"><Settings2 className="w-5 h-5 text-primary" /> Konfigurasi Buku Nilai</DialogTitle>
-            <DialogDescription>Aktifkan kolom penilaian dan tentukan bobot persentasenya.</DialogDescription>
-          </DialogHeader>
-          <ScrollArea className="flex-1 px-6">
-            <div className="space-y-4 py-4">
-              <div className={`p-4 rounded-xl border flex items-center justify-between transition-all ${totalWeight === 100 ? 'bg-green-500/10 border-green-500/20' : 'bg-amber-500/10 border-amber-500/20'}`}>
-                <div>
-                  <h4 className="text-sm font-bold">Total Bobot Penilaian</h4>
-                  <p className="text-xs text-muted-foreground">Pastikan seluruh persentase berjumlah 100%.</p>
-                </div>
-                <div className={`text-2xl font-black ${totalWeight === 100 ? 'text-green-500' : 'text-amber-500'}`}>
-                  {totalWeight}%
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3">
-                {GRADE_FIELDS.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20 group hover:bg-muted/30 transition-all">
-                    <div className="flex items-center gap-3">
-                      <Checkbox 
-                        id={`check-${f.id}`}
-                        checked={localConfig.visibility[f.id]}
-                        onCheckedChange={(checked) => {
-                          setLocalConfig(prev => ({
-                            ...prev,
-                            visibility: { ...prev.visibility, [f.id]: !!checked },
-                            weights: { ...prev.weights, [f.id]: checked ? (prev.weights[f.id] || 0) : 0 }
-                          }))
-                        }}
-                      />
-                      <Label htmlFor={`check-${f.id}`} className="font-bold cursor-pointer">{f.label}</Label>
-                    </div>
-                    {localConfig.visibility[f.id] && (
-                      <div className="flex items-center gap-2">
-                        <Input 
-                          type="number" 
-                          className="w-20 h-9 text-center font-bold text-primary" 
-                          value={localConfig.weights[f.id] || 0}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0
-                            setLocalConfig(prev => ({
-                              ...prev,
-                              weights: { ...prev.weights, [f.id]: val }
-                            }))
-                          }}
-                        />
-                        <span className="text-sm font-bold text-muted-foreground">%</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </ScrollArea>
-          <DialogFooter className="p-6 pt-2 border-t">
-            <Button onClick={() => setIsConfigOpen(false)} className="w-full h-11 gap-2" disabled={totalWeight !== 100}>
-              <Check className="w-4 h-4" /> Terapkan Konfigurasi
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
