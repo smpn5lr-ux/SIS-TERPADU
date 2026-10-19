@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -205,9 +205,14 @@ export default function ClassesPage() {
       })
 
       localApplicants.forEach(la => {
-        const serverVer = serverApplicants?.find(sa => sa.id === la.id)
-        if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(la)) {
-          batch.update(doc(db, 'applicants', la.id), la as any)
+        if (la.id.startsWith('temp-')) {
+           const { id, ...data } = la
+           batch.set(doc(collection(db, 'applicants')), data)
+        } else {
+          const serverVer = serverApplicants?.find(sa => sa.id === la.id)
+          if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(la)) {
+            batch.update(doc(db, 'applicants', la.id), la as any)
+          }
         }
       })
 
@@ -221,7 +226,6 @@ export default function ClassesPage() {
     }
   }
 
-  // Syarat masuk kelas: Tidak perlu status 'accepted', cukup ada di database dan belum punya kelas
   const availableStudents = useMemo(() => {
     if (!localApplicants || !localClasses) return []
     const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
@@ -295,39 +299,56 @@ export default function ClassesPage() {
         const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
 
         let addedCount = 0
+        let createdCount = 0
         const currentStudents = [...(selectedClassForStudents.students || [])]
+        const currentApplicants = [...localApplicants]
         
         data.forEach(row => {
-          const name = String(row[nameKey] || "").trim().toLowerCase()
+          const rawName = String(row[nameKey] || "").trim()
+          const name = rawName.toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
           
-          if (!name && !nisn) return;
+          if (!rawName && !nisn) return;
 
-          const match = availableStudents.find(a => {
+          // 1. Cari di local database
+          let student = currentApplicants.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbName = (a.fullName || "").trim().toLowerCase();
-            const nisnMatch = nisn !== "" && dbNisn === nisn;
-            const nameMatch = name !== "" && dbName === name;
-            return nisnMatch || nameMatch;
+            return (nisn !== "" && dbNisn === nisn) || (name !== "" && dbName === name);
           });
 
-          if (match && !currentStudents.includes(match.id)) {
-            currentStudents.push(match.id)
+          // 2. Jika tidak ada, buat baru otomatis
+          if (!student) {
+             student = {
+               id: `temp-new-${Date.now()}-${createdCount}`,
+               fullName: rawName,
+               NISN: nisn,
+               gender: "Laki-laki",
+               admissionStatus: "accepted",
+               verificationStatus: "Lengkap",
+               createdAt: new Date().toISOString(),
+               isDeleted: false
+             } as Applicant
+             currentApplicants.push(student)
+             createdCount++
+          }
+
+          // 3. Masukkan ke kelas jika belum ada
+          if (!currentStudents.includes(student.id)) {
+            currentStudents.push(student.id)
             addedCount++
           }
         })
 
         if (addedCount > 0) {
+          setLocalApplicants(currentApplicants)
           const updatedClass = { ...selectedClassForStudents, students: currentStudents, currentEnrollment: currentStudents.length }
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
-          toast({ title: "Impor Berhasil", description: `${addedCount} murid ditambahkan ke draf.` })
-        } else {
           toast({ 
-            variant: "destructive", 
-            title: "Impor Gagal", 
-            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah terdaftar di sistem dan belum memiliki kelas." 
+            title: "Impor Berhasil", 
+            description: `${addedCount} murid ditambahkan (${createdCount} murid baru terdaftar otomatis).` 
           })
         }
       } catch (err) {
@@ -397,7 +418,7 @@ export default function ClassesPage() {
                 <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-muted/50 border border-border/40 bg-muted/20 transition-all group">
                    <div className="flex flex-col">
                      <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
-                     <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.originSchool}</span>
+                     <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.originSchool || "Siswa Baru"}</span>
                    </div>
                    <Button size="sm" variant="outline" className="h-8 px-4 text-primary border-primary/20 hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s.id)}>Pilih <ChevronRight className="w-3 h-3 ml-1" /></Button>
                 </div>
@@ -405,7 +426,7 @@ export default function ClassesPage() {
               {availableStudents.length === 0 && (
                 <div className="col-span-full py-20 text-center text-muted-foreground italic flex flex-col items-center gap-4">
                   <Users className="w-12 h-12 opacity-10" />
-                  <p>Seluruh pendaftar yang diterima sudah memiliki kelas.</p>
+                  <p>Seluruh murid di database sudah memiliki kelas.</p>
                 </div>
               )}
             </div>
@@ -427,7 +448,7 @@ export default function ClassesPage() {
                   {currentClassStudents.length === 0 ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                       <GraduationCap className="w-16 h-16 opacity-5" />
-                      <p>Belum ada murid di kelas ini. Klik tombol "Tambah Murid" untuk mengisi rombel.</p>
+                      <p>Belum ada murid di kelas ini. Klik tombol "Tambah Murid" atau "Impor Excel" untuk mengisi rombel.</p>
                     </TableCell></TableRow>
                   ) : currentClassStudents.map((s, idx) => (
                     <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
@@ -464,7 +485,7 @@ export default function ClassesPage() {
         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 flex gap-4 mt-8">
            <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
            <div className="text-xs text-muted-foreground leading-relaxed italic">
-             Data yang Anda kelola di halaman ini bersifat <strong>Offline Draf</strong>. Pastikan menekan tombol <strong>"Sinkronkan ke Cloud"</strong> di halaman utama manajemen kelas untuk menyimpan perubahan anggota rombel secara permanen.
+             Data yang Anda kelola bersifat <strong>Offline Draf</strong>. Impor Excel akan mendaftarkan murid baru secara otomatis jika belum ada di database. Klik <strong>"Sinkronkan ke Cloud"</strong> untuk menyimpan permanen.
            </div>
         </div>
 
@@ -586,7 +607,7 @@ export default function ClassesPage() {
       <div className="bg-accent/5 p-5 rounded-xl border border-accent/20 flex gap-5">
          <Info className="w-6 h-6 text-accent shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed italic">
-           Sistem menggunakan <strong>Mode Offline Buffer</strong>. Anda dapat mengatur kelas dan memindahkan murid antar rombel tanpa biaya database berlebih. Pastikan menekan tombol <strong>Sinkronkan ke Cloud</strong> untuk menyimpan hasil akhir.
+           Sistem menggunakan <strong>Mode Offline Buffer</strong>. Menu ini adalah pintu masuk utama data murid. Anda dapat mengatur kelas dan memendaftarkan murid baru secara massal via Excel di sini.
          </div>
       </div>
 
@@ -619,7 +640,7 @@ export default function ClassesPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">Hapus Rombel?</AlertDialogTitle>
-            <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda. Murid di dalamnya akan dikeluarkan dari rombel tapi data profil mereka aman.</AlertDialogDescription>
+            <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda. Murid di dalamnya akan dikeluarkan dari rombel tapi data profil mereka tetap aman di Data Induk.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Kelas</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
