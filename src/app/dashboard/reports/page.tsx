@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useMemo } from "react"
@@ -17,7 +18,9 @@ import {
   FileCode,
   CheckCircle2,
   Settings2,
-  CalendarDays
+  CalendarDays,
+  LayoutGrid,
+  Users2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -46,7 +49,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase"
 import { collection, query, orderBy, doc } from "firebase/firestore"
-import { Applicant } from "@/lib/types"
+import { Applicant, Classroom } from "@/index"
 import { useToast } from "@/hooks/use-toast"
 import * as XLSX from 'xlsx'
 import { Skeleton } from "@/components/ui/skeleton"
@@ -54,20 +57,12 @@ import { Skeleton } from "@/components/ui/skeleton"
 const COLORS = ['#4361EE', '#4CC9F0', '#F72585', '#7209B7', '#3A0CA3']
 
 const EXPORT_COLUMNS = [
-  { id: 'registrationNumber', label: 'No. Urut Pendaftaran (No Reg)' },
+  { id: 'registrationNumber', label: 'No. Induk / Reg' },
   { id: 'NISN', label: 'NISN' },
-  { id: 'NIK', label: 'NIK' },
   { id: 'fullName', label: 'Nama Lengkap' },
   { id: 'gender', label: 'Jenis Kelamin' },
   { id: 'originSchool', label: 'Sekolah Asal' },
-  { id: 'applicationPath', label: 'Jalur Masuk' },
-  { id: 'academicScore', label: 'Skor Akademik' },
-  { id: 'distanceToSchoolKm', label: 'Jarak (Km)' },
-  { id: 'verificationStatus', label: 'Status Verifikasi' },
-  { id: 'admissionStatus', label: 'Hasil Seleksi' },
-  { id: 'parentName', label: 'Nama Orang Tua' },
-  { id: 'parentPhone', label: 'No. Telepon' },
-  { id: 'address', label: 'Alamat Lengkap' },
+  { id: 'address', label: 'Alamat' },
   { id: 'birthDate', label: 'Tanggal Lahir' },
   { id: 'religion', label: 'Agama' },
 ]
@@ -81,45 +76,33 @@ export default function ReportsPage() {
 
   const applicantsQuery = useMemoFirebase(() => {
     if (!db) return null
-    return query(collection(db, 'applicants'), orderBy('registrationSequence', 'asc'))
+    return query(collection(db, 'applicants'), orderBy('fullName', 'asc'))
   }, [db])
+
+  const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
 
   const settingsRef = useMemoFirebase(() => {
     if (!db) return null
     return doc(db, 'settings', 'system')
   }, [db])
 
-  const { data: applicants, loading } = useCollection<Applicant>(applicantsQuery)
+  const { data: applicants, loading: loadingA } = useCollection<Applicant>(applicantsQuery)
+  const { data: classes, loading: loadingC } = useCollection<Classroom>(classesQuery)
   const { data: systemSettings } = useDoc<any>(settingsRef)
 
   const dinasName = systemSettings?.dinasName || "DINAS PENDIDIKAN"
   const schoolName = systemSettings?.schoolName || "SIS TERPADU"
   const academicYear = systemSettings?.academicYear || "2024/2025"
-  const npsn = systemSettings?.npsn || "-"
 
   const stats = useMemo(() => {
-    const totalQuota = systemSettings?.totalQuota || 0
-    if (!applicants) return { total: 0, avgScore: 0, remainingQuota: 0, acceptedCount: 0, totalQuota }
+    if (!applicants) return { total: 0, activeCount: 0, avgClassSize: 0, totalClasses: 0 }
     const total = applicants.filter(a => !a.isDeleted).length
-    const acceptedCount = applicants.filter(a => !a.isDeleted && a.admissionStatus === 'accepted').length
-    const remainingQuota = Math.max(0, totalQuota - total)
-    
-    const prestasiApplicants = applicants.filter(a => !a.isDeleted && a.applicationPath === 'Prestasi' && a.academicScore)
-    const avgScore = prestasiApplicants.length 
-      ? (prestasiApplicants.reduce((acc, curr) => acc + (curr.academicScore || 0), 0) / prestasiApplicants.length).toFixed(1)
-      : 0
+    const activeCount = applicants.filter(a => !a.isDeleted && a.admissionStatus !== 'graduated').length
+    const totalClasses = classes?.length || 0
+    const avgClassSize = totalClasses > 0 ? (activeCount / totalClasses).toFixed(1) : 0
       
-    return { total, avgScore, remainingQuota, acceptedCount, totalQuota }
-  }, [applicants, systemSettings])
-
-  const formatDateLabel = (dateStr: string | undefined) => {
-    if (!dateStr) return "-";
-    const parts = dateStr.split('-');
-    if (parts.length === 3 && parts[0].length === 4) {
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
-    }
-    return dateStr;
-  }
+    return { total, activeCount, avgClassSize, totalClasses }
+  }, [applicants, classes])
 
   const getExportData = () => {
     if (!applicants) return []
@@ -127,51 +110,11 @@ export default function ReportsPage() {
       const row: any = { "No.": idx + 1 }
       EXPORT_COLUMNS.forEach(col => {
         if (selectedColumns.includes(col.id)) {
-          let value = (a as any)[col.id];
-          
-          if (col.id === 'parentName' && (!value || value === '-' || value === "")) {
-            value = a.fatherName || a.motherName || a.guardianName || "-";
-          }
-          
-          if (col.id === 'parentPhone' && (!value || value === '-' || value === "")) {
-            value = a.studentPhone || "-";
-          }
-
-          if (col.id === 'birthDate') {
-            value = formatDateLabel(value);
-          }
-
-          row[col.label] = value || '-'
+          row[col.label] = (a as any)[col.id] || '-'
         }
       })
       return row
     })
-  }
-
-  const handleExportCSV = () => {
-    if (!applicants?.length || selectedColumns.length === 0) return
-    setIsExporting(true)
-    try {
-      const data = getExportData()
-      if (data.length === 0) return;
-      const headers = Object.keys(data[0])
-      const csvContent = [
-        headers.join(","),
-        ...data.map(row => Object.values(row).map(v => `"${v}"`).join(","))
-      ].join("\n")
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.setAttribute("href", url)
-      link.setAttribute("download", `Laporan_Murid_PPDB_${new Date().toISOString().split('T')[0]}.csv`)
-      link.click()
-      toast({ title: "Ekspor Berhasil", description: "Laporan CSV telah diunduh." })
-      setIsDownloadDialogOpen(false)
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Gagal ekspor CSV." })
-    } finally {
-      setIsExporting(false)
-    }
   }
 
   const handleExportExcel = () => {
@@ -181,66 +124,12 @@ export default function ReportsPage() {
       const data = getExportData()
       const worksheet = XLSX.utils.json_to_sheet(data)
       const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Murid")
-      XLSX.writeFile(workbook, `Laporan_Murid_PPDB_${new Date().toISOString().split('T')[0]}.xlsx`)
-      toast({ title: "Ekspor Berhasil", description: "Laporan Excel telah diunduh." })
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Laporan Siswa")
+      XLSX.writeFile(workbook, `Laporan_Siswa_${new Date().toISOString().split('T')[0]}.xlsx`)
+      toast({ title: "Ekspor Berhasil" })
       setIsDownloadDialogOpen(false)
     } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Gagal ekspor Excel." })
-    } finally {
-      setIsExporting(false)
-    }
-  }
-
-  const handleExportPDF = async () => {
-    if (!applicants?.length || selectedColumns.length === 0) return
-    setIsExporting(true)
-    try {
-      const { default: jsPDF } = await import('jspdf')
-      const { default: autoTable } = await import('jspdf-autotable')
-      const doc = new jsPDF('landscape')
-      
-      doc.setFontSize(12)
-      doc.setFont("helvetica", "bold")
-      doc.setTextColor(67, 97, 238)
-      doc.text(dinasName.toUpperCase(), 148, 12, { align: "center" })
-      doc.text(schoolName.toUpperCase(), 148, 19, { align: "center" })
-      doc.setFontSize(10)
-      doc.setFont("helvetica", "normal")
-      doc.setTextColor(100)
-      doc.text(`NPSN: ${npsn} | Tahun Ajaran ${academicYear}`, 148, 25, { align: "center" })
-      doc.line(14, 28, 283, 28)
-
-      const data = getExportData()
-      if (data.length === 0) return;
-      const headers = [Object.keys(data[0])]
-      const body = data.map(item => Object.values(item))
-
-      doc.setFontSize(14)
-      doc.setTextColor(67, 97, 238)
-      doc.setFont("helvetica", "bold")
-      doc.text(`Laporan Rekapitulasi Penerimaan Murid Baru`, 14, 35)
-      
-      autoTable(doc, {
-        head: headers,
-        body: body,
-        startY: 40,
-        theme: 'striped',
-        styles: { fontSize: 7, cellPadding: 2, font: 'helvetica' },
-        headStyles: { 
-          fillColor: [67, 97, 238],
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-          halign: 'center'
-        },
-        alternateRowStyles: { fillColor: [245, 247, 255] }
-      })
-
-      doc.save(`Laporan_Murid_PPDB_${new Date().toISOString().split('T')[0]}.pdf`)
-      toast({ title: "Ekspor Berhasil", description: "Laporan PDF telah diunduh." })
-      setIsDownloadDialogOpen(false)
-    } catch (error) {
-      toast({ variant: "destructive", title: "Error", description: "Gagal ekspor PDF." })
+      toast({ variant: "destructive", title: "Error" })
     } finally {
       setIsExporting(false)
     }
@@ -250,195 +139,113 @@ export default function ReportsPage() {
     setSelectedColumns(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id])
   }
 
-  const schoolData = useMemo(() => {
-    if (!applicants) return []
-    const counts: Record<string, number> = {}
+  const levelDistribution = useMemo(() => {
+    if (!classes || !applicants) return []
+    const levels: Record<number, number> = {}
     
-    applicants.filter(a => !a.isDeleted).forEach(a => {
-      const school = (a.originSchool || "TIDAK DIKETAHUI").trim().toUpperCase()
-      counts[school] = (counts[school] || 0) + 1
+    classes.forEach(cls => {
+      const level = cls.gradeLevel
+      const count = cls.students?.length || 0
+      levels[level] = (levels[level] || 0) + count
     })
 
-    return Object.entries(counts)
-      .map(([name, count]) => ({ 
-        name: name.length > 20 ? name.substring(0, 17) + "..." : name, 
-        fullName: name,
-        count 
-      }))
-      .sort((a, b) => b.count - a.count)
+    return Object.entries(levels).map(([lvl, count]) => ({
+      name: `Tingkat ${lvl}`,
+      count
+    })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [classes, applicants])
+
+  const genderData = useMemo(() => {
+    if (!applicants) return []
+    const male = applicants.filter(a => !a.isDeleted && a.gender === 'Laki-laki').length
+    const female = applicants.filter(a => !a.isDeleted && a.gender === 'Perempuan').length
+    const total = male + female
+    if (total === 0) return []
+    return [
+      { name: 'Laki-laki', value: Math.round((male/total)*100) },
+      { name: 'Perempuan', value: Math.round((female/total)*100) }
+    ]
   }, [applicants])
 
-  const ageData = useMemo(() => {
-    if (!applicants || applicants.length === 0) return []
-    const ages: Record<string, number> = {}
-    const filtered = applicants.filter(a => !a.isDeleted)
-    filtered.forEach(a => {
-      const label = `${a.ageYears || 12} Thn`
-      ages[label] = (ages[label] || 0) + 1
-    })
-    const totalCount = filtered.length
-    return Object.entries(ages).map(([name, count]) => ({
-      name,
-      value: totalCount > 0 ? Math.round((count / totalCount) * 100) : 0
-    }))
-  }, [applicants])
+  const loading = loadingA || loadingC
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-headline font-bold">Laporan & Analitik</h1>
-          <p className="text-muted-foreground mt-1">Visualisasi data pendaftaran murid secara real-time dari Firestore.</p>
+          <h1 className="text-3xl font-headline font-bold">Laporan Akademik</h1>
+          <p className="text-muted-foreground mt-1">Rekapitulasi data siswa dan operasional sekolah.</p>
         </div>
-        <div className="flex gap-2">
-          <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
-            <DialogTrigger asChild>
-              <Button disabled={loading} className="gap-2 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20">
-                <FileDown className="w-4 h-4" />
-                Unduh Laporan
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[650px] border-border/50 bg-card">
-              <DialogHeader>
-                <DialogTitle className="font-headline text-xl flex items-center gap-2">
-                  <Settings2 className="w-5 h-5 text-primary" />
-                  Kustomisasi Ekspor Laporan
-                </DialogTitle>
-                <DialogDescription>
-                  Pilih kolom data murid yang ingin Anda sertakan dalam dokumen ekspor.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-4">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 bg-muted/20 rounded-xl border border-border/50 max-h-[300px] overflow-y-auto">
-                  {EXPORT_COLUMNS.map((col) => (
-                    <div key={col.id} className="flex items-center space-x-2">
-                      <Checkbox id={`col-${col.id}`} checked={selectedColumns.includes(col.id)} onCheckedChange={() => toggleColumn(col.id)} />
-                      <Label htmlFor={`col-${col.id}`} className="text-xs font-medium cursor-pointer">{col.label}</Label>
-                    </div>
-                  ))}
+        <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
+          <DialogTrigger asChild>
+            <Button disabled={loading} className="gap-2 bg-primary shadow-lg shadow-primary/20">
+              <FileDown className="w-4 h-4" /> Ekspor Data Induk
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Pilih Kolom Ekspor</DialogTitle>
+              <DialogDescription>Format file akan berupa Excel (.xlsx)</DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3 py-4">
+              {EXPORT_COLUMNS.map(col => (
+                <div key={col.id} className="flex items-center space-x-2">
+                  <Checkbox id={col.id} checked={selectedColumns.includes(col.id)} onCheckedChange={() => toggleColumn(col.id)} />
+                  <Label htmlFor={col.id} className="text-xs cursor-pointer">{col.label}</Label>
                 </div>
-              </div>
-              <DialogFooter className="flex gap-2">
-                <Button onClick={handleExportCSV} disabled={isExporting} variant="outline" className="gap-2"><FileCode className="w-3 h-3" /> CSV</Button>
-                <Button onClick={handleExportExcel} disabled={isExporting} variant="outline" className="gap-2 border-green-500/20 text-green-500"><FileSpreadsheet className="w-3 h-3" /> Excel</Button>
-                <Button onClick={handleExportPDF} disabled={isExporting} className="gap-2"><FilePdf className="w-3 h-3" /> PDF</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button onClick={handleExportExcel} disabled={isExporting} className="w-full">Unduh Sekarang</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border-border/50 bg-card shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-              <CalendarDays className="w-4 h-4 text-primary" /> Sisa Kuota Sekolah
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{loading ? "..." : `${stats.remainingQuota} dari ${stats.totalQuota}`}</div>
-            <p className="text-xs text-green-500 mt-1 font-bold flex items-center gap-1">Terisi: {stats.acceptedCount} Murid</p>
-          </CardContent>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <Card className="border-border/50">
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2"><Users className="w-4 h-4 text-primary" /> Murid Aktif</CardTitle></CardHeader>
+          <CardContent><div className="text-3xl font-bold">{loading ? "..." : stats.activeCount}</div></CardContent>
         </Card>
-        <Card className="border-border/50 bg-card shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-              <School className="w-4 h-4 text-accent" /> Rata-rata Skor Murid
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{loading ? "..." : stats.avgScore}</div>
-            <p className="text-xs text-muted-foreground mt-1">Berdasarkan Jalur Prestasi</p>
-          </CardContent>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2"><School className="w-4 h-4 text-accent" /> Total Rombel</CardTitle></CardHeader>
+          <CardContent><div className="text-3xl font-bold">{loading ? "..." : stats.totalClasses}</div></CardContent>
         </Card>
-        <Card className="border-border/50 bg-card shadow-sm">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-              <Users className="w-4 h-4 text-pink-500" /> Total Pendaftar
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-4xl font-bold">{loading ? "..." : stats.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">Total data masuk sistem</p>
-          </CardContent>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2"><Users2 className="w-4 h-4 text-pink-500" /> Rasio Rombel</CardTitle></CardHeader>
+          <CardContent><div className="text-3xl font-bold">{loading ? "..." : stats.avgClassSize}</div><p className="text-[10px] text-muted-foreground">Siswa / Kelas</p></CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardHeader className="pb-2"><CardTitle className="text-xs font-bold uppercase text-muted-foreground flex items-center gap-2"><Calendar className="w-4 h-4 text-amber-500" /> Thn Ajaran</CardTitle></CardHeader>
+          <CardContent><div className="text-xl font-bold">{academicYear}</div></CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-border/50 bg-card shadow-sm">
-          <CardHeader>
-            <CardTitle className="font-headline text-lg">Asal Sekolah Dasar</CardTitle>
-            <CardDescription>Semua nama sekolah asal pendaftar yang masuk ke sistem.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[400px]">
-            {loading ? (
-              <Skeleton className="w-full h-full" />
-            ) : schoolData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={schoolData} margin={{ top: 20, right: 30, left: 0, bottom: 60 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-                  <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    angle={-45}
-                    textAnchor="end"
-                    interval={0}
-                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                  />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 10 }}
-                  />
-                  <Tooltip 
-                    cursor={{ fill: 'hsl(var(--muted)/0.3)' }} 
-                    contentStyle={{ backgroundColor: 'hsl(var(--card))', borderColor: 'hsl(var(--border))', borderRadius: '8px' }} 
-                    labelFormatter={(value, payload) => payload[0]?.payload?.fullName || value}
-                  />
-                  <Bar 
-                    dataKey="count" 
-                    fill="#4361EE" 
-                    radius={[4, 4, 0, 0]} 
-                    barSize={30} 
-                  >
-                    {schoolData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-muted-foreground italic">
-                Belum ada data sekolah asal.
-              </div>
-            )}
+        <Card className="border-border/50">
+          <CardHeader><CardTitle className="text-lg">Sebaran Murid per Tingkat</CardTitle></CardHeader>
+          <CardContent className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={levelDistribution}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                <YAxis axisLine={false} tickLine={false} />
+                <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                <Bar dataKey="count" fill="#4361EE" radius={[4, 4, 0, 0]} barSize={40} />
+              </BarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
-        
-        <Card className="border-border/50 bg-card shadow-sm">
-          <CardHeader>
-            <CardTitle className="font-headline text-lg">Demografi Usia Murid</CardTitle>
-            <CardDescription>Persentase persebaran usia calon murid baru.</CardDescription>
-          </CardHeader>
-          <CardContent className="h-[400px] flex items-center justify-center">
+
+        <Card className="border-border/50">
+          <CardHeader><CardTitle className="text-lg">Persentase Gender</CardTitle></CardHeader>
+          <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
-                <Pie 
-                  data={ageData} 
-                  cx="50%" 
-                  cy="50%" 
-                  innerRadius={70} 
-                  outerRadius={100} 
-                  paddingAngle={8} 
-                  dataKey="value"
-                  label={({ name, value }) => `${name}: ${value}%`}
-                >
-                  {ageData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
+                <Pie data={genderData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" label={({name, value}) => `${name}: ${value}%`}>
+                  {genderData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
-                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                <Tooltip />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>

@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import Link from 'next/link'
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy, doc, writeBatch, where } from 'firebase/firestore'
+import { collection, query, orderBy, doc, writeBatch } from 'firebase/firestore'
 import { Applicant } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 
@@ -29,8 +29,8 @@ export default function StudentDatabasePage() {
 
   const studentsQuery = useMemoFirebase(() => {
     if (!db) return null
-    // Filter siswa yang diterima atau sudah lulus
-    return query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated']), orderBy('fullName', 'asc'))
+    // Tampilkan seluruh data induk siswa yang tidak dihapus
+    return query(collection(db, 'applicants'), orderBy('fullName', 'asc'))
   }, [db])
 
   const { data: serverStudents, loading } = useCollection<Applicant>(studentsQuery)
@@ -75,7 +75,7 @@ export default function StudentDatabasePage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Induk Siswa</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Database resmi seluruh murid aktif (Dapodik).</p>
+             <p className="text-muted-foreground text-sm">Database resmi seluruh murid (Dapodik).</p>
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>

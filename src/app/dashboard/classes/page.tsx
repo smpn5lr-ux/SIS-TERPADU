@@ -221,10 +221,11 @@ export default function ClassesPage() {
     }
   }
 
+  // Syarat masuk kelas: Tidak perlu status 'accepted', cukup ada di database dan belum punya kelas
   const availableStudents = useMemo(() => {
     if (!localApplicants || !localClasses) return []
     const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
-    return localApplicants.filter(a => a.admissionStatus === 'accepted' && !assignedIds.has(a.id) && !a.isDeleted)
+    return localApplicants.filter(a => !assignedIds.has(a.id) && !a.isDeleted)
   }, [localApplicants, localClasses])
 
   const currentClassStudents = useMemo(() => {
@@ -288,7 +289,6 @@ export default function ClassesPage() {
           return;
         }
 
-        // Deteksi kolom secara fleksibel (mencari kunci yang mengandung kata kunci)
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
         const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA LENGKAP";
@@ -303,14 +303,11 @@ export default function ClassesPage() {
           
           if (!name && !nisn) return;
 
-          // Cari di pendaftar yang statusnya 'accepted' (Lengkap) dan belum punya kelas
           const match = availableStudents.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbName = (a.fullName || "").trim().toLowerCase();
-            
             const nisnMatch = nisn !== "" && dbNisn === nisn;
             const nameMatch = name !== "" && dbName === name;
-            
             return nisnMatch || nameMatch;
           });
 
@@ -330,7 +327,7 @@ export default function ClassesPage() {
           toast({ 
             variant: "destructive", 
             title: "Impor Gagal", 
-            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah berstatus 'Lengkap' (Diterima) dan belum memiliki kelas." 
+            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah terdaftar di sistem dan belum memiliki kelas." 
           })
         }
       } catch (err) {
@@ -338,7 +335,7 @@ export default function ClassesPage() {
       }
     }
     reader.readAsBinaryString(file)
-    e.target.value = ''; // Reset input agar bisa pilih file yang sama
+    e.target.value = '';
   }
 
   const groupedClasses = useMemo(() => {
