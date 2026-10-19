@@ -1,8 +1,23 @@
 
 "use client"
 
-import { useState, useMemo } from 'react'
-import { Plus, BookOpen, Trash2, Loader2, Pencil, Layers, BookMarked, Hash, AlertCircle, CheckCircle2 } from "lucide-react"
+import { useState, useMemo, useEffect } from 'react'
+import { 
+  Plus, 
+  BookOpen, 
+  Trash2, 
+  Loader2, 
+  Pencil, 
+  Layers, 
+  BookMarked, 
+  Hash, 
+  AlertCircle, 
+  CheckCircle2,
+  CloudUpload,
+  CloudOff,
+  RefreshCw,
+  Info
+} from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,7 +50,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore'
+import { collection, addDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { Subject } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { Badge } from "@/components/ui/badge"
@@ -49,7 +64,11 @@ const subjectSchema = z.object({
 export default function SubjectsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+  
+  const [localSubjects, setLocalSubjects] = useState<Subject[]>([])
+  const [isDirty, setIsDirty] = useState(false)
+
   const { toast } = useToast()
   const db = useFirestore()
 
@@ -58,52 +77,49 @@ export default function SubjectsPage() {
     return collection(db, 'subjects')
   }, [db])
 
-  const { data: subjects, loading } = useCollection<Subject>(subjectsQuery)
+  const { data: serverSubjects, loading } = useCollection<Subject>(subjectsQuery)
+
+  useEffect(() => {
+    if (serverSubjects && !isDirty) {
+      setLocalSubjects(serverSubjects)
+    }
+  }, [serverSubjects, isDirty])
 
   const sortedSubjects = useMemo(() => {
-    if (!subjects) return []
-    return [...subjects].sort((a, b) => a.name.localeCompare(b.name))
-  }, [subjects])
+    return [...localSubjects].sort((a, b) => a.name.localeCompare(b.name))
+  }, [localSubjects])
 
   const form = useForm<z.infer<typeof subjectSchema>>({
     resolver: zodResolver(subjectSchema),
     defaultValues: { name: "", code: "", grades: ["7"] },
   })
 
-  const onSubmit = async (values: z.infer<typeof subjectSchema>) => {
-    if (!db || submitting) return
-    setSubmitting(true)
+  const handleSaveLocal = (values: z.infer<typeof subjectSchema>) => {
     const payload = { 
+      id: editingSubject ? editingSubject.id : `temp-${Date.now()}`,
       name: values.name, 
       code: values.code, 
       grades: values.grades.map(Number).sort((a, b) => a - b) 
+    } as Subject
+
+    if (editingSubject) {
+      setLocalSubjects(prev => prev.map(s => s.id === editingSubject.id ? payload : s))
+    } else {
+      setLocalSubjects(prev => [...prev, payload])
     }
-    
-    try {
-      if (editingSubject) {
-        await updateDoc(doc(db, 'subjects', editingSubject.id), payload)
-        toast({ title: "Mata Pelajaran Diperbarui" })
-      } else {
-        await addDoc(collection(db, 'subjects'), payload)
-        toast({ title: "Mata Pelajaran Ditambahkan" })
-      }
-      setIsDialogOpen(false)
-      setEditingSubject(null)
-      form.reset()
-    } catch (e) {
-      toast({ variant: "destructive", title: "Gagal menyimpan" })
-    } finally {
-      setSubmitting(false)
-    }
+
+    setIsDirty(true)
+    setIsDialogOpen(false)
+    form.reset()
+    toast({ title: "Mapel Ditambahkan ke Draf", description: "Jangan lupa klik Sinkron untuk menyimpan." })
   }
 
-  const handleDelete = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'subjects', id))
-    toast({ title: "Mata Pelajaran Dihapus" })
+  const handleDeleteLocal = (id: string) => {
+    setLocalSubjects(prev => prev.filter(s => s.id !== id))
+    setIsDirty(true)
   }
 
-  const handleEdit = (sub: Subject) => {
+  const handleEditLocal = (sub: Subject) => {
     setEditingSubject(sub)
     form.reset({ 
       name: sub.name, 
@@ -113,16 +129,62 @@ export default function SubjectsPage() {
     setIsDialogOpen(true)
   }
 
+  const handleSyncToCloud = async () => {
+    if (!db || !serverSubjects) return
+    setIsSyncing(true)
+    const batch = writeBatch(db)
+
+    try {
+      const toDelete = serverSubjects.filter(ss => !localSubjects.some(ls => ls.id === ss.id))
+      toDelete.forEach(s => batch.delete(doc(db, 'subjects', s.id)))
+
+      localSubjects.forEach(ls => {
+        if (ls.id.startsWith('temp-')) {
+          const { id, ...data } = ls
+          batch.set(doc(collection(db, 'subjects')), data)
+        } else {
+          const serverVer = serverSubjects.find(ss => ss.id === ls.id)
+          if (JSON.stringify(serverVer) !== JSON.stringify(ls)) {
+            batch.update(doc(db, 'subjects', ls.id), ls as any)
+          }
+        }
+      })
+
+      await batch.commit()
+      setIsDirty(false)
+      toast({ title: "Kurikulum Berhasil Diperbarui" })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Kurikulum & Mapel</h1>
-          <p className="text-muted-foreground mt-1">Daftar induk mata pelajaran yang diajarkan di sekolah.</p>
+          <div className="flex items-center gap-2 mt-1">
+             <p className="text-muted-foreground text-sm">Daftar induk mata pelajaran sekolah.</p>
+             {isDirty ? (
+               <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Ada Draf Baru</Badge>
+             ) : (
+               <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Terkoneksi</Badge>
+             )}
+          </div>
         </div>
-        <Button onClick={() => { setEditingSubject(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20">
-          <Plus className="w-4 h-4" /> Tambah Mapel
-        </Button>
+        <div className="flex gap-2">
+          {isDirty && (
+            <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">
+              {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
+              Sinkronkan ke Cloud
+            </Button>
+          )}
+          <Button onClick={() => { setEditingSubject(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20">
+            <Plus className="w-4 h-4" /> Tambah Mapel
+          </Button>
+        </div>
       </div>
 
       <Card className="border-border/50 overflow-hidden shadow-sm">
@@ -136,47 +198,55 @@ export default function SubjectsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {loading && !localSubjects.length ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : sortedSubjects.length === 0 ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20 text-muted-foreground italic">Belum ada mata pelajaran.</TableCell></TableRow>
-            ) : sortedSubjects.map((sub) => (
-              <TableRow key={sub.id} className="hover:bg-muted/5 transition-colors">
-                <TableCell className="font-mono font-bold text-accent">{sub.code}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <BookMarked className="w-4 h-4 text-primary" />
-                    <span className="font-bold">{sub.name}</span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    {sub.grades?.sort((a,b) => a-b).map(g => (
-                      <Badge key={g} variant="outline" className="bg-primary/5 border-primary/20 text-[10px] font-bold">KELAS {g}</Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEdit(sub)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(sub.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+            ) : sortedSubjects.map((sub) => {
+              const isTemp = sub.id.startsWith('temp-')
+              return (
+                <TableRow key={sub.id} className="hover:bg-muted/5 transition-colors">
+                  <TableCell className="font-mono font-bold text-accent">
+                    <div className="flex items-center gap-2">
+                      {sub.code}
+                      {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <BookMarked className="w-4 h-4 text-primary" />
+                      <span className="font-bold">{sub.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      {sub.grades?.sort((a,b) => a-b).map(g => (
+                        <Badge key={g} variant="outline" className="bg-primary/5 border-primary/20 text-[10px] font-bold">KELAS {g}</Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEditLocal(sub)}>
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteLocal(sub.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </Card>
 
       <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 flex gap-4">
-         <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+         <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed">
-           <p className="font-bold text-primary mb-1 uppercase tracking-wider">Sistem Mapel Terpadu:</p>
-           Gunakan menu ini untuk mendefinisikan mata pelajaran sekali saja. Anda dapat mencentang beberapa tingkat sekaligus jika mapel tersebut diajarkan di kelas yang berbeda. Perubahan di sini akan otomatis memperbarui seluruh referensi penugasan guru.
+           <p className="font-bold text-primary mb-1 uppercase tracking-wider">Mode Perencanaan Offline:</p>
+           Sistem menggunakan buffer lokal untuk meminimalisir biaya pembacaan database. Seluruh perubahan yang Anda buat di atas (tambah/hapus) tidak akan membebani kuota Firestore sampai Anda menekan tombol <strong>Sinkronkan</strong>.
          </div>
       </div>
 
@@ -186,7 +256,7 @@ export default function SubjectsPage() {
             <DialogTitle>{editingSubject ? 'Edit Mata Pelajaran' : 'Tambah Mata Pelajaran Baru'}</DialogTitle>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
+            <form onSubmit={form.handleSubmit(handleSaveLocal)} className="space-y-6 pt-4">
               <div className="space-y-4">
                 <FormField control={form.control} name="code" render={({ field }) => (
                   <FormItem>
@@ -240,9 +310,8 @@ export default function SubjectsPage() {
               </div>
 
               <DialogFooter className="pt-4">
-                <Button type="submit" disabled={submitting} className="w-full h-11">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                  Simpan Mata Pelajaran
+                <Button type="submit" className="w-full h-11">
+                  Simpan ke Draf
                 </Button>
               </DialogFooter>
             </form>
