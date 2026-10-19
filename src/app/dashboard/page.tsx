@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useMemo } from "react"
@@ -6,10 +5,12 @@ import {
   Users, 
   School, 
   BookOpen, 
-  GraduationCap
+  GraduationCap,
+  BarChart3
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase"
 import { collection, query, limit, doc } from "firebase/firestore"
 import { Applicant, Classroom, Staff, Subject } from "@/lib/types"
