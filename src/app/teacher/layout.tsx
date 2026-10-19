@@ -16,7 +16,9 @@ import {
   FileSpreadsheet,
   BookOpen,
   Users,
-  QrCode
+  QrCode,
+  Search,
+  CheckCircle2
 } from "lucide-react"
 import { 
   Sidebar, 
@@ -32,6 +34,14 @@ import {
   useSidebar
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useAuth, useUser, useFirestore, useDoc, useMemoFirebase, useCollection } from "@/firebase"
@@ -39,6 +49,7 @@ import { signOut } from "firebase/auth"
 import { doc, collection, query, where, getDocs } from "firebase/firestore"
 import { Staff, TeacherAssignment, Journal, Assessment, Applicant, Classroom } from "@/lib/types"
 import { useToast } from "@/hooks/use-toast"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import * as XLSX from 'xlsx'
 
 function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
@@ -49,6 +60,9 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
   const db = useFirestore()
   const { toast } = useToast()
   const { user, loading: userLoading } = useUser()
+  
+  const [isQRDialogOpen, setIsQRDialogOpen] = React.useState(false)
+  const [isProcessingQR, setIsProcessingQR] = React.useState(false)
 
   const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
   const { data: config } = useDoc<any>(settingsRef)
@@ -62,6 +76,22 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
 
   const selectedSemester = searchParams.get('semester') || config?.activeSemester?.toString() || "1"
   const teacherId = staffData?.[0]?.id
+
+  // Ambil assignments secara reaktif untuk populate dialog pilihan kelas
+  const assignmentsQuery = useMemoFirebase(() => {
+    if (!db || !teacherId) return null
+    return query(collection(db, 'teacherAssignments'), where('teacherId', '==', teacherId))
+  }, [db, teacherId])
+  
+  const { data: teacherAssignments, loading: loadingAsg } = useCollection<TeacherAssignment>(assignmentsQuery)
+
+  const uniqueClasses = React.useMemo(() => {
+    if (!teacherAssignments) return []
+    const map = new Map<string, string>()
+    teacherAssignments.forEach(a => map.set(a.classId, a.className))
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  }, [teacherAssignments])
 
   React.useEffect(() => {
     if (!userLoading && !user) router.push('/login')
@@ -137,34 +167,40 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     XLSX.writeFile(wb, "Daftar_Murid.xlsx")
   }
 
-  const handleDownloadQR = async () => {
-    const data = await fetchAllTeacherData()
-    if (!data) return
+  const handleDownloadSpecificClassQR = async (classId: string, className: string) => {
+    if (!db) return
+    setIsProcessingQR(true)
     
-    const { default: jsPDF } = await import('jspdf')
-    const brandBlue = [67, 97, 238] as [number, number, number]
-    const schoolName = config?.schoolName || "SIS TERPADU"
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const brandBlue = [67, 97, 238] as [number, number, number]
+      const schoolName = config?.schoolName || "SIS TERPADU"
 
-    const processedClassIds = new Set<string>()
-    
-    for (const asg of data.assignments) {
-      if (processedClassIds.has(asg.classId)) continue
-      processedClassIds.add(asg.classId)
+      // Ambil data rombel untuk tau daftar murid ID
+      const classRef = doc(db, 'classes', classId)
+      const classSnap = await getDocs(query(collection(db, 'classes'), where('__name__', '==', classId)))
+      const targetClass = classSnap.docs[0]?.data() as Classroom
       
-      const targetClass = data.allClasses.find(c => c.id === asg.classId)
-      const students = data.allStudents
-        .filter(s => targetClass?.students?.includes(s.id))
+      if (!targetClass || !targetClass.students || targetClass.students.length === 0) {
+        toast({ variant: "destructive", title: "Gagal", description: "Tidak ada murid terdaftar di kelas ini." })
+        setIsProcessingQR(false)
+        return
+      }
+
+      // Ambil data murid lengkap
+      const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')))
+      const students = studentsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Applicant))
+        .filter(s => targetClass.students.includes(s.id))
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
-      
-      if (students.length === 0) continue
 
-      const doc = new jsPDF('p', 'mm', 'a4')
+      const docPdf = new jsPDF('p', 'mm', 'a4')
       
-      doc.setFontSize(14).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
-      doc.text(`KARTU QR ABSENSI - KELAS ${asg.className}`, 105, 15, { align: "center" })
-      doc.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
-      doc.text(`${schoolName}`, 105, 20, { align: "center" })
-      doc.line(14, 25, 196, 25)
+      docPdf.setFontSize(14).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
+      docPdf.text(`KARTU QR ABSENSI - KELAS ${className}`, 105, 15, { align: "center" })
+      docPdf.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
+      docPdf.text(`${schoolName}`, 105, 20, { align: "center" })
+      docPdf.line(14, 25, 196, 25)
 
       let x = 10;
       let y = 35;
@@ -173,23 +209,23 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       const margin = 2;
 
       students.forEach((s, idx) => {
-        doc.setDrawColor(230).setLineWidth(0.2).rect(x, y, cardWidth, cardHeight)
-        doc.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 5, 'F')
+        docPdf.setDrawColor(230).setLineWidth(0.2).rect(x, y, cardWidth, cardHeight)
+        docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 5, 'F')
         
-        doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
+        docPdf.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
         const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 23) + "..." : s.fullName
-        doc.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 12, { align: "center" })
+        docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 12, { align: "center" })
         
-        doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
-        doc.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 17, { align: "center" })
+        docPdf.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
+        docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 17, { align: "center" })
 
-        doc.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
-        doc.text(`KELAS: ${asg.className}`, x + cardWidth/2, y + 22, { align: "center" })
+        docPdf.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
+        docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 22, { align: "center" })
 
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
-        doc.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 26, 35, 35)
+        docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 26, 35, 35)
         
-        doc.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 65, { align: "center" })
+        docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 65, { align: "center" })
 
         x += cardWidth + margin;
         if (x + cardWidth > 200) {
@@ -197,16 +233,20 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
           y += cardHeight + margin;
         }
         if (y + cardHeight > 280) {
-          doc.addPage()
+          docPdf.addPage()
           y = 15;
           x = 10;
         }
       })
       
-      doc.save(`Kartu_QR_Absensi_${asg.className}.pdf`)
+      docPdf.save(`Kartu_QR_Absensi_${className.replace(/\s+/g, '_')}.pdf`)
+      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan.` })
+      setIsQRDialogOpen(false)
+    } catch (e) {
+      toast({ variant: "destructive", title: "Kesalahan", description: "Gagal membuat dokumen PDF." })
+    } finally {
+      setIsProcessingQR(false)
     }
-    
-    toast({ title: "Berhasil", description: "Kartu QR siswa telah diunduh." })
   }
 
   const appName = "SIS TERPADU"
@@ -267,7 +307,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
                 <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase">Unduh Laporan</p>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton onClick={handleDownloadQR} className="gap-3">
+                    <SidebarMenuButton onClick={() => setIsQRDialogOpen(true)} className="gap-3">
                       <QrCode className="w-5 h-5 text-accent" />
                       <span className="text-xs">Unduh Kartu QR</span>
                     </SidebarMenuButton>
@@ -319,6 +359,56 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
           </main>
         </SidebarInset>
       </div>
+
+      <Dialog open={isQRDialogOpen} onOpenChange={setIsQRDialogOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-primary" />
+              Pilih Kelas untuk Kartu QR
+            </DialogTitle>
+            <DialogDescription>
+              Kartu QR akan diunduh dalam format PDF berisi identitas absensi mandiri siswa.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {loadingAsg ? (
+              <div className="flex justify-center py-8"><Loader2 className="animate-spin text-primary" /></div>
+            ) : uniqueClasses.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground italic">Anda belum memiliki penugasan kelas.</div>
+            ) : (
+              <ScrollArea className="max-h-[300px] border rounded-xl overflow-hidden">
+                <div className="divide-y">
+                  {uniqueClasses.map((cls) => (
+                    <button
+                      key={cls.id}
+                      disabled={isProcessingQR}
+                      onClick={() => handleDownloadSpecificClassQR(cls.id, cls.name)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-muted transition-colors group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="bg-primary/10 p-2 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">
+                          <Users className="w-4 h-4" />
+                        </div>
+                        <span className="font-bold text-sm">Kelas {cls.name}</span>
+                      </div>
+                      <Download className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsQRDialogOpen(false)} disabled={isProcessingQR}>Batal</Button>
+            {isProcessingQR && (
+              <div className="flex items-center gap-2 text-xs text-primary font-bold animate-pulse">
+                <Loader2 className="w-3 h-3 animate-spin" /> Sedang Memproses PDF...
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   )
 }
@@ -330,5 +420,3 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
     </React.Suspense>
   )
 }
-
-    
