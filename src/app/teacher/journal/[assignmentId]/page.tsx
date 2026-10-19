@@ -94,6 +94,7 @@ function TeachingJournalPageContent() {
   
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const scannerDivId = "qr-reader-journal-full"
+  const scannedIdsRef = useRef<Set<string>>(new Set())
 
   const activeSemester = parseInt(searchParams.get('semester') || "1")
   const autoScan = searchParams.get('scan') === '1'
@@ -104,7 +105,6 @@ function TeachingJournalPageContent() {
   const classRef = useMemoFirebase(() => db && assignment ? doc(db, 'classes', assignment.classId) : null, [db, assignment])
   const { data: classroom } = useDoc<Classroom>(classRef)
 
-  // Memperluas kueri untuk menyertakan 'graduated' agar pencarian lebih robust
   const studentsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated'])) : null, [db])
   const { data: allAcceptedStudents } = useCollection<Applicant>(studentsQuery)
 
@@ -115,7 +115,6 @@ function TeachingJournalPageContent() {
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [allAcceptedStudents, classroom])
 
-  // PENTING: Gunakan Ref untuk menghindari closure stale di callback scanner
   const studentsRef = useRef<Applicant[]>([])
   useEffect(() => {
     studentsRef.current = students
@@ -159,7 +158,12 @@ function TeachingJournalPageContent() {
     const today = new Date().toISOString().split('T')[0];
     const existingToday = localJournals.find(j => j.date === today);
     
+    // Sinkronkan Set Ref dengan data yang sudah ada agar tidak duplikat dari pindaian sebelumnya
+    const initialScanned = new Set<string>();
     if (existingToday) {
+      Object.entries(existingToday.attendanceDetail || {}).forEach(([id, status]) => {
+        if (status === 'H') initialScanned.add(id);
+      });
       setEditingJournalId(existingToday.id);
       setNewJournal(existingToday);
     } else {
@@ -176,6 +180,7 @@ function TeachingJournalPageContent() {
       });
     }
     
+    scannedIdsRef.current = initialScanned;
     setActiveView('scanner');
     setTimeout(() => startScanner(), 500);
   };
@@ -210,7 +215,6 @@ function TeachingJournalPageContent() {
   };
 
   const handleScanSuccess = (studentId: string) => {
-    // Baca dari Ref agar selalu mendapatkan data terbaru meskipun callback terkunci (closure)
     const currentStudents = studentsRef.current;
     const student = currentStudents.find(s => s.id === studentId);
     
@@ -223,21 +227,33 @@ function TeachingJournalPageContent() {
       return;
     }
 
-    setNewJournal(prev => {
-      const detail = { ...(prev.attendanceDetail || {}) };
-      if (detail[studentId] === 'H') {
-        toast({ title: "Sudah Hadir", description: `${student.fullName} sudah diproses.` });
-        return prev;
-      }
-      
-      detail[studentId] = 'H';
+    // Cek duplikasi menggunakan Ref (Sinkron)
+    if (scannedIdsRef.current.has(studentId)) {
       toast({ 
-        title: "Scan Berhasil", 
-        description: `${student.fullName} hadir.`,
-        className: "bg-green-600 text-white" 
+        title: "Sudah Absen", 
+        description: `${student.fullName} sudah tercatat hadir.`,
+        className: "bg-amber-600 text-white border-none"
       });
+      return;
+    }
 
-      return { ...prev, attendanceDetail: detail };
+    // Tandai sebagai sudah di-scan
+    scannedIdsRef.current.add(studentId);
+
+    // Update state (Murni, tanpa pemanggilan toast di dalam updater)
+    setNewJournal(prev => ({
+      ...prev,
+      attendanceDetail: {
+        ...(prev.attendanceDetail || {}),
+        [studentId]: 'H'
+      }
+    }));
+
+    // Berikan feedback sukses (Diluar updater)
+    toast({ 
+      title: "Scan Berhasil", 
+      description: `${student.fullName} hadir.`,
+      className: "bg-green-600 text-white border-none" 
     });
   };
 
@@ -335,7 +351,6 @@ function TeachingJournalPageContent() {
 
   if (userLoading || loadingA) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
 
-  // --- VIEW: SCANNER QR ---
   if (activeView === 'scanner') {
     const scanCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v === 'H').length;
     return (
@@ -379,9 +394,7 @@ function TeachingJournalPageContent() {
         </div>
 
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden bg-black">
-           {/* SCANNER AREA */}
            <div className="relative flex flex-col items-center justify-center overflow-hidden">
-              {/* Reference Style Text Overlay */}
               <div className="absolute top-10 left-0 right-0 z-40 text-center text-white pointer-events-none drop-shadow-lg px-4">
                 <h2 className="text-xl sm:text-2xl font-bold uppercase tracking-[0.1em]">Scan Qr Code</h2>
                 <p className="text-[10px] sm:text-xs mt-2 font-medium opacity-80 uppercase tracking-[0.2em] max-w-[280px] mx-auto">TEMPATKAN KAMERA TEPAT DI DEPAN QR CODE</p>
@@ -389,13 +402,10 @@ function TeachingJournalPageContent() {
 
               <div className="w-full h-full relative bg-slate-950">
                  <div id={scannerDivId} className="absolute inset-0 z-10"></div>
-                 
-                 {/* Full View Scanning Line */}
                  <div className="custom-scan-line"></div>
               </div>
            </div>
 
-           {/* LIST AREA */}
            <div className="bg-background flex flex-col overflow-hidden border-l border-border/50">
               <div className="p-4 sm:p-5 border-b bg-muted/20 flex items-center justify-between">
                  <div className="flex items-center gap-2">
@@ -439,7 +449,6 @@ function TeachingJournalPageContent() {
     )
   }
 
-  // --- VIEW: FORM JURNAL ---
   if (activeView === 'form') {
     return (
       <div className="flex flex-col h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
@@ -585,7 +594,6 @@ function TeachingJournalPageContent() {
     )
   }
 
-  // --- VIEW: LIST JURNAL (DEFAULT) ---
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
