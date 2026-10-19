@@ -27,7 +27,8 @@ import {
   UserPlus,
   Search,
   Upload,
-  Check
+  Check,
+  Download
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -411,6 +412,18 @@ export default function ClassesPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleDownloadClassImportTemplate = () => {
+    const data = [
+      ["NAMA", "NISN"],
+      ["Contoh Nama Murid", "0123456789"]
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Template Impor Kelas")
+    XLSX.writeFile(workbook, `Template_Impor_Murid_Kelas_${selectedClassForView?.name || "Rombel"}.xlsx`)
+    toast({ title: "Template Berhasil Diunduh" })
   }
 
   const handleImportExcelToClass = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1020,7 +1033,7 @@ export default function ClassesPage() {
           <div className="p-6 flex flex-col gap-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div 
-                className="border-2 border-dashed rounded-xl p-6 text-center bg-primary/5 border-primary/20 hover:bg-primary/10 transition-colors cursor-pointer group"
+                className="border-2 border-dashed rounded-xl p-6 text-center bg-primary/5 border-primary/20 hover:bg-primary/10 transition-colors cursor-pointer group relative"
                 onClick={() => {
                   const input = document.createElement('input');
                   input.type = 'file';
@@ -1034,6 +1047,18 @@ export default function ClassesPage() {
                 </div>
                 <h4 className="text-sm font-bold">Impor via Excel</h4>
                 <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-tighter">Match by Nama/NISN</p>
+                
+                <Button 
+                  size="sm" 
+                  variant="link" 
+                  className="mt-2 text-[10px] h-6 text-primary hover:text-primary/80 gap-1 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadClassImportTemplate();
+                  }}
+                >
+                  <Download className="w-3 h-3" /> Unduh Template
+                </Button>
               </div>
 
               <div className="bg-muted/20 border rounded-xl p-4 flex flex-col justify-center">
