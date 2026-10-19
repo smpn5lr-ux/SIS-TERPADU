@@ -261,10 +261,14 @@ export default function ClassesPage() {
   }
 
   const handleDownloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([{ "NAMA": "CONTOH NAMA", "NISN": "0012345678" }])
+    const ws = XLSX.utils.json_to_sheet([
+      { "NO": 1, "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789" },
+      { "NO": 2, "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321" }
+    ])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, "Template")
+    XLSX.utils.book_append_sheet(wb, ws, "Template_Impor")
     XLSX.writeFile(wb, "Template_Impor_Murid.xlsx")
+    toast({ title: "Template Berhasil Diunduh" })
   }
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -287,7 +291,7 @@ export default function ClassesPage() {
         // Deteksi kolom secara fleksibel (mencari kunci yang mengandung kata kunci)
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
-        const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA";
+        const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA LENGKAP";
         const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
 
         let addedCount = 0
@@ -297,6 +301,8 @@ export default function ClassesPage() {
           const name = String(row[nameKey] || "").trim().toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
           
+          if (!name && !nisn) return;
+
           // Cari di pendaftar yang statusnya 'accepted' (Lengkap) dan belum punya kelas
           const match = availableStudents.find(a => {
             const dbNisn = (a.NISN || "").trim();
@@ -324,7 +330,7 @@ export default function ClassesPage() {
           toast({ 
             variant: "destructive", 
             title: "Impor Gagal", 
-            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah berstatus 'Lengkap' dan belum memiliki kelas." 
+            description: "Tidak ada murid yang cocok. Pastikan data pendaftar sudah berstatus 'Lengkap' (Diterima) dan belum memiliki kelas." 
           })
         }
       } catch (err) {
