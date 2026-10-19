@@ -59,6 +59,17 @@ export default function TeacherAssignmentsPage() {
 
   const teachers = staff?.filter(s => s.role === 'Guru') || []
 
+  // Mata Pelajaran Unik untuk Dropdown (menghindari duplikasi saat pilih kelas)
+  const uniqueSubjects = useMemo(() => {
+    if (!subjects) return []
+    const map = new Map<string, Subject>()
+    subjects.forEach(s => {
+      const key = s.name.toLowerCase()
+      if (!map.has(key)) map.set(key, s)
+    })
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+  }, [subjects])
+
   // Logika pengelompokan data per guru
   const groupedAssignments = useMemo(() => {
     if (!assignments) return []
@@ -112,7 +123,9 @@ export default function TeacherAssignmentsPage() {
     
     const teacher = teachers.find(t => t.id === selectedTeacherId)
     const cls = classes?.find(c => c.id === selectedClassId)
-    const subject = subjects?.find(s => s.id === selectedSubjectId)
+    
+    // Cari doc mapel asli. Jika uniqueSubjects cuma ambil satu, pastikan kita ambil data name/id yang relevan
+    const subject = subjects?.find(s => s.id === selectedSubjectId) || uniqueSubjects.find(s => s.id === selectedSubjectId)
 
     const payload = {
       teacherId: selectedTeacherId,
@@ -181,7 +194,7 @@ export default function TeacherAssignmentsPage() {
                     </div>
                     <div>
                       <span className="font-bold text-sm block">{group.teacherName}</span>
-                      <Badge variant="outline" className="text-[9px] uppercase mt-1">{group.list.length} Mata Pelajaran</Badge>
+                      <Badge variant="outline" className="text-[9px] uppercase mt-1">{group.list.length} Penugasan</Badge>
                     </div>
                   </div>
                 </TableCell>
@@ -224,7 +237,7 @@ export default function TeacherAssignmentsPage() {
          <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed">
            <p className="font-bold text-primary mb-1 uppercase tracking-wider">Navigasi Pengecekan:</p>
-           Setiap baris kini mewakili satu guru. Anda dapat melihat seluruh distribusi mengajar guru tersebut dalam satu baris. Gunakan ikon **Pensil** untuk mengubah rincian jam pelajaran (JP) atau mata pelajaran secara spesifik.
+           Nama guru dan mata pelajaran kini ditampilkan secara unik. Gunakan tombol Tambah Penugasan untuk memetakan satu mata pelajaran ke berbagai kelas untuk guru yang sama.
          </div>
       </div>
 
@@ -245,16 +258,16 @@ export default function TeacherAssignmentsPage() {
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                <BookOpen className="w-3 h-3" /> Mata Pelajaran
+                <BookOpen className="w-3 h-3" /> Pilih Mata Pelajaran
               </label>
               <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
                 <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
-                <SelectContent>{subjects?.map(s => <SelectItem key={s.id} value={s.id}>{s.name} (G-{s.grade})</SelectItem>)}</SelectContent>
+                <SelectContent>{uniqueSubjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
               <label className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                <Users className="w-3 h-3" /> Rombongan Belajar
+                <Users className="w-3 h-3" /> Rombongan Belajar (Kelas)
               </label>
               <Select value={selectedClassId} onValueChange={setSelectedClassId}>
                 <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
@@ -262,9 +275,8 @@ export default function TeacherAssignmentsPage() {
               </Select>
             </div>
             <div className="space-y-2 pt-2">
-              <label className="text-xs font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (Total JP Per Minggu)</label>
+              <label className="text-xs font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (JP / Minggu)</label>
               <Input type="number" min="1" value={totalJP} onChange={e => setTotalJP(e.target.value)} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
-              <p className="text-[10px] text-muted-foreground italic">Target jam yang harus terpenuhi di jadwal mingguan Dapodik.</p>
             </div>
           </div>
           <DialogFooter>
