@@ -16,7 +16,8 @@ import {
   CloudUpload,
   CloudOff,
   RefreshCw,
-  Info
+  Info,
+  ShieldAlert
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -36,6 +37,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Form,
   FormControl,
@@ -68,6 +79,9 @@ export default function SubjectsPage() {
   
   const [localSubjects, setLocalSubjects] = useState<Subject[]>([])
   const [isDirty, setIsDirty] = useState(false)
+
+  const [subjectToDelete, setSubjectToDelete] = useState<Subject | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
 
   const { toast } = useToast()
   const db = useFirestore()
@@ -114,9 +128,17 @@ export default function SubjectsPage() {
     toast({ title: "Mapel Ditambahkan ke Draf", description: "Jangan lupa klik Sinkron untuk menyimpan." })
   }
 
-  const handleDeleteLocal = (id: string) => {
-    setLocalSubjects(prev => prev.filter(s => s.id !== id))
+  const handleDeleteTrigger = (sub: Subject) => {
+    setSubjectToDelete(sub)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const executeDeleteLocal = () => {
+    if (!subjectToDelete) return
+    setLocalSubjects(prev => prev.filter(s => s.id !== subjectToDelete.id))
     setIsDirty(true)
+    setIsDeleteDialogOpen(false)
+    setSubjectToDelete(null)
   }
 
   const handleEditLocal = (sub: Subject) => {
@@ -230,7 +252,7 @@ export default function SubjectsPage() {
                       <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEditLocal(sub)}>
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteLocal(sub.id)}>
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(sub)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -318,6 +340,25 @@ export default function SubjectsPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Mata Pelajaran?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini akan menghapus <strong>{subjectToDelete?.name}</strong> dari draf kurikulum Anda. Anda harus menekan tombol Sinkron untuk menerapkan perubahan ini ke database.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ya, Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

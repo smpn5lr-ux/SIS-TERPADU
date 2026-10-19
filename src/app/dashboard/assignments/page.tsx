@@ -17,7 +17,8 @@ import {
   CloudOff,
   CheckCircle2,
   RefreshCw,
-  Info
+  Info,
+  ShieldAlert
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,6 +39,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -56,6 +67,10 @@ export default function TeacherAssignmentsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingAssignment, setEditingAssignment] = useState<TeacherAssignment | null>(null)
+  
+  const [assignmentToDeleteId, setAssignmentToDeleteId] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+
   const { toast } = useToast()
   const db = useFirestore()
 
@@ -163,9 +178,17 @@ export default function TeacherAssignmentsPage() {
     toast({ title: "Perubahan Disimpan di Buffer", description: "Klik tombol Sinkron untuk mengirim ke database." })
   }
 
-  const handleDeleteLocal = (id: string) => {
-    setLocalAssignments(prev => prev.filter(a => a.id !== id))
+  const handleDeleteTrigger = (id: string) => {
+    setAssignmentToDeleteId(id)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const executeDeleteLocal = () => {
+    if (!assignmentToDeleteId) return
+    setLocalAssignments(prev => prev.filter(a => a.id !== assignmentToDeleteId))
     setIsDirty(true)
+    setIsDeleteDialogOpen(false)
+    setAssignmentToDeleteId(null)
   }
 
   const handleSyncToCloud = async () => {
@@ -280,7 +303,7 @@ export default function TeacherAssignmentsPage() {
                           </div>
                           <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-primary" onClick={() => handleEditLocal(asg)}><Pencil className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteLocal(asg.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                           </div>
                         </div>
                       )
@@ -302,7 +325,7 @@ export default function TeacherAssignmentsPage() {
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
         <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
         <div className="text-[10px] text-muted-foreground leading-relaxed italic">
-          <strong>Mode Hemat Kuota Aktif:</strong> Perubahan yang Anda lakukan hanya tersimpan sementara di browser. Anda dapat menambah atau menghapus banyak penugasan tanpa biaya database. Pastikan menekan <strong>"Sinkronkan ke Cloud"</strong> untuk menyimpan hasil akhir ke sistem pusat.
+          <strong>Mode Hemat Kuota Aktif:</strong> Perubahan yang Anda lakukan hanya tersimpan sementara di browser. Anda dapat menambah atau menghapus banyak penugasan tanpa biaya database. Pastikan menekan <strong>"Sinkronkan ke Cloud"</strong> untuk mengirim hasil akhir ke sistem pusat.
         </div>
       </div>
 
@@ -351,6 +374,25 @@ export default function TeacherAssignmentsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Penugasan?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini akan menghapus draf penugasan guru dari daftar sementara Anda. Anda tetap harus menekan tombol Sinkron untuk menyimpan perubahan ini ke cloud.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ya, Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

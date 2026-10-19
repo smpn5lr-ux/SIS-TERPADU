@@ -24,7 +24,8 @@ import {
   QrCode,
   ScanLine,
   X,
-  Camera
+  Camera,
+  ShieldAlert
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -47,6 +48,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -79,6 +90,9 @@ function TeachingJournalPageContent() {
   const [isExporting, setIsExporting] = useState(false)
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null)
   const [studentSearchTerm, setStudentSearchTerm] = useState('')
+  
+  const [journalToDeleteId, setJournalToDeleteId] = useState<string | null>(null)
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const scannerDivId = "qr-reader-journal"
@@ -174,7 +188,6 @@ function TeachingJournalPageContent() {
     }
   }, [journals, students, editingJournalId, newJournal.attendanceDetail])
 
-  // --- LOGIKA AUTO-START SCANNER DARI DASHBOARD ---
   useEffect(() => {
     if (searchParams.get('scan') === '1' && !loadingJ && journals && !hasAutoStarted.current) {
       hasAutoStarted.current = true;
@@ -185,7 +198,6 @@ function TeachingJournalPageContent() {
     }
   }, [loadingJ, journals, searchParams]);
 
-  // --- LOGIKA SCANNER QR ---
   const startScanner = async () => {
     setIsScannerOpen(true)
     setTimeout(() => {
@@ -200,7 +212,7 @@ function TeachingJournalPageContent() {
         (decodedText) => {
           handleQrScanned(decodedText)
         },
-        () => {} // ignore errors
+        () => {} 
       ).catch(err => {
         toast({ variant: "destructive", title: "Kamera Tidak Diakses", description: "Pastikan izin kamera aktif." })
         setIsScannerOpen(false)
@@ -469,10 +481,21 @@ function TeachingJournalPageContent() {
     }
   }
 
-  const handleDeleteJournal = async (id: string) => {
-    if (!db) return
-    await deleteDoc(doc(db, 'journals', id))
-    toast({ title: "Jurnal Dihapus" })
+  const handleDeleteTrigger = (id: string) => {
+    setJournalToDeleteId(id)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const executeDeleteJournal = async () => {
+    if (!db || !journalToDeleteId) return
+    try {
+      await deleteDoc(doc(db, 'journals', journalToDeleteId))
+      toast({ title: "Jurnal Dihapus" })
+      setIsDeleteDialogOpen(false)
+      setJournalToDeleteId(null)
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal menghapus" })
+    }
   }
 
   if (userLoading || loadingA) return (
@@ -540,7 +563,7 @@ function TeachingJournalPageContent() {
                       <Button variant="ghost" size="icon" onClick={() => handleEditJournal(j)} className="h-8 w-8 hover:text-primary">
                         <Pencil className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDeleteJournal(j.id)} className="text-destructive h-8 w-8">
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteTrigger(j.id)} className="text-destructive h-8 w-8">
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -734,6 +757,25 @@ function TeachingJournalPageContent() {
           <DialogFooter><Button onClick={saveJournal} disabled={submitting} className="w-full md:w-auto">{submitting ? 'Menyimpan...' : (editingJournalId ? 'Perbarui Jurnal' : 'Simpan Jurnal & Absensi')}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Apakah Anda yakin ingin menghapus catatan jurnal pertemuan ini? Data absensi dan tugas yang terhubung dengan pertemuan ini juga akan terpengaruh. Tindakan ini tidak dapat dibatalkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDeleteJournal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ya, Hapus Permanen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
