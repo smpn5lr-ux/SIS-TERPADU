@@ -5,8 +5,6 @@ import * as React from "react"
 import { 
   LayoutDashboard, 
   Users, 
-  CheckSquare, 
-  Target, 
   School, 
   BarChart3, 
   Settings,
@@ -16,7 +14,6 @@ import {
   LogOut,
   Loader2,
   Pencil,
-  Trash2,
   UserPlus,
   Menu,
   BookOpen,
@@ -147,7 +144,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   const appName = "SIS TERPADU"
   const appLogoUrl = config?.appLogoUrl || "/icon-logo.webp"
-  const isSPMBEnabled = config?.enableSPMB !== false;
   
   const userRole = staffData?.[0]?.role || 'Administrator'
   const isKurikulum = userRole === 'Kurikulum' || userRole === 'Admin'
@@ -161,13 +157,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     ...(isKurikulum ? [{ name: 'Manajemen Roster', href: '/dashboard/roster', icon: CalendarClock }] : []),
     { name: 'Manajemen Pegawai', href: '/dashboard/staff', icon: UserPlus },
     { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 },
-  ]
-
-  const spmbNav = [
-    { name: 'Data Calon Murid', href: '/dashboard/applicants', icon: Users },
-    { name: 'Verifikasi Berkas', href: '/dashboard/verification', icon: CheckSquare },
-    { name: 'Sistem Seleksi', href: '/dashboard/selection', icon: Target },
-    { name: 'Sampah', href: '/dashboard/trash', icon: Trash2 },
   ]
 
   return (
@@ -193,13 +182,13 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <SidebarContent className="px-2 py-4">
           <div className="space-y-6">
             <div>
-              <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Manajemen Akademik</p>
+              <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Sistem Informasi Sekolah</p>
               <SidebarMenu>
                 {academicNav.map((item) => (
                   <SidebarMenuItem key={item.name}>
                     <SidebarMenuButton 
                       asChild 
-                      isActive={pathname === item.href}
+                      isActive={pathname === item.href || pathname?.startsWith(item.href + '/')}
                       tooltip={item.name}
                       className="h-10"
                     >
@@ -216,33 +205,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 ))}
               </SidebarMenu>
             </div>
-
-            {isSPMBEnabled && (
-              <div>
-                <p className="px-3 mb-2 text-[10px] font-bold text-primary uppercase tracking-widest">Modul Pendaftaran</p>
-                <SidebarMenu>
-                  {spmbNav.map((item) => (
-                    <SidebarMenuItem key={item.name}>
-                      <SidebarMenuButton 
-                        asChild 
-                        isActive={pathname === item.href}
-                        tooltip={item.name}
-                        className="h-10"
-                      >
-                        <Link 
-                          href={item.href} 
-                          className="flex items-center gap-3 w-full"
-                          onClick={handleMenuClick}
-                        >
-                          <item.icon className="w-4 h-4" />
-                          <span className="font-medium text-sm">{item.name}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </div>
-            )}
           </div>
         </SidebarContent>
         <SidebarFooter className="p-4 mt-auto border-t border-border">

@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Loader2, Eye, User, Pencil, Trash2, GraduationCap, CloudUpload, CloudOff, CheckCircle2, Info, BookOpen, Contact, Hash
+  Search, Loader2, Eye, Pencil, CloudUpload, CloudOff, CheckCircle2, Info, Contact
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -11,71 +11,21 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
-} from "@/components/ui/form"
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import * as z from "zod"
 import Link from 'next/link'
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy, doc, updateDoc, writeBatch, where } from 'firebase/firestore'
+import { collection, query, orderBy, doc, writeBatch, where } from 'firebase/firestore'
 import { Applicant } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 
-const formSchema = z.object({
-  fullName: z.string().min(2, "Nama minimal 2 karakter"),
-  gender: z.enum(['Laki-laki', 'Perempuan']),
-  NISN: z.string().optional(),
-  NIK: z.string().optional(),
-  birthPlace: z.string().optional(),
-  birthDate: z.string().optional(),
-  religion: z.string().optional(),
-  address: z.string().optional(),
-  rt: z.string().optional(),
-  rw: z.string().optional(),
-  kelurahan: z.string().optional(),
-  kecamatan: z.string().optional(),
-  propinsi: z.string().optional(),
-  livingWith: z.enum(['Bersama Orang Tua', 'Wali', 'Asrama', 'Kos']),
-  transportation: z.enum(['Jalan Kaki', 'Motor', 'Mobil', 'Angkot/Kendaraan Umum']),
-  studentPhone: z.string().optional(),
-  fatherName: z.string().optional(),
-  fatherJob: z.string().optional(),
-  motherName: z.string().optional(),
-  motherJob: z.string().optional(),
-})
-
 export default function StudentDatabasePage() {
   const [searchTerm, setSearchTerm] = useState('')
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [editingStudent, setEditingStudent] = useState<Applicant | null>(null)
   
   const [localStudents, setLocalStudents] = useState<Applicant[]>([])
   const [isDirty, setIsDirty] = useState(false)
 
   const { toast } = useToast()
   const db = useFirestore()
-
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      fullName: "", gender: "Laki-laki", NISN: "", NIK: "",
-      birthPlace: "", birthDate: "", religion: "Katolik",
-      address: "", rt: "", rw: "", kelurahan: "", kecamatan: "", propinsi: "Jawa Barat",
-      livingWith: "Bersama Orang Tua", transportation: "Jalan Kaki",
-      studentPhone: "", fatherName: "", fatherJob: "", motherName: "", motherJob: ""
-    },
-  })
 
   const studentsQuery = useMemoFirebase(() => {
     if (!db) return null
@@ -97,23 +47,6 @@ export default function StudentDatabasePage() {
       ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm) || (a.registrationNumber || "").includes(searchTerm))
     )
   }, [localStudents, searchTerm])
-
-  const handleEdit = (s: Applicant) => {
-    setEditingStudent(s)
-    form.reset({
-      ...s,
-    } as any)
-    setIsDialogOpen(true)
-  }
-
-  const onSaveLocal = (values: z.infer<typeof formSchema>) => {
-    if (!editingStudent) return
-    const updated = { ...editingStudent, ...values, updatedAt: new Date().toISOString() }
-    setLocalStudents(prev => prev.map(s => s.id === editingStudent.id ? updated : s))
-    setIsDirty(true)
-    setIsDialogOpen(false)
-    toast({ title: "Perubahan Disimpan di Buffer" })
-  }
 
   const handleSync = async () => {
     if (!db || !serverStudents) return
@@ -197,8 +130,12 @@ export default function StudentDatabasePage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" title="Ubah Data" onClick={() => handleEdit(s)}><Pencil className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" title="Lihat Biodata" asChild><Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link></Button>
+                      <Button variant="ghost" size="icon" title="Ubah Data" asChild>
+                        <Link href={`/dashboard/students/edit/${s.id}`}><Pencil className="w-4 h-4" /></Link>
+                      </Button>
+                      <Button variant="ghost" size="icon" title="Lihat Biodata" asChild>
+                        <Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link>
+                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -211,84 +148,9 @@ export default function StudentDatabasePage() {
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-4">
          <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed italic">
-           Halaman ini berisi data <strong>Buku Induk Sekolah</strong>. Setiap perubahan biodata di sini akan langsung memperbarui identitas siswa di seluruh sistem (termasuk Absensi & Rapor). Gunakan fitur sinkronisasi untuk menyimpan permanen.
+           Halaman ini berisi data <strong>Buku Induk Sekolah</strong>. Gunakan fitur sinkronisasi untuk menyimpan permanen hasil edit data murid.
          </div>
       </div>
-
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col p-0">
-          <DialogHeader className="p-6 pb-0">
-            <DialogTitle>Ubah Data Induk Siswa</DialogTitle>
-            <DialogDescription>Pastikan perubahan sesuai dengan dokumen kependudukan yang sah.</DialogDescription>
-          </DialogHeader>
-          
-          <ScrollArea className="flex-1 p-6">
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSaveLocal)} className="space-y-6">
-                <Tabs defaultValue="pribadi" className="w-full">
-                  <TabsList className="grid w-full grid-cols-3 mb-6">
-                    <TabsTrigger value="pribadi">Identitas</TabsTrigger>
-                    <TabsTrigger value="alamat">Alamat</TabsTrigger>
-                    <TabsTrigger value="ortu">Orang Tua</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="pribadi" className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField control={form.control} name="fullName" render={({ field }) => (
-                        <FormItem className="col-span-2"><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
-                      )} />
-                      <FormField control={form.control} name="gender" render={({ field }) => (
-                        <FormItem><FormLabel>Jenis Kelamin</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Laki-laki">Laki-laki</SelectItem><SelectItem value="Perempuan">Perempuan</SelectItem></SelectContent></Select></FormItem>
-                      )} />
-                      <FormField control={form.control} name="NISN" render={({ field }) => (
-                        <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="NIK" render={({ field }) => (
-                        <FormItem><FormLabel>NIK</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="birthPlace" render={({ field }) => (
-                        <FormItem><FormLabel>Tempat Lahir</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="birthDate" render={({ field }) => (
-                        <FormItem><FormLabel>Tanggal Lahir</FormLabel><FormControl><Input type="date" {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="studentPhone" render={({ field }) => (
-                        <FormItem><FormLabel>HP Siswa</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="alamat" className="space-y-4">
-                    <FormField control={form.control} name="address" render={({ field }) => (
-                      <FormItem><FormLabel>Alamat Lengkap</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                    )} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField control={form.control} name="kelurahan" render={({ field }) => (
-                        <FormItem><FormLabel>Kelurahan</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="kecamatan" render={({ field }) => (
-                        <FormItem><FormLabel>Kecamatan</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="ortu" className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField control={form.control} name="fatherName" render={({ field }) => (
-                        <FormItem><FormLabel>Nama Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                      <FormField control={form.control} name="motherName" render={({ field }) => (
-                        <FormItem><FormLabel>Nama Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                      )} />
-                    </div>
-                  </TabsContent>
-                </Tabs>
-                <DialogFooter className="pb-6"><Button type="submit" className="w-full">Simpan Perubahan ke Buffer</Button></DialogFooter>
-              </form>
-            </Form>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

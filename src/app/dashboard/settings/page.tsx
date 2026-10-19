@@ -3,37 +3,19 @@
 
 import { useState, useEffect, useRef } from "react"
 import { 
-  Settings, 
-  School, 
-  Target, 
-  Users, 
   Save, 
   ShieldCheck, 
   Building2, 
-  Percent, 
-  MapPin, 
-  Trophy, 
   Loader2,
-  Plus,
-  Trash2,
-  CalendarDays,
-  Map,
-  Hash,
   ImageIcon,
   Type,
   Upload,
-  Fingerprint,
-  ShieldAlert,
-  Power,
   Calendar
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -42,16 +24,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { useFirestore, useDoc, useMemoFirebase } from "@/firebase"
 import { doc, setDoc } from "firebase/firestore"
 import { useToast } from "@/hooks/use-toast"
@@ -62,9 +34,6 @@ export default function SettingsPage() {
   const db = useFirestore()
   const { toast } = useToast()
   const [isSaving, setIsSaving] = useState(false)
-  const [newSchool, setNewSchool] = useState("")
-  const [schoolToRemove, setSchoolToRemove] = useState<string | null>(null)
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   
   const logoInputRef = useRef<HTMLInputElement>(null)
   
@@ -73,13 +42,7 @@ export default function SettingsPage() {
     return doc(db, "settings", "system")
   }, [db])
 
-  const schoolsRef = useMemoFirebase(() => {
-    if (!db) return null
-    return doc(db, "settings", "schools")
-  }, [db])
-
   const { data: config, loading: loadingConfig } = useDoc<any>(settingsRef)
-  const { data: schoolsData, loading: loadingSchools } = useDoc<any>(schoolsRef)
 
   const [localConfig, setLocalConfig] = useState<any>({
     appName: "SIS TERPADU",
@@ -88,37 +51,17 @@ export default function SettingsPage() {
     dinasName: "DINAS PENDIDIKAN",
     npsn: "00000000",
     academicYear: "2024/2025",
-    activeSemester: 1,
-    totalQuota: 250,
-    quotaZonasi: 50,
-    quotaPrestasi: 30,
-    quotaAfirmasi: 15,
-    quotaPerpindahan: 5,
-    maxDistance: 3.5,
-    minScore: 75,
-    regPrefix: "REG-2026-",
-    enableSPMB: true
+    activeSemester: 1
   })
-
-  const [localSchools, setLocalSchools] = useState<string[]>([])
 
   useEffect(() => {
     if (config) {
-      // Force renaming: Ganti PORTAL SPMB dengan SIS TERPADU
-      const filteredAppName = (config.appName && config.appName.toUpperCase() === "PORTAL SPMB") ? "SIS TERPADU" : (config.appName || "SIS TERPADU");
       setLocalConfig({
         ...localConfig,
-        ...config,
-        appName: filteredAppName
+        ...config
       })
     }
   }, [config])
-
-  useEffect(() => {
-    if (schoolsData && schoolsData.list) {
-      setLocalSchools(schoolsData.list)
-    }
-  }, [schoolsData])
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -176,40 +119,7 @@ export default function SettingsPage() {
       .finally(() => setIsSaving(false))
   }
 
-  const handleAddSchool = () => {
-    if (!newSchool.trim()) return
-    const updated = [...localSchools, newSchool.trim()].sort()
-    setLocalSchools(updated)
-    setNewSchool("")
-    saveSchools(updated)
-  }
-
-  const handleRemoveSchoolConfirm = (name: string) => {
-    setSchoolToRemove(name)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const executeRemoveSchool = () => {
-    if (!schoolToRemove) return
-    const updated = localSchools.filter(s => s !== schoolToRemove)
-    setLocalSchools(updated)
-    saveSchools(updated)
-    setSchoolToRemove(null)
-  }
-
-  const saveSchools = (list: string[]) => {
-    if (!schoolsRef) return
-    setDoc(schoolsRef, { list }, { merge: true })
-      .catch(async () => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({
-          path: 'settings/schools',
-          operation: 'write',
-          requestResourceData: { list }
-        }))
-      })
-  }
-
-  if (loadingConfig || loadingSchools) return (
+  if (loadingConfig) return (
     <div className="flex flex-col items-center justify-center h-64 gap-2">
       <Loader2 className="w-8 h-8 animate-spin text-primary" />
       <p className="text-muted-foreground">Memuat pengaturan sistem...</p>
@@ -235,28 +145,6 @@ export default function SettingsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Power className="w-5 h-5 text-primary" />
-                <CardTitle className="font-headline text-lg">Mode Aplikasi</CardTitle>
-              </div>
-              <CardDescription>Aktifkan atau nonaktifkan fitur pendaftaran murid baru.</CardDescription>
-            </CardHeader>
-            <CardContent>
-               <div className="flex items-center justify-between p-4 bg-card border rounded-xl">
-                  <div className="space-y-0.5">
-                    <Label className="text-base font-bold">Fitur Pendaftaran (PPDB)</Label>
-                    <p className="text-xs text-muted-foreground">Jika nonaktif, menu pendaftaran akan disembunyikan.</p>
-                  </div>
-                  <Switch 
-                    checked={localConfig.enableSPMB} 
-                    onCheckedChange={(v) => setLocalConfig({...localConfig, enableSPMB: v})}
-                  />
-               </div>
-            </CardContent>
-          </Card>
-
           <Card className="border-border/50">
             <CardHeader>
               <div className="flex items-center gap-2">
@@ -378,45 +266,11 @@ export default function SettingsPage() {
 
         <div className="space-y-6">
           <Card className="border-border/50 bg-primary/5">
-            <CardHeader>
-               <CardTitle className="text-sm font-bold flex items-center gap-2">
-                 <MapPin className="w-4 h-4" /> Wilayah Zonasi
-               </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="Nama sekolah asal..." 
-                  value={newSchool}
-                  onChange={(e) => setNewSchool(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddSchool()}
-                />
-                <Button size="icon" onClick={handleAddSchool}><Plus className="w-4 h-4" /></Button>
-              </div>
-              <div className="flex flex-wrap gap-2 max-h-60 overflow-y-auto p-1">
-                {localSchools.map((s) => (
-                  <Badge key={s} variant="secondary" className="pl-3 pr-1 py-1 gap-1 group">
-                    {s}
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="w-4 h-4 p-0 opacity-0 group-hover:opacity-100 hover:text-destructive transition-all"
-                      onClick={() => handleRemoveSchoolConfirm(s)}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50 bg-primary/5">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
                 <ShieldCheck className="w-6 h-6 text-primary mt-1" />
                 <div>
-                  <h4 className="font-bold text-sm">Penting: Semester Aktif</h4>
+                  <h4 className="font-bold text-sm">Penting: Periode Aktif</h4>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     Mengubah **Semester Aktif** akan mengarahkan semua input nilai guru ke buku nilai semester tersebut. Pastikan Anda mengubahnya hanya saat pergantian semester resmi.
                   </p>
@@ -426,25 +280,6 @@ export default function SettingsPage() {
           </Card>
         </div>
       </div>
-
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Sekolah?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Apakah Anda yakin ingin menghapus <strong>{schoolToRemove}</strong> dari daftar sekolah zonasi?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setSchoolToRemove(null)}>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={executeRemoveSchool} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Ya, Hapus
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
