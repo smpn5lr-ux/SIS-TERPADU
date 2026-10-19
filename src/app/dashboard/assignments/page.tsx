@@ -59,18 +59,11 @@ export default function TeacherAssignmentsPage() {
 
   const teachers = staff?.filter(s => s.role === 'Guru') || []
 
-  // Mata Pelajaran Unik untuk Dropdown (menghindari duplikasi saat pilih kelas)
-  const uniqueSubjects = useMemo(() => {
+  const sortedSubjects = useMemo(() => {
     if (!subjects) return []
-    const map = new Map<string, Subject>()
-    subjects.forEach(s => {
-      const key = s.name.toLowerCase()
-      if (!map.has(key)) map.set(key, s)
-    })
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+    return [...subjects].sort((a, b) => a.name.localeCompare(b.name))
   }, [subjects])
 
-  // Logika pengelompokan data per guru
   const groupedAssignments = useMemo(() => {
     if (!assignments) return []
     
@@ -123,17 +116,15 @@ export default function TeacherAssignmentsPage() {
     
     const teacher = teachers.find(t => t.id === selectedTeacherId)
     const cls = classes?.find(c => c.id === selectedClassId)
-    
-    // Cari doc mapel asli. Jika uniqueSubjects cuma ambil satu, pastikan kita ambil data name/id yang relevan
-    const subject = subjects?.find(s => s.id === selectedSubjectId) || uniqueSubjects.find(s => s.id === selectedSubjectId)
+    const subject = subjects?.find(s => s.id === selectedSubjectId)
 
     const payload = {
       teacherId: selectedTeacherId,
-      teacherName: teacher?.fullName,
+      teacherName: teacher?.fullName || "",
       classId: selectedClassId,
-      className: cls?.name,
+      className: cls?.name || "",
       subjectId: selectedSubjectId,
-      subjectName: subject?.name,
+      subjectName: subject?.name || "",
       totalJP: parseInt(totalJP) || 0
     }
 
@@ -164,7 +155,7 @@ export default function TeacherAssignmentsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Penugasan Guru</h1>
-          <p className="text-muted-foreground">Hubungkan Guru dengan Mapel, Kelas, dan Beban Jam (JP) Dapodik.</p>
+          <p className="text-muted-foreground mt-1">Hubungkan Guru dengan Mapel, Kelas, dan Beban Jam (JP).</p>
         </div>
         <Button onClick={handleOpenAdd} className="gap-2 shadow-lg shadow-primary/20">
           <Plus className="w-4 h-4" /> Tambah Penugasan
@@ -233,14 +224,6 @@ export default function TeacherAssignmentsPage() {
         </Table>
       </Card>
 
-      <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 flex gap-4">
-         <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-         <div className="text-xs text-muted-foreground leading-relaxed">
-           <p className="font-bold text-primary mb-1 uppercase tracking-wider">Navigasi Pengecekan:</p>
-           Nama guru dan mata pelajaran kini ditampilkan secara unik. Gunakan tombol Tambah Penugasan untuk memetakan satu mata pelajaran ke berbagai kelas untuk guru yang sama.
-         </div>
-      </div>
-
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
@@ -262,7 +245,7 @@ export default function TeacherAssignmentsPage() {
               </label>
               <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
                 <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
-                <SelectContent>{uniqueSubjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{sortedSubjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
@@ -271,7 +254,7 @@ export default function TeacherAssignmentsPage() {
               </label>
               <Select value={selectedClassId} onValueChange={setSelectedClassId}>
                 <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
-                <SelectContent>{classes?.map(c => <SelectItem key={c.id} value={c.id}>Kelas {c.name} (G-{c.gradeLevel})</SelectItem>)}</SelectContent>
+                <SelectContent>{classes?.map(c => <SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="space-y-2 pt-2">
@@ -280,7 +263,7 @@ export default function TeacherAssignmentsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleSave} disabled={submitting} className="w-full h-11">
+            <Button onClick={handleSave} disabled={submitting} className="w-full h-11 shadow-lg shadow-primary/20">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               {editingAssignment ? 'Simpan Perubahan' : 'Simpan Penugasan'}
             </Button>

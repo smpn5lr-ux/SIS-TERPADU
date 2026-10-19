@@ -94,7 +94,7 @@ export interface Subject {
   id: string;
   name: string;
   code: string;
-  grade: number;
+  grades: number[];
 }
 
 export interface TeacherAssignment {
@@ -147,7 +147,7 @@ export interface Assessment {
 export interface RosterEntry {
   id: string;
   day: string;
-  period: number; // Jam ke-1, 2, dll
+  period: number; 
   classId: string;
   className: string;
   teacherId?: string;
@@ -159,8 +159,8 @@ export interface RosterEntry {
 }
 
 export interface RosterConfig {
-  entryTime: string; // 07:00
-  jpDuration: number; // 40 menit
+  entryTime: string; 
+  jpDuration: number; 
   break1Active: boolean;
   break1Period: number;
   break1Duration: number;

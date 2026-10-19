@@ -2,7 +2,7 @@
 "use client"
 
 import { useState, useMemo } from 'react'
-import { Plus, BookOpen, Trash2, Loader2, Pencil, Layers, BookMarked, Hash, AlertCircle } from "lucide-react"
+import { Plus, BookOpen, Trash2, Loader2, Pencil, Layers, BookMarked, Hash, AlertCircle, CheckCircle2 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,11 +29,13 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, query, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore'
+import { collection, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore'
 import { Subject } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { Badge } from "@/components/ui/badge"
@@ -41,7 +43,7 @@ import { Badge } from "@/components/ui/badge"
 const subjectSchema = z.object({
   name: z.string().min(2, "Nama minimal 2 karakter"),
   code: z.string().min(2, "Kode minimal 2 karakter"),
-  grade: z.string().optional(),
+  grades: z.array(z.string()).min(1, "Pilih minimal satu tingkat"),
 })
 
 export default function SubjectsPage() {
@@ -58,43 +60,25 @@ export default function SubjectsPage() {
 
   const { data: subjects, loading } = useCollection<Subject>(subjectsQuery)
 
-  // Logika Pengelompokan Mapel agar tidak dobel
-  const groupedSubjects = useMemo(() => {
+  const sortedSubjects = useMemo(() => {
     if (!subjects) return []
-    const map = new Map<string, { 
-      name: string, 
-      code: string, 
-      grades: number[],
-      ids: string[],
-      masterDoc: Subject 
-    }>()
-
-    subjects.forEach(s => {
-      const key = `${s.code}-${s.name}`.toLowerCase()
-      const existing = map.get(key) || { 
-        name: s.name, 
-        code: s.code, 
-        grades: [], 
-        ids: [],
-        masterDoc: s 
-      }
-      if (!existing.grades.includes(s.grade)) existing.grades.push(s.grade)
-      existing.ids.push(s.id)
-      map.set(key, existing)
-    })
-
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+    return [...subjects].sort((a, b) => a.name.localeCompare(b.name))
   }, [subjects])
 
   const form = useForm<z.infer<typeof subjectSchema>>({
     resolver: zodResolver(subjectSchema),
-    defaultValues: { name: "", code: "", grade: "7" },
+    defaultValues: { name: "", code: "", grades: ["7"] },
   })
 
   const onSubmit = async (values: z.infer<typeof subjectSchema>) => {
     if (!db || submitting) return
     setSubmitting(true)
-    const payload = { ...values, grade: parseInt(values.grade || "7") }
+    const payload = { 
+      name: values.name, 
+      code: values.code, 
+      grades: values.grades.map(Number).sort((a, b) => a - b) 
+    }
+    
     try {
       if (editingSubject) {
         await updateDoc(doc(db, 'subjects', editingSubject.id), payload)
@@ -113,28 +97,28 @@ export default function SubjectsPage() {
     }
   }
 
-  const handleDelete = async (ids: string[]) => {
+  const handleDelete = async (id: string) => {
     if (!db) return
-    // Jika mapel dikelompokkan, hapus semua instance atau tanya user. 
-    // Untuk MVP, hapus doc utama yang dipilih.
-    for (const id of ids) {
-      await deleteDoc(doc(db, 'subjects', id))
-    }
+    await deleteDoc(doc(db, 'subjects', id))
     toast({ title: "Mata Pelajaran Dihapus" })
   }
 
   const handleEdit = (sub: Subject) => {
     setEditingSubject(sub)
-    form.reset({ name: sub.name, code: sub.code, grade: sub.grade.toString() })
+    form.reset({ 
+      name: sub.name, 
+      code: sub.code, 
+      grades: sub.grades.map(String) 
+    })
     setIsDialogOpen(true)
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Kurikulum & Mapel</h1>
-          <p className="text-muted-foreground">Manajemen daftar mata pelajaran yang diajarkan di sekolah.</p>
+          <p className="text-muted-foreground mt-1">Daftar induk mata pelajaran yang diajarkan di sekolah.</p>
         </div>
         <Button onClick={() => { setEditingSubject(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20">
           <Plus className="w-4 h-4" /> Tambah Mapel
@@ -147,37 +131,37 @@ export default function SubjectsPage() {
             <TableRow>
               <TableHead className="font-bold text-primary w-[150px]">Kode</TableHead>
               <TableHead className="font-bold text-primary">Nama Mata Pelajaran</TableHead>
-              <TableHead className="font-bold text-primary">Tingkat Tersedia</TableHead>
+              <TableHead className="font-bold text-primary">Tersedia untuk Tingkat</TableHead>
               <TableHead className="text-right font-bold text-primary">Aksi</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell></TableRow>
-            ) : groupedSubjects.length === 0 ? (
+            ) : sortedSubjects.length === 0 ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20 text-muted-foreground italic">Belum ada mata pelajaran.</TableCell></TableRow>
-            ) : groupedSubjects.map((group, idx) => (
-              <TableRow key={idx} className="hover:bg-muted/5 transition-colors">
-                <TableCell className="font-mono font-bold text-accent">{group.code}</TableCell>
+            ) : sortedSubjects.map((sub) => (
+              <TableRow key={sub.id} className="hover:bg-muted/5 transition-colors">
+                <TableCell className="font-mono font-bold text-accent">{sub.code}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <BookMarked className="w-4 h-4 text-primary" />
-                    <span className="font-bold">{group.name}</span>
+                    <span className="font-bold">{sub.name}</span>
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {group.grades.sort((a,b) => a-b).map(g => (
-                      <Badge key={g} variant="outline" className="bg-primary/5 border-primary/20 text-[10px]">Kelas {g}</Badge>
+                    {sub.grades?.sort((a,b) => a-b).map(g => (
+                      <Badge key={g} variant="outline" className="bg-primary/5 border-primary/20 text-[10px] font-bold">KELAS {g}</Badge>
                     ))}
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEdit(group.masterDoc)}>
+                    <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEdit(sub)}>
                       <Pencil className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(group.ids)}>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(sub.id)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -191,48 +175,73 @@ export default function SubjectsPage() {
       <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 flex gap-4">
          <AlertCircle className="w-5 h-5 text-primary shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed">
-           <p className="font-bold text-primary mb-1 uppercase tracking-wider">Informasi Pengelompokan:</p>
-           Sistem secara otomatis menggabungkan mata pelajaran dengan <strong>Nama dan Kode</strong> yang sama ke dalam satu baris. Ini memudahkan Anda melihat cakupan kurikulum tanpa adanya data ganda di layar.
+           <p className="font-bold text-primary mb-1 uppercase tracking-wider">Sistem Mapel Terpadu:</p>
+           Gunakan menu ini untuk mendefinisikan mata pelajaran sekali saja. Anda dapat mencentang beberapa tingkat sekaligus jika mapel tersebut diajarkan di kelas yang berbeda. Perubahan di sini akan otomatis memperbarui seluruh referensi penugasan guru.
          </div>
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle>{editingSubject ? 'Edit Mata Pelajaran' : 'Tambah Mata Pelajaran Baru'}</DialogTitle>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
-              <FormField control={form.control} name="code" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
-                    <Hash className="w-3 h-3" /> Kode Mapel
-                  </FormLabel>
-                  <FormControl><Input placeholder="Contoh: BING-7" {...field} value={field.value || ""} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="name" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
-                    <BookMarked className="w-3 h-3" /> Nama Lengkap Mapel
-                  </FormLabel>
-                  <FormControl><Input placeholder="Contoh: Bahasa Inggris" {...field} value={field.value || ""} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="grade" render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
-                    <Layers className="w-3 h-3" /> Tingkat Kelas
-                  </FormLabel>
-                  <FormControl><Input type="number" placeholder="7" {...field} value={field.value || ""} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pt-4">
+              <div className="space-y-4">
+                <FormField control={form.control} name="code" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
+                      <Hash className="w-3 h-3" /> Kode Mapel
+                    </FormLabel>
+                    <FormControl><Input placeholder="Contoh: BING-SMP" {...field} value={field.value || ""} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="name" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
+                      <BookMarked className="w-3 h-3" /> Nama Lengkap Mapel
+                    </FormLabel>
+                    <FormControl><Input placeholder="Contoh: Bahasa Inggris" {...field} value={field.value || ""} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+
+              <div className="space-y-3">
+                <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
+                  <Layers className="w-3 h-3" /> Pilih Tingkat Kelas
+                </FormLabel>
+                <div className="grid grid-cols-3 gap-4 bg-muted/20 p-4 rounded-xl border border-border/50">
+                  {["7", "8", "9"].map((grade) => (
+                    <FormField
+                      key={grade}
+                      control={form.control}
+                      name="grades"
+                      render={({ field }) => (
+                        <FormItem className="flex items-center space-x-2 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value?.includes(grade)}
+                              onCheckedChange={(checked) => {
+                                return checked
+                                  ? field.onChange([...field.value, grade])
+                                  : field.onChange(field.value?.filter((value) => value !== grade))
+                              }}
+                            />
+                          </FormControl>
+                          <Label className="text-sm font-bold cursor-pointer">Kelas {grade}</Label>
+                        </FormItem>
+                      )}
+                    />
+                  ))}
+                </div>
+                <FormMessage />
+              </div>
+
               <DialogFooter className="pt-4">
-                <Button type="submit" disabled={submitting} className="w-full">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                <Button type="submit" disabled={submitting} className="w-full h-11">
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                   Simpan Mata Pelajaran
                 </Button>
               </DialogFooter>
