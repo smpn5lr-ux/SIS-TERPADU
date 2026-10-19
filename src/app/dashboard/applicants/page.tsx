@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { 
-  Search, Plus, Loader2, Camera, Eye, User, Home, MapPin, Phone, Users as UsersIcon, Pencil, Trash2, Scale, Ruler, Clock, Hash, FileUp, FileSpreadsheet, FileText, CheckCircle2, AlertTriangle, Upload, AlertCircle, Download, FileCode, Check, Settings2
+  Search, Plus, Loader2, Camera, Eye, User, Home, MapPin, Phone, Users as UsersIcon, Pencil, Trash2, Scale, Ruler, Clock, Hash, FileUp, FileSpreadsheet, FileText, CheckCircle2, AlertTriangle, Upload, AlertCircle, Download, FileCode, Check, Settings2, CloudUpload, CloudOff, RefreshCw, Info
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -125,9 +125,8 @@ export default function ApplicantsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [isScanning, setIsScanning] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
   const [importData, setImportData] = useState<any[]>([])
   const [editingApplicant, setEditingApplicant] = useState<Applicant | null>(null)
   const [applicantToDelete, setApplicantToDelete] = useState<Applicant | null>(null)
@@ -135,6 +134,9 @@ export default function ApplicantsPage() {
   const [isDeleteAllDialogOpen, setIsDeleteAllDialogOpen] = useState(false)
   const [selectedTemplateCols, setSelectedTemplateCols] = useState<string[]>(TEMPLATE_COLUMNS.map(c => c.id))
   
+  const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
+  const [isDirty, setIsDirty] = useState(false)
+
   const scanInputRef = useRef<HTMLInputElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
@@ -158,13 +160,7 @@ export default function ApplicantsPage() {
     },
   })
 
-  const watchLivingWith = form.watch("livingWith")
-
-  const settingsRef = useMemoFirebase(() => {
-    if (!db) return null
-    return doc(db, 'settings', 'system')
-  }, [db])
-
+  const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
   const { data: systemConfig } = useDoc<any>(settingsRef)
 
   const applicantsQuery = useMemoFirebase(() => {
@@ -172,239 +168,24 @@ export default function ApplicantsPage() {
     return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(2000))
   }, [db])
 
-  const { data: applicants, loading } = useCollection<Applicant>(applicantsQuery)
+  const { data: serverApplicants, loading } = useCollection<Applicant>(applicantsQuery)
+
+  useEffect(() => {
+    if (serverApplicants && !isDirty) {
+      setLocalApplicants(serverApplicants)
+    }
+  }, [serverApplicants, isDirty])
 
   const filteredApplicants = useMemo(() => {
-    if (!applicants) return []
-    return applicants.filter(a => 
+    return localApplicants.filter(a => 
       !a.isDeleted &&
       ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm))
     )
-  }, [applicants, searchTerm])
-
-  const handleScanForm = async (fileInput: HTMLInputElement) => {
-    const file = fileInput.files?.[0]
-    if (!file) return
-    setIsScanning(true)
-    const reader = new FileReader()
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string
-      try {
-        const result = await extractFormData({ photoDataUri: base64 })
-        if (result) {
-          Object.entries(result).forEach(([key, value]) => {
-            if (value && key in form.getValues()) form.setValue(key as any, value)
-          });
-          toast({ title: "Scan Berhasil", description: "Hanya data yang terbaca jelas yang diisi otomatis." })
-        }
-      } catch (err) {
-        toast({ variant: "destructive", title: "Scan Gagal", description: "Gagal memproses gambar." })
-      } finally {
-        setIsScanning(false)
-        fileInput.value = ''
-      }
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setIsImporting(true)
-    
-    const fileType = file.type
-    const reader = new FileReader()
-
-    reader.onload = async (event) => {
-      const content = event.target?.result
-      try {
-        if (fileType.includes('spreadsheet') || fileType.includes('excel') || file.name.endsWith('.xlsx')) {
-          const workbook = XLSX.read(content, { type: 'binary' })
-          const sheetName = workbook.SheetNames[0]
-          const sheet = workbook.Sheets[sheetName]
-          const data = XLSX.utils.sheet_to_json(sheet)
-          
-          const mappedData = data.map((row: any) => {
-            return {
-              fullName: row['NAMA'] || row['Nama Lengkap'] || row['Nama'] || "",
-              NISN: row['NISN']?.toString() || "",
-              gender: (row['Jenis Kelamin'] || row['JK'] || "").toString().toUpperCase().startsWith('P') ? 'Perempuan' : 'Laki-laki',
-              originSchool: row['SEKOLAH ASAL'] || row['Sekolah Asal'] || "",
-              fatherName: row['NAMA ORANG TUA'] || row['Orang Tua'] || row['Nama Orang Tua'] || "",
-              kelurahan: row['KELURAHAN'] || row['Kelurahan'] || row['Kelurahan/Desa'] || "",
-              kecamatan: row['KECAMATAN'] || row['Kecamatan'] || "",
-              propinsi: row['PROVINSI'] || row['Provinsi'] || row['Propinsi'] || "",
-              registrationSequence: Number(row['NO Daftar'] || row['No Daftar'] || row['No. Urut'] || row['No. Urut Pendaftaran (No Reg)'] || 0),
-              applicationPath: row['Jalur'] || row['Jalur Masuk'] || 'Zonasi',
-            }
-          })
-          setImportData(mappedData)
-        } else if (fileType.includes('pdf')) {
-          const result = await extractFromFile({ 
-            fileDataUri: content as string,
-            fileType: fileType
-          })
-          if (result && result.applicants) {
-            setImportData(result.applicants)
-          }
-        }
-      } catch (err) {
-        toast({ variant: "destructive", title: "Gagal Membaca File", description: "Format file tidak valid." })
-      } finally {
-        setIsImporting(false)
-        e.target.value = ''
-      }
-    }
-
-    if (fileType.includes('pdf')) {
-      reader.readAsDataURL(file)
-    } else {
-      reader.readAsBinaryString(file)
-    }
-  }
-
-  const handleDownloadTemplate = async (format: 'csv' | 'excel' | 'pdf') => {
-    const selectedHeaders = TEMPLATE_COLUMNS.filter(c => selectedTemplateCols.includes(c.id)).map(c => c.label)
-    
-    if (format === 'excel') {
-      const worksheet = XLSX.utils.json_to_sheet([])
-      XLSX.utils.sheet_add_aoa(worksheet, [selectedHeaders], { origin: "A1" })
-      const workbook = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Template")
-      XLSX.writeFile(workbook, "Template_Pendaftaran_SIS_TERPADU.xlsx")
-    } else if (format === 'csv') {
-      const csvContent = selectedHeaders.join(",")
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.setAttribute("href", url)
-      link.setAttribute("download", "Template_Pendaftaran_SIS_TERPADU.csv")
-      link.click()
-    } else if (format === 'pdf') {
-      const { default: jsPDF } = await import('jspdf')
-      const { default: autoTable } = await import('jspdf-autotable')
-      const doc = new jsPDF('l')
-      doc.setFontSize(16)
-      doc.text("FORMULIR PENDAFTARAN KOSONG", 148, 20, { align: "center" })
-      autoTable(doc, {
-        head: [selectedHeaders],
-        body: Array.from({ length: 5 }).map(() => selectedHeaders.map(() => "")),
-        startY: 30,
-        theme: 'grid',
-        styles: { fontSize: 8, minCellHeight: 10 }
-      })
-      doc.save("Formulir_Pendaftaran_Manual_SIS.pdf")
-    }
-    setIsTemplateDialogOpen(false)
-  }
-
-  const executeBulkImport = () => {
-    if (!db || importData.length === 0) return
-    setIsImporting(true)
-    const batch = writeBatch(db)
-    
-    // Pastikan prefiks bersih dan memiliki dash yang konsisten
-    let prefix = (systemConfig?.regPrefix || "").trim();
-    if (prefix && !prefix.endsWith('-')) {
-      prefix = prefix + '-';
-    }
-    
-    importData.forEach((data, idx) => {
-      const seq = Number(data.registrationSequence || idx + 1);
-      const paddedSeq = seq.toString().padStart(2, '0');
-      const regNumber = `${prefix}${paddedSeq}`;
-
-      const newRef = doc(collection(db, 'applicants'))
-      const sanitizedData = Object.entries(data).reduce((acc, [key, value]) => {
-        acc[key] = (value === undefined || value === null) ? "" : value;
-        return acc;
-      }, {} as any);
-
-      const pName = sanitizedData.parentName || sanitizedData.fatherName || sanitizedData.motherName || sanitizedData.guardianName || "";
-
-      batch.set(newRef, {
-        ...sanitizedData,
-        parentName: pName,
-        registrationSequence: seq,
-        registrationNumber: regNumber,
-        verificationStatus: 'Belum Diverifikasi',
-        admissionStatus: 'pending',
-        createdAt: new Date().toISOString(),
-        isDeleted: false,
-        livingWith: sanitizedData.livingWith || 'Bersama Orang Tua',
-        transportation: sanitizedData.transportation || 'Jalan Kaki',
-        welfareType: sanitizedData.welfareType || 'Tidak Ada',
-        religion: sanitizedData.religion || 'Katolik'
-      })
-    })
-    
-    batch.commit().then(() => {
-      toast({ title: "Impor Berhasil", description: `${importData.length} data pendaftar ditambahkan.` })
-      setIsImportDialogOpen(false)
-      setImportData([])
-    }).catch(async () => {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'applicants', operation: 'write' }))
-    }).finally(() => {
-      setIsImporting(false)
-    })
-  }
-
-  const handleEdit = (applicant: Applicant) => {
-    setEditingApplicant(applicant)
-    form.reset({
-      ...applicant,
-      registrationSequence: applicant.registrationSequence?.toString() || "",
-      childOrder: applicant.childOrder?.toString() || "",
-      numberOfSiblings: applicant.numberOfSiblings?.toString() || "",
-      heightCm: applicant.heightCm?.toString() || "",
-      weightKg: applicant.weightKg?.toString() || "",
-      travelTimeMinutes: applicant.travelTimeMinutes?.toString() || "",
-    } as any)
-    setIsDialogOpen(true)
-  }
-
-  const handleDeleteConfirm = (applicant: Applicant) => {
-    setApplicantToDelete(applicant)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const executeDelete = () => {
-    if (!db || !applicantToDelete) return
-    const docRef = doc(db, 'applicants', applicantToDelete.id)
-    updateDoc(docRef, { isDeleted: true, deletedAt: new Date().toISOString() })
-      .catch(async () => {
-        errorEmitter.emit('permission-error', new FirestorePermissionError({ path: docRef.path, operation: 'update' }))
-      })
-      .then(() => {
-        toast({ title: "Data dipindahkan ke sampah" })
-        setApplicantToDelete(null)
-      })
-  }
-
-  const executeDeleteAll = () => {
-    if (!db || !filteredApplicants.length) return
-    setSubmitting(true)
-    const batch = writeBatch(db)
-    const now = new Date().toISOString()
-
-    filteredApplicants.forEach((applicant) => {
-      const docRef = doc(db, 'applicants', applicant.id)
-      batch.update(docRef, { isDeleted: true, deletedAt: now })
-    })
-
-    batch.commit().then(() => {
-      toast({ title: "Berhasil", description: `${filteredApplicants.length} data dipindahkan ke sampah.` })
-      setIsDeleteAllDialogOpen(false)
-    }).catch(async () => {
-      errorEmitter.emit('permission-error', new FirestorePermissionError({ path: 'applicants', operation: 'write' }))
-    }).finally(() => {
-      setSubmitting(false)
-    })
-  }
+  }, [localApplicants, searchTerm])
 
   const handleAddNew = () => {
     setEditingApplicant(null)
-    const lastSeq = applicants?.reduce((max, a) => Math.max(max, a.registrationSequence || 0), 0) || 0
+    const lastSeq = localApplicants.reduce((max, a) => Math.max(max, a.registrationSequence || 0), 0) || 0
     form.reset({
       registrationSequence: (lastSeq + 1).toString(),
       fullName: "", gender: "Laki-laki", NISN: "", NIK: "", familyCardNumber: "",
@@ -422,20 +203,29 @@ export default function ApplicantsPage() {
     setIsDialogOpen(true)
   }
 
-  function onSubmit(values: z.infer<typeof formSchema>) {
-    if (!db || submitting) return
-    setSubmitting(true)
-    
+  const handleEditLocal = (a: Applicant) => {
+    setEditingApplicant(a)
+    form.reset({
+      ...a,
+      registrationSequence: a.registrationSequence?.toString() || "",
+      childOrder: a.childOrder?.toString() || "",
+      numberOfSiblings: a.numberOfSiblings?.toString() || "",
+      heightCm: a.heightCm?.toString() || "",
+      weightKg: a.weightKg?.toString() || "",
+      travelTimeMinutes: a.travelTimeMinutes?.toString() || "",
+    } as any)
+    setIsDialogOpen(true)
+  }
+
+  function onSaveLocal(values: z.infer<typeof formSchema>) {
     const seq = Number(values.registrationSequence) || 0;
-    let prefix = (systemConfig?.regPrefix || "").trim();
-    if (prefix && !prefix.endsWith('-')) {
-      prefix = prefix + '-';
-    }
-    const paddedSeq = seq.toString().padStart(2, '0');
-    const regNumber = `${prefix}${paddedSeq}`;
+    let prefix = (systemConfig?.regPrefix || "REG-").trim();
+    if (prefix && !prefix.endsWith('-')) prefix = prefix + '-';
+    const regNumber = `${prefix}${seq.toString().padStart(2, '0')}`;
 
     const applicantData = {
       ...values,
+      id: editingApplicant ? editingApplicant.id : `temp-${Date.now()}`,
       registrationSequence: seq,
       registrationNumber: regNumber,
       childOrder: Number(values.childOrder) || 0,
@@ -443,45 +233,85 @@ export default function ApplicantsPage() {
       heightCm: Number(values.heightCm) || 0,
       weightKg: Number(values.weightKg) || 0,
       travelTimeMinutes: Number(values.travelTimeMinutes) || 0,
-      parentName: values.livingWith === 'Wali' ? (values.guardianName || values.fatherName || values.motherName || "") : (values.fatherName || values.motherName || ""),
+      parentName: values.livingWith === 'Wali' ? (values.guardianName || values.fatherName || "") : (values.fatherName || values.motherName || ""),
       parentPhone: values.studentPhone || "",
-    }
-
-    const sanitizedData = Object.entries(applicantData).reduce((acc, [key, value]) => {
-      acc[key] = (value === undefined || value === null) ? "" : value;
-      return acc;
-    }, {} as any);
+      verificationStatus: editingApplicant?.verificationStatus || 'Belum Diverifikasi',
+      admissionStatus: editingApplicant?.admissionStatus || 'pending',
+      createdAt: editingApplicant?.createdAt || new Date().toISOString(),
+      isDeleted: false
+    } as Applicant
 
     if (editingApplicant) {
-      const applicantRef = doc(db, 'applicants', editingApplicant.id)
-      updateDoc(applicantRef, { ...sanitizedData, updatedAt: new Date().toISOString() })
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ 
-            path: applicantRef.path, 
-            operation: 'update',
-            requestResourceData: sanitizedData
-          }))
-        })
+      setLocalApplicants(prev => prev.map(a => a.id === editingApplicant.id ? applicantData : a))
     } else {
-      const newApplicant = {
-        ...sanitizedData,
-        verificationStatus: 'Belum Diverifikasi',
-        admissionStatus: 'pending',
-        createdAt: new Date().toISOString(),
-        isDeleted: false
-      }
-      addDoc(collection(db, 'applicants'), newApplicant)
-        .catch(async () => {
-          errorEmitter.emit('permission-error', new FirestorePermissionError({ 
-            path: 'applicants', 
-            operation: 'create',
-            requestResourceData: newApplicant
-          }))
-        })
+      setLocalApplicants(prev => [applicantData, ...prev])
     }
     
+    setIsDirty(true)
     setIsDialogOpen(false)
-    setSubmitting(false)
+    toast({ title: "Perubahan Disimpan di Buffer", description: "Klik Sinkronkan untuk mengirim ke database." })
+  }
+
+  const handleDeleteTrigger = (a: Applicant) => {
+    setApplicantToDelete(a)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const executeDeleteLocal = () => {
+    if (!applicantToDelete) return
+    setLocalApplicants(prev => prev.filter(a => a.id !== applicantToDelete.id))
+    setIsDirty(true)
+    setIsDeleteDialogOpen(false)
+    setApplicantToDelete(null)
+    toast({ title: "Dihapus dari draf" })
+  }
+
+  const handleSyncToCloud = async () => {
+    if (!db || !serverApplicants) return
+    setIsSyncing(true)
+    const batch = writeBatch(db)
+
+    try {
+      // 1. Delete applicants in server but not in local
+      const toDelete = serverApplicants.filter(sa => !localApplicants.some(la => la.id === sa.id))
+      toDelete.forEach(a => {
+        batch.delete(doc(db, 'applicants', a.id))
+      })
+
+      // 2. Add/Update
+      localApplicants.forEach(la => {
+        if (la.id.startsWith('temp-')) {
+          const newRef = doc(collection(db, 'applicants'))
+          const { id, ...data } = la
+          batch.set(newRef, data)
+        } else {
+          const serverVer = serverApplicants.find(sa => sa.id === la.id)
+          if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
+            batch.update(doc(db, 'applicants', la.id), la as any)
+          }
+        }
+      })
+
+      await batch.commit()
+      setIsDirty(false)
+      toast({ title: "Sinkronisasi Berhasil" })
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const handleDownloadTemplate = async (format: 'csv' | 'excel' | 'pdf') => {
+    const selectedHeaders = TEMPLATE_COLUMNS.filter(c => selectedTemplateCols.includes(c.id)).map(c => c.label)
+    if (format === 'excel') {
+      const worksheet = XLSX.utils.json_to_sheet([])
+      XLSX.utils.sheet_add_aoa(worksheet, [selectedHeaders], { origin: "A1" })
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Template")
+      XLSX.writeFile(workbook, "Template_Pendaftaran.xlsx")
+    }
+    setIsTemplateDialogOpen(false)
   }
 
   return (
@@ -489,138 +319,29 @@ export default function ApplicantsPage() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Calon Murid</h1>
-          <p className="text-muted-foreground mt-1">Manajemen data pendaftaran murid baru sesuai standar Dapodik.</p>
+          <div className="flex items-center gap-2 mt-1">
+             <p className="text-muted-foreground text-sm">Manajemen data sesuai standar Dapodik.</p>
+             {isDirty ? (
+               <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Ada Draf Belum Sinkron</Badge>
+             ) : (
+               <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron</Badge>
+             )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            className="gap-2 border-destructive/20 text-destructive hover:bg-destructive/10"
-            onClick={() => setIsDeleteAllDialogOpen(true)}
-            disabled={filteredApplicants.length === 0}
-          >
-            <Trash2 className="w-4 h-4" /> Hapus Semua
+        <div className="flex flex-wrap gap-2">
+          {isDirty && (
+            <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">
+              {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
+              Sinkronkan ke Cloud
+            </Button>
+          )}
+          <Button variant="outline" onClick={() => setIsTemplateDialogOpen(true)} className="gap-2 border-accent/20 text-accent">
+            <Download className="w-4 h-4" /> Unduh Template
           </Button>
-
-          <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="gap-2 border-accent/20 text-accent">
-                <Download className="w-4 h-4" /> Unduh Template
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[700px] border-border/50 bg-card">
-              <DialogHeader>
-                <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                  <Settings2 className="w-5 h-5 text-primary" /> Kustomisasi Kolom Template
-                </DialogTitle>
-                <DialogDescription>Pilih kolom yang ingin disertakan dalam file template Anda.</DialogDescription>
-              </DialogHeader>
-              <div className="py-4">
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-6 bg-muted/20 rounded-xl border border-border/50 max-h-[350px] overflow-y-auto">
-                  {TEMPLATE_COLUMNS.map((col) => (
-                    <div key={col.id} className="flex items-center space-x-3">
-                      <Checkbox 
-                        id={`template-col-${col.id}`} 
-                        checked={selectedTemplateCols.includes(col.id)} 
-                        onCheckedChange={() => {
-                          setSelectedTemplateCols(prev => prev.includes(col.id) ? prev.filter(c => c !== col.id) : [...prev, col.id])
-                        }} 
-                      />
-                      <Label htmlFor={`template-col-${col.id}`} className="text-xs font-medium cursor-pointer">{col.label}</Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <DialogFooter className="flex justify-end gap-2 pt-4 border-t">
-                <Button onClick={() => handleDownloadTemplate('csv')} variant="outline" className="gap-2"><FileCode className="w-3 h-3" /> CSV</Button>
-                <Button onClick={() => handleDownloadTemplate('excel')} variant="outline" className="gap-2 border-green-500/20 text-green-500"><FileSpreadsheet className="w-3 h-3" /> Excel</Button>
-                <Button onClick={() => handleDownloadTemplate('pdf')} className="gap-2 bg-primary"><FileText className="w-3 h-3" /> PDF</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
-          <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" className="gap-2 border-primary/20 text-primary">
-                <FileUp className="w-4 h-4" /> Impor Data
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[800px] h-[80vh] flex flex-col p-0">
-              <DialogHeader className="p-6 pb-2 border-b bg-muted/20">
-                <DialogTitle>Impor Data Murid</DialogTitle>
-                <DialogDescription>Unggah file Excel atau PDF. Kami akan mengekstraksi data secara otomatis.</DialogDescription>
-              </DialogHeader>
-              <div className="flex-1 overflow-hidden flex flex-col p-6 space-y-4">
-                <div 
-                  onClick={() => importInputRef.current?.click()}
-                  className="border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/50 transition-colors cursor-pointer bg-muted/10 group"
-                >
-                  <input type="file" ref={importInputRef} onChange={handleImportFile} accept=".xlsx,.xls,.pdf" className="hidden" />
-                  <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform">
-                    <Upload className="w-6 h-6 text-primary" />
-                  </div>
-                  <p className="text-sm font-medium">Klik atau seret file ke sini</p>
-                  <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-widest">Excel (.xlsx) atau Dokumen PDF</p>
-                </div>
-
-                {isImporting && (
-                  <div className="flex flex-col items-center justify-center py-10 gap-2">
-                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
-                    <p className="text-xs text-muted-foreground">Menganalisis file...</p>
-                  </div>
-                )}
-
-                {importData.length > 0 && (
-                  <div className="flex-1 overflow-hidden flex flex-col space-y-2">
-                    <h3 className="text-sm font-bold flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
-                      Pratinjau Data ({importData.length} Murid)
-                    </h3>
-                    <ScrollArea className="flex-1 border rounded-lg">
-                      <Table>
-                        <TableHeader className="bg-muted/50 sticky top-0 z-10">
-                          <TableRow>
-                            <TableHead className="w-[50px]">No Dftr</TableHead>
-                            <TableHead>Nama</TableHead>
-                            <TableHead>NISN</TableHead>
-                            <TableHead>JK</TableHead>
-                            <TableHead>Domisili</TableHead>
-                            <TableHead>Sekolah Asal</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {importData.map((row, i) => (
-                            <TableRow key={i}>
-                              <TableCell className="text-xs font-bold text-primary">{row.registrationSequence || "-"}</TableCell>
-                              <TableCell className="font-medium text-xs">{row.fullName}</TableCell>
-                              <TableCell className="text-xs font-mono">{row.NISN || "-"}</TableCell>
-                              <TableCell className="text-xs">{row.gender === 'Perempuan' ? 'P' : 'L'}</TableCell>
-                              <TableCell className="text-xs">{row.kelurahan}, {row.kecamatan}, {row.propinsi}</TableCell>
-                              <TableCell className="text-xs">{row.originSchool || "-"}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </ScrollArea>
-                  </div>
-                )}
-              </div>
-              <DialogFooter className="p-6 border-t bg-muted/20">
-                <Button variant="ghost" onClick={() => { setImportData([]); setIsImportDialogOpen(false); }}>Batal</Button>
-                <Button 
-                  onClick={executeBulkImport} 
-                  disabled={importData.length === 0 || isImporting}
-                  className="gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" /> Masukkan ke Database
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
           <Button onClick={handleAddNew} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Murid Baru</Button>
         </div>
       </div>
-      {/* ... sisa komponen tetap sama ... */}
+
       <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
         <div className="p-4 border-b border-border/50 flex items-center gap-4">
           <div className="relative flex-1">
@@ -631,7 +352,7 @@ export default function ApplicantsPage() {
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
-              <TableHead className="font-bold text-primary">No. Urut Pendaftaran (No Reg)</TableHead>
+              <TableHead className="font-bold text-primary">No. Reg</TableHead>
               <TableHead className="font-bold text-primary">Nama Lengkap</TableHead>
               <TableHead className="font-bold text-primary">Asal Sekolah</TableHead>
               <TableHead className="font-bold text-primary">Jalur</TableHead>
@@ -640,45 +361,104 @@ export default function ApplicantsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {loading && !localApplicants.length ? (
               <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredApplicants.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar ditemukan.</TableCell></TableRow>
-            ) : filteredApplicants.map((applicant) => (
-              <TableRow key={applicant.id} className="hover:bg-muted/10 transition-colors">
-                <TableCell className="font-mono text-xs font-bold">{applicant.registrationNumber || applicant.registrationSequence}</TableCell>
-                <TableCell className="font-medium">{applicant.fullName}</TableCell>
-                <TableCell className="text-sm">{applicant.originSchool || "-"}</TableCell>
-                <TableCell><Badge variant="outline" className="text-[10px] font-bold uppercase">{applicant.applicationPath}</Badge></TableCell>
-                <TableCell>
-                  <Badge variant="outline" className={`text-[10px] uppercase font-bold ${
-                    applicant.verificationStatus === 'Lengkap' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
-                    applicant.verificationStatus === 'Ditolak' ? 'bg-destructive/10 text-destructive border-destructive/20' :
-                    applicant.verificationStatus === 'Perlu Perbaikan' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
-                    'bg-slate-500/10 text-slate-400'
-                  }`}>
-                    {applicant.verificationStatus}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEdit(applicant)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" asChild className="hover:text-primary">
-                      <Link href={`/dashboard/applicants/${applicant.id}`}><Eye className="w-4 h-4" /></Link>
-                    </Button>
-                    <Button variant="ghost" size="icon" className="hover:text-destructive" onClick={() => handleDeleteConfirm(applicant)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
+              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar.</TableCell></TableRow>
+            ) : filteredApplicants.map((a) => {
+              const isTemp = a.id.startsWith('temp-')
+              return (
+                <TableRow key={a.id} className={`hover:bg-muted/10 transition-colors ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
+                  <TableCell className="font-mono text-xs font-bold">
+                    <div className="flex items-center gap-2">
+                      {a.registrationNumber}
+                      {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}
+                    </div>
+                  </TableCell>
+                  <TableCell className="font-medium">{a.fullName}</TableCell>
+                  <TableCell className="text-sm">{a.originSchool || "-"}</TableCell>
+                  <TableCell><Badge variant="outline" className="text-[10px] font-bold">{a.applicationPath}</Badge></TableCell>
+                  <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{a.verificationStatus}</Badge></TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="hover:text-primary" onClick={() => handleEditLocal(a)}><Pencil className="w-4 h-4" /></Button>
+                      {!isTemp && <Button variant="ghost" size="icon" asChild><Link href={`/dashboard/applicants/${a.id}`}><Eye className="w-4 h-4" /></Link></Button>}
+                      <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(a)}><Trash2 className="w-4 h-4" /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>
-      {/* ... Dialog form dan alert tetap ada ... */}
+
+      <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-4">
+         <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+         <div className="text-xs text-muted-foreground leading-relaxed">
+           Sistem menggunakan <strong>Mode Offline Buffer</strong>. Anda dapat mengelola data murid secara bebas tanpa biaya Firestore. Pastikan menekan tombol <strong>"Sinkronkan ke Cloud"</strong> untuk menyimpan perubahan permanen ke server.
+         </div>
+      </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{editingApplicant ? 'Edit Data Murid' : 'Pendaftaran Murid Baru'}</DialogTitle></DialogHeader>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSaveLocal)} className="space-y-6 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                   <h3 className="font-bold text-sm border-b pb-1 text-primary uppercase">I. Identitas Pokok</h3>
+                   <FormField control={form.control} name="fullName" render={({ field }) => (
+                     <FormItem><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
+                   )} />
+                   <div className="grid grid-cols-2 gap-4">
+                     <FormField control={form.control} name="registrationSequence" render={({ field }) => (
+                       <FormItem><FormLabel>No. Urut (Daftar)</FormLabel><FormControl><Input type="number" {...field} value={field.value || ""} /></FormControl></FormItem>
+                     )} />
+                     <FormField control={form.control} name="gender" render={({ field }) => (
+                       <FormItem><FormLabel>Jenis Kelamin</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Laki-laki">Laki-laki</SelectItem><SelectItem value="Perempuan">Perempuan</SelectItem></SelectContent></Select></FormItem>
+                     )} />
+                   </div>
+                </div>
+                <div className="space-y-4">
+                   <h3 className="font-bold text-sm border-b pb-1 text-primary uppercase">II. Dokumen Legal</h3>
+                   <div className="grid grid-cols-2 gap-4">
+                     <FormField control={form.control} name="NISN" render={({ field }) => (
+                       <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                     )} />
+                     <FormField control={form.control} name="NIK" render={({ field }) => (
+                       <FormItem><FormLabel>NIK</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                     )} />
+                   </div>
+                   <FormField control={form.control} name="applicationPath" render={({ field }) => (
+                     <FormItem><FormLabel>Jalur Masuk</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Zonasi">Zonasi</SelectItem><SelectItem value="Prestasi">Prestasi</SelectItem><SelectItem value="Afirmasi">Afirmasi</SelectItem><SelectItem value="Perpindahan Orang Tua">Perpindahan</SelectItem></SelectContent></Select></FormItem>
+                   )} />
+                </div>
+              </div>
+              <DialogFooter><Button type="submit" className="w-full">Simpan ke Buffer</Button></DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus dari draf?</AlertDialogTitle>
+            <AlertDialogDescription>Data murid akan dihapus dari daftar sementara Anda. Ingat untuk Sinkron agar perubahan ini sampai ke server.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={isTemplateDialogOpen} onOpenChange={setIsTemplateDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader><DialogTitle>Unduh Template Impor</DialogTitle></DialogHeader>
+          <div className="grid grid-cols-1 gap-4 py-4">
+            <Button onClick={() => handleDownloadTemplate('excel')} variant="outline" className="gap-2 border-green-500/20 text-green-500"><FileSpreadsheet className="w-4 h-4" /> Excel (.xlsx)</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
