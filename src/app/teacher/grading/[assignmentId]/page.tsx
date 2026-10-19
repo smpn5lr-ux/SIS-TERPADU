@@ -116,6 +116,79 @@ function GradingPageContent() {
     }
   }, [serverGradingConfig])
 
+  // --- AUTO-BALANCE LOGIC ---
+  const balanceWeights = (weights: Record<string, number>, changedField: string, newVal: number, visibility: Record<string, boolean>) => {
+    const visibleIds = GRADE_FIELDS.filter(f => visibility[f.id]).map(f => f.id);
+    if (visibleIds.length <= 1) {
+      return { ...weights, [changedField]: 100 };
+    }
+
+    const others = visibleIds.filter(id => id !== changedField);
+    const newValClamped = Math.min(100, Math.max(0, newVal));
+    const remaining = 100 - newValClamped;
+    
+    const sumOthers = others.reduce((s, id) => s + (weights[id] || 0), 0);
+    const newWeights = { ...weights, [changedField]: newValClamped };
+
+    if (sumOthers > 0) {
+      others.forEach(id => {
+        const ratio = (weights[id] || 0) / sumOthers;
+        newWeights[id] = Math.round(ratio * remaining);
+      });
+    } else {
+      others.forEach(id => {
+        newWeights[id] = Math.round(remaining / others.length);
+      });
+    }
+
+    // Clean up rounding differences to ensure total is exactly 100
+    const currentTotal = visibleIds.reduce((s, id) => s + (newWeights[id] || 0), 0);
+    if (currentTotal !== 100 && others.length > 0) {
+      const diff = 100 - currentTotal;
+      newWeights[others[0]] += diff;
+    }
+
+    return newWeights;
+  };
+
+  const handleToggleVisibility = (fieldId: string, checked: boolean) => {
+    setLocalConfig(prev => {
+      const newVisibility = { ...prev.visibility, [fieldId]: checked };
+      const visibleIds = GRADE_FIELDS.filter(f => newVisibility[f.id]).map(f => f.id);
+      
+      let newWeights = { ...prev.weights };
+      if (!checked) {
+        // Redistribute removed weight
+        const removedWeight = prev.weights[fieldId] || 0;
+        newWeights[fieldId] = 0;
+        if (visibleIds.length > 0) {
+          const sumVisible = visibleIds.reduce((s, id) => s + (newWeights[id] || 0), 0);
+          if (sumVisible > 0) {
+            visibleIds.forEach(id => {
+              newWeights[id] += Math.round((newWeights[id] / sumVisible) * removedWeight);
+            });
+          } else {
+            visibleIds.forEach(id => {
+              newWeights[id] = Math.round(100 / visibleIds.length);
+            });
+          }
+        }
+      } else {
+        // Borrow weight for the new field
+        const initialShare = Math.round(100 / visibleIds.length);
+        newWeights = balanceWeights(prev.weights, fieldId, initialShare, newVisibility);
+      }
+
+      // Final pass to ensure 100%
+      const finalTotal = visibleIds.reduce((s, id) => s + (newWeights[id] || 0), 0);
+      if (finalTotal !== 100 && visibleIds.length > 0) {
+        newWeights[visibleIds[0]] += (100 - finalTotal);
+      }
+
+      return { ...prev, visibility: newVisibility, weights: newWeights };
+    });
+  };
+
   const studentsQuery = useMemoFirebase(() => {
     if (!db || userLoading || !user) return null 
     return query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'))
@@ -179,12 +252,10 @@ function GradingPageContent() {
     const batch = writeBatch(db)
     
     try {
-      // Simpan Konfigurasi Grading
       if (gradingConfigRef) {
         batch.set(gradingConfigRef, localConfig, { merge: true })
       }
 
-      // Simpan Nilai Murid
       Object.entries(grades).forEach(([studentId, data]) => {
         const docId = `${assignmentId}_${studentId}_sem${activeSemester}`
         const ref = doc(db, 'assessments', docId)
@@ -288,54 +359,44 @@ function GradingPageContent() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-           <div className="lg:col-span-2 space-y-6">
-              <Card className="border-border/50 shadow-md">
-                <CardHeader className="bg-muted/10 border-b">
+           <div className="lg:col-span-2">
+              <Card className="border-border/50 shadow-md flex flex-col h-[calc(100vh-12rem)]">
+                <CardHeader className="bg-muted/10 border-b shrink-0">
                    <CardTitle className="text-base flex items-center gap-2"><LayoutGrid className="w-4 h-4 text-primary" /> Pilih Komponen Nilai</CardTitle>
-                   <CardDescription>Ceklis komponen yang ingin ditampilkan dan isi bobot persentasenya.</CardDescription>
+                   <CardDescription>Ceklis komponen dan isi bobot. Bobot lain akan menyesuaikan agar total tetap 100%.</CardDescription>
                 </CardHeader>
-                <CardContent className="p-0">
-                   <ScrollArea className="max-h-[600px]">
-                      <div className="divide-y divide-border/30">
-                        {GRADE_FIELDS.map((f) => (
-                          <div key={f.id} className="flex items-center justify-between p-4 px-6 hover:bg-muted/10 transition-colors">
-                            <div className="flex items-center gap-4">
-                              <Checkbox 
-                                id={`check-${f.id}`}
-                                checked={localConfig.visibility[f.id]}
-                                onCheckedChange={(checked) => {
-                                  setLocalConfig(prev => ({
-                                    ...prev,
-                                    visibility: { ...prev.visibility, [f.id]: !!checked },
-                                    weights: { ...prev.weights, [f.id]: checked ? (prev.weights[f.id] || 0) : 0 }
-                                  }))
-                                }}
-                                className="h-5 w-5"
-                              />
-                              <Label htmlFor={`check-${f.id}`} className="font-bold text-sm cursor-pointer">{f.label}</Label>
-                            </div>
-                            {localConfig.visibility[f.id] && (
-                              <div className="flex items-center gap-3">
-                                <Input 
-                                  type="number" 
-                                  className="w-24 h-10 text-center font-bold text-lg bg-background border-primary/20 focus:border-primary transition-all" 
-                                  value={localConfig.weights[f.id] || 0}
-                                  onChange={(e) => {
-                                    const val = parseInt(e.target.value) || 0
-                                    setLocalConfig(prev => ({
-                                      ...prev,
-                                      weights: { ...prev.weights, [f.id]: val }
-                                    }))
-                                  }}
-                                />
-                                <span className="text-sm font-bold text-muted-foreground">%</span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                   </ScrollArea>
-                </CardContent>
+                <ScrollArea className="flex-1">
+                   <div className="divide-y divide-border/30">
+                     {GRADE_FIELDS.map((f) => (
+                       <div key={f.id} className="flex items-center justify-between p-4 px-6 hover:bg-muted/5 transition-colors">
+                         <div className="flex items-center gap-4">
+                           <Checkbox 
+                             id={`check-${f.id}`}
+                             checked={localConfig.visibility[f.id]}
+                             onCheckedChange={(checked) => handleToggleVisibility(f.id, !!checked)}
+                             className="h-5 w-5"
+                           />
+                           <Label htmlFor={`check-${f.id}`} className="font-bold text-sm cursor-pointer">{f.label}</Label>
+                         </div>
+                         {localConfig.visibility[f.id] && (
+                           <div className="flex items-center gap-3">
+                             <Input 
+                               type="number" 
+                               className="w-24 h-10 text-center font-bold text-lg bg-background border-primary/20 focus:border-primary transition-all" 
+                               value={localConfig.weights[f.id] || 0}
+                               onChange={(e) => {
+                                 const val = parseInt(e.target.value) || 0;
+                                 const updated = balanceWeights(localConfig.weights, f.id, val, localConfig.visibility);
+                                 setLocalConfig(prev => ({ ...prev, weights: updated }));
+                               }}
+                             />
+                             <span className="text-sm font-bold text-muted-foreground">%</span>
+                           </div>
+                         )}
+                       </div>
+                     ))}
+                   </div>
+                </ScrollArea>
               </Card>
            </div>
 
