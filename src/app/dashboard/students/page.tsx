@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Loader2, Eye, User, Home, MapPin, Phone, Pencil, Trash2, GraduationCap, CloudUpload, CloudOff, CheckCircle2, Info, BookOpen, Contact
+  Search, Loader2, Eye, User, Pencil, Trash2, GraduationCap, CloudUpload, CloudOff, CheckCircle2, Info, BookOpen, Contact, Hash
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -79,6 +79,7 @@ export default function StudentDatabasePage() {
 
   const studentsQuery = useMemoFirebase(() => {
     if (!db) return null
+    // Filter hanya siswa yang diterima (accepted) sebagai Siswa Aktif
     return query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), orderBy('fullName', 'asc'))
   }, [db])
 
@@ -93,7 +94,7 @@ export default function StudentDatabasePage() {
   const filteredStudents = useMemo(() => {
     return localStudents.filter(a => 
       !a.isDeleted &&
-      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm))
+      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm) || (a.registrationNumber || "").includes(searchTerm))
     )
   }, [localStudents, searchTerm])
 
@@ -141,12 +142,12 @@ export default function StudentDatabasePage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Induk Siswa</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Database resmi seluruh murid aktif sekolah.</p>
-             {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Perubahan Belum Sinkron</Badge>}
+             <p className="text-muted-foreground text-sm">Database resmi seluruh murid aktif (Dapodik).</p>
+             {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>
         {isDirty && (
-          <Button onClick={handleSync} disabled={isSyncing} className="bg-green-600 gap-2">
+          <Button onClick={handleSync} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
             {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
             Sinkronkan ke Cloud
           </Button>
@@ -157,16 +158,16 @@ export default function StudentDatabasePage() {
         <div className="p-4 border-b border-border/50">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Cari Nama atau NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Cari No. Urut, Nama, atau NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
+              <TableHead className="font-bold text-primary w-[140px]">No. Urut</TableHead>
               <TableHead className="font-bold text-primary">NISN</TableHead>
               <TableHead className="font-bold text-primary">Nama Lengkap</TableHead>
-              <TableHead className="font-bold text-primary">Jenis Kelamin</TableHead>
-              <TableHead className="font-bold text-primary">Kontak</TableHead>
+              <TableHead className="font-bold text-primary">Status</TableHead>
               <TableHead className="text-right font-bold text-primary">Aksi</TableHead>
             </TableRow>
           </TableHeader>
@@ -174,17 +175,22 @@ export default function StudentDatabasePage() {
             {loading && !localStudents.length ? (
               <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredStudents.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada data siswa.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada data siswa aktif.</TableCell></TableRow>
             ) : filteredStudents.map((s) => (
-              <TableRow key={s.id}>
+              <TableRow key={s.id} className="hover:bg-muted/10 transition-colors">
+                <TableCell className="font-mono text-xs font-bold text-primary">{s.registrationNumber || s.registrationSequence}</TableCell>
                 <TableCell className="font-mono text-xs font-bold text-accent">{s.NISN || "-"}</TableCell>
                 <TableCell className="font-medium">{s.fullName}</TableCell>
-                <TableCell>{s.gender}</TableCell>
-                <TableCell className="text-xs">{s.studentPhone || "-"}</TableCell>
+                <TableCell>
+                  <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1.5 py-1 px-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                    SISWA AKTIF
+                  </Badge>
+                </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => handleEdit(s)}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" asChild><Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link></Button>
+                    <Button variant="ghost" size="icon" title="Ubah Data" onClick={() => handleEdit(s)}><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" title="Lihat Biodata" asChild><Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link></Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -195,8 +201,8 @@ export default function StudentDatabasePage() {
 
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-4">
          <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-         <div className="text-xs text-muted-foreground">
-           Seluruh perubahan biodata di sini akan langsung merujuk pada <strong>Buku Induk Sekolah</strong>. Pastikan data akurat sesuai akta lahir.
+         <div className="text-xs text-muted-foreground leading-relaxed italic">
+           Halaman ini berisi data <strong>Buku Induk Sekolah</strong>. Setiap perubahan biodata di sini akan langsung memperbarui identitas siswa di seluruh sistem (termasuk Absensi & Rapor). Gunakan fitur sinkronisasi untuk menyimpan permanen.
          </div>
       </div>
 
