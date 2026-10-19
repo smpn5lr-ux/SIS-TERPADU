@@ -130,7 +130,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
   }
 
   const handleDownloadTemplate = async () => {
-    const data = [["No", "Nama Siswa", "NISN", "Absensi (%)", "Tugas 1", "Tugas 2", "Tugas 3", "Ulangan", "UTS", "UAS"]]
+    const data = [["No", "Nama Siswa", "NISN", "Absensi (%)", "Tugas 1", "Tugas 2", "Tugas 3", "Ulangan", "STS", "SAS"]]
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template Nilai")

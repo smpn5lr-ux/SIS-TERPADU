@@ -54,8 +54,8 @@ const GRADE_FIELDS = [
   { id: 'quiz2', label: 'Ulangan 2' },
   { id: 'quiz3', label: 'Ulangan 3' },
   { id: 'groupTask', label: 'Tugas Kelompok' },
-  { id: 'midExam', label: 'UTS' },
-  { id: 'finalExam', label: 'UAS' },
+  { id: 'midExam', label: 'STS' },
+  { id: 'finalExam', label: 'SAS' },
 ]
 
 type GradingView = 'table' | 'config'
