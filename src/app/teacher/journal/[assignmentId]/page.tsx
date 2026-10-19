@@ -123,10 +123,8 @@ function TeachingJournalPageContent() {
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
 
-  // -- PERSISTENSI LOKAL (LOCALSTORAGE BACKUP) --
   useEffect(() => {
     if (serverJournals && !isDirty) {
-      // Coba ambil dari localStorage dulu jika ada draf yang belum sinkron
       const savedBuffer = localStorage.getItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
       if (savedBuffer) {
         setLocalJournals(JSON.parse(savedBuffer));
@@ -234,38 +232,68 @@ function TeachingJournalPageContent() {
     const student = currentStudents.find(s => s.id === studentId);
     
     if (!student) {
-      toast({ 
-        variant: "destructive", 
-        title: "Siswa Tidak Dikenali", 
-        description: "QR ini tidak terdaftar sebagai murid di kelas ini." 
-      });
+      toast({ variant: "destructive", title: "Siswa Tidak Dikenali", description: "QR ini tidak terdaftar." });
       return;
     }
 
     if (scannedIdsRef.current.has(studentId)) {
-      toast({ 
-        title: "Sudah Absen", 
-        description: `${student.fullName} sudah tercatat hadir.`,
-        className: "bg-amber-600 text-white border-none"
-      });
+      toast({ title: "Sudah Absen", description: `${student.fullName} sudah tercatat hadir.`, className: "bg-amber-600 text-white border-none" });
       return;
     }
 
     scannedIdsRef.current.add(studentId);
 
+    // Update UI state
     setNewJournal(prev => ({
       ...prev,
-      attendanceDetail: {
-        ...(prev.attendanceDetail || {}),
-        [studentId]: 'H'
-      }
+      attendanceDetail: { ...(prev.attendanceDetail || {}), [studentId]: 'H' }
     }));
 
-    toast({ 
-      title: "Scan Berhasil", 
-      description: `${student.fullName} hadir.`,
-      className: "bg-green-600 text-white border-none" 
+    // AUTO-SAVE TO LOCAL JOURNALS IMMEDIATELY
+    setLocalJournals(prev => {
+      const today = new Date().toISOString().split('T')[0];
+      const existingIdx = prev.findIndex(j => j.date === today);
+      
+      let updatedList = [...prev];
+      if (existingIdx !== -1) {
+        const updatedJournal = {
+          ...updatedList[existingIdx],
+          attendanceDetail: { ...updatedList[existingIdx].attendanceDetail, [studentId]: 'H' },
+          absentStudents: students.filter(s => {
+             const isHadir = s.id === studentId || updatedList[existingIdx].attendanceDetail?.[s.id] === 'H';
+             return !isHadir;
+          }).map(s => s.id),
+          updatedAt: new Date().toISOString()
+        } as Journal;
+        updatedList[existingIdx] = updatedJournal;
+      } else {
+        const nextMeeting = prev.length > 0 ? Math.max(...prev.map(j => j.meetingNumber)) + 1 : 1;
+        const newEntry: Journal = {
+          id: `temp-${Date.now()}`,
+          assignmentId: assignmentId as string,
+          semester: activeSemester,
+          meetingNumber: nextMeeting,
+          date: today,
+          jamKe: "1-2",
+          jp: 2,
+          learningGoal: "",
+          material: "",
+          kktpAchievement: "",
+          attendanceDetail: { [studentId]: 'H' },
+          absentStudents: students.filter(s => s.id !== studentId).map(s => s.id),
+          hasTask: false,
+          taskType: null,
+          taskScores: {},
+          notes: "",
+          createdAt: new Date().toISOString()
+        };
+        updatedList.push(newEntry);
+      }
+      return updatedList;
     });
+
+    setIsDirty(true);
+    toast({ title: "Berhasil Absen", description: `${student.fullName} hadir.`, className: "bg-green-600 text-white border-none" });
   };
 
   const onSaveLocal = () => {
@@ -282,13 +310,17 @@ function TeachingJournalPageContent() {
     if (editingJournalId) {
       setLocalJournals(prev => prev.map(j => j.id === editingJournalId ? journalData : j))
     } else {
-      setLocalJournals(prev => [...prev, journalData])
+      setLocalJournals(prev => {
+        const exists = prev.find(p => p.date === journalData.date);
+        if (exists) return prev.map(p => p.date === journalData.date ? journalData : p);
+        return [...prev, journalData];
+      })
     }
     
     setIsDirty(true)
     setActiveView('list')
     setEditingJournalId(null)
-    toast({ title: "Draf Disimpan", description: "Absensi tersimpan di memori browser." })
+    toast({ title: "Draf Disimpan", description: "Jurnal sudah diamankan di browser." })
   }
 
   const handleSyncToCloud = async () => {
@@ -341,7 +373,7 @@ function TeachingJournalPageContent() {
       await batch.commit()
       setIsDirty(false)
       localStorage.removeItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
-      toast({ title: "Data Berhasil Sinkron", description: "Data sudah aman di server dan bisa dibuka di perangkat lain." })
+      toast({ title: "Data Berhasil Sinkron", description: "Data sudah aman di cloud sekolah." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -368,28 +400,10 @@ function TeachingJournalPageContent() {
     return (
       <div className="flex flex-col h-[calc(100vh-4rem)] animate-in fade-in duration-300 overflow-hidden">
         <style dangerouslySetInnerHTML={{ __html: `
-          #qr-reader-journal-full video {
-            width: 100% !important;
-            height: 100% !important;
-            object-fit: cover !important;
-          }
-          #qr-reader-journal-full {
-            border: none !important;
-          }
-          @keyframes scanLineAnim {
-            0% { top: 0%; }
-            100% { top: 100%; }
-          }
-          .custom-scan-line {
-            position: absolute;
-            left: 0;
-            width: 100%;
-            height: 3px;
-            background: linear-gradient(to right, transparent, #4361ee, transparent);
-            box-shadow: 0 0 15px #4361ee;
-            animation: scanLineAnim 3s linear infinite;
-            z-index: 25;
-          }
+          #qr-reader-journal-full video { width: 100% !important; height: 100% !important; object-fit: cover !important; }
+          #qr-reader-journal-full { border: none !important; }
+          @keyframes scanLineAnim { 0% { top: 0%; } 100% { top: 100%; } }
+          .custom-scan-line { position: absolute; left: 0; width: 100%; height: 3px; background: linear-gradient(to right, transparent, #4361ee, transparent); box-shadow: 0 0 15px #4361ee; animation: scanLineAnim 3s linear infinite; z-index: 25; }
         ` }} />
         
         <div className="bg-card border-b p-4 sm:p-5 flex items-center justify-between sticky top-0 z-50">
@@ -400,9 +414,15 @@ function TeachingJournalPageContent() {
                <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-wider">{assignment?.subjectName} • KELAS {assignment?.className}</p>
              </div>
           </div>
-          <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
-            <CheckCircle2 className="w-4 h-4" /> Simpan {scanCount} Murid
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex flex-col items-end mr-2">
+               <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest animate-pulse">Auto-Save Aktif</span>
+               <span className="text-[8px] text-muted-foreground">Tersimpan ke Lokal</span>
+            </div>
+            <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
+              <CheckCircle2 className="w-4 h-4" /> Selesai ({scanCount})
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 overflow-hidden bg-black">
@@ -411,7 +431,6 @@ function TeachingJournalPageContent() {
                 <h2 className="text-xl sm:text-2xl font-bold uppercase tracking-[0.1em]">Scan Qr Code</h2>
                 <p className="text-[10px] sm:text-xs mt-2 font-medium opacity-80 uppercase tracking-[0.2em] max-w-[280px] mx-auto">TEMPATKAN KAMERA TEPAT DI DEPAN QR CODE</p>
               </div>
-
               <div className="w-full h-full relative bg-slate-950">
                  <div id={scannerDivId} className="absolute inset-0 z-10"></div>
                  <div className="custom-scan-line"></div>
@@ -473,7 +492,7 @@ function TeachingJournalPageContent() {
             </div>
           </div>
           <Button onClick={onSaveLocal} className="gap-2 bg-primary shadow-lg shadow-primary/20 h-11 px-8">
-            <Save className="w-4 h-4" /> Simpan ke Buffer
+            <Save className="w-4 h-4" /> Simpan Permanen ke Lokal
           </Button>
         </div>
 
@@ -503,99 +522,34 @@ function TeachingJournalPageContent() {
                        <Input type="number" value={newJournal.jp || 0} onChange={e => setNewJournal({...newJournal, jp: parseInt(e.target.value) || 0})} />
                     </div>
                  </div>
-                 
                  <div className="space-y-2">
                     <Label className="text-[10px] font-bold uppercase text-primary">Materi Pembelajaran</Label>
-                    <Textarea 
-                      placeholder="Tuliskan pokok bahasan atau materi yang diajarkan..." 
-                      value={newJournal.material || ""} 
-                      onChange={e => setNewJournal({...newJournal, material: e.target.value})} 
-                      className="min-h-[120px] bg-muted/5 focus:bg-background transition-all"
-                    />
+                    <Textarea placeholder="Tuliskan pokok bahasan..." value={newJournal.material || ""} onChange={e => setNewJournal({...newJournal, material: e.target.value})} className="min-h-[120px] bg-muted/5 focus:bg-background transition-all" />
                  </div>
               </CardContent>
             </Card>
-
             <Card className="border-border/50 shadow-md">
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
-                <div>
-                   <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa</CardTitle>
-                   <CardDescription>Status kehadiran murid di kelas ini.</CardDescription>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => {
-                  const allH: any = {};
-                  students.forEach(s => allH[s.id] = 'H');
-                  setNewJournal({...newJournal, attendanceDetail: allH});
-                }} className="h-8 text-[10px] font-bold border-accent/20 text-accent">SET SEMUA HADIR</Button>
+                <div><CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa</CardTitle><CardDescription>Status kehadiran murid di kelas ini.</CardDescription></div>
+                <Button variant="outline" size="sm" onClick={() => { const allH: any = {}; students.forEach(s => allH[s.id] = 'H'); setNewJournal({...newJournal, attendanceDetail: allH}); }} className="h-8 text-[10px] font-bold border-accent/20 text-accent">SET SEMUA HADIR</Button>
               </CardHeader>
               <CardContent className="p-0">
-                 <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader className="bg-muted/20">
-                        <TableRow>
-                          <TableHead className="font-bold text-xs">Nama Siswa</TableHead>
-                          <TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {students.map(s => (
-                          <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
-                            <TableCell>
-                               <div className="flex flex-col">
-                                 <span className="text-sm font-bold">{s.fullName}</span>
-                                 <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
-                               </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex justify-center gap-1.5">
-                                {['H', 'S', 'I', 'A'].map(v => (
-                                  <button
-                                    key={v}
-                                    type="button"
-                                    onClick={() => {
-                                      const detail = { ...(newJournal.attendanceDetail || {}) };
-                                      detail[s.id] = v as any;
-                                      setNewJournal({...newJournal, attendanceDetail: detail});
-                                    }}
-                                    className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${
-                                      newJournal.attendanceDetail?.[s.id] === v 
-                                        ? 'bg-primary text-white border-primary scale-110' 
-                                        : 'bg-background hover:bg-muted text-muted-foreground border-border/50'
-                                    }`}
-                                  >
-                                    {v}
-                                  </button>
-                                ))}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                 </div>
+                 <Table><TableHeader className="bg-muted/20"><TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow></TableHeader>
+                   <TableBody>{students.map(s => (
+                      <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
+                        <TableCell><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
+                        <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
+                          <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-primary text-white border-primary scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                      </TableRow>))}
+                   </TableBody></Table>
               </CardContent>
             </Card>
           </div>
-
           <div className="space-y-6">
              <Card className="border-primary/20 bg-primary/5">
-                <CardHeader className="pb-2">
-                   <CardTitle className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> Catatan Tambahan</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4 pt-2">
-                   <div className="space-y-2">
-                     <Label className="text-[10px] font-bold uppercase">Catatan Guru:</Label>
-                     <Textarea value={newJournal.notes || ""} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} placeholder="Catatan kelas, hambatan, dll..." className="text-xs h-32" />
-                   </div>
-                </CardContent>
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> Catatan Tambahan</CardTitle></CardHeader>
+                <CardContent className="space-y-4 pt-2"><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Catatan Guru:</Label><Textarea value={newJournal.notes || ""} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} placeholder="Catatan kelas..." className="text-xs h-32" /></div></CardContent>
              </Card>
-
-             <div className="bg-amber-500/5 p-4 rounded-xl border border-amber-500/20 flex gap-4">
-                <Info className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                <p className="text-[10px] text-muted-foreground leading-relaxed italic">
-                  Data yang diinput otomatis dicadangkan di browser ini. Klik <strong>"Simpan Cloud"</strong> agar data muncul di laptop atau HP lain.
-                </p>
-             </div>
           </div>
         </div>
       </div>
@@ -611,36 +565,21 @@ function TeachingJournalPageContent() {
             <h1 className="text-3xl font-headline font-bold">Jurnal: {assignment?.subjectName}</h1>
             <div className="flex items-center gap-2 mt-1">
                <Badge variant="outline" className="font-mono bg-muted/20">Kelas {assignment?.className}</Badge>
-               {isDirty ? (
-                 <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1 border-amber-500/20">Draf Belum Sinkron</Badge>
-               ) : (
-                 <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron Cloud</Badge>
-               )}
+               {isDirty ? (<Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1 border-amber-500/20">Draf Belum Sinkron</Badge>) : (<Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron Cloud</Badge>)}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isDirty && (
-            <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">
-              {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Simpan Cloud
-            </Button>
-          )}
-          <Button variant="outline" onClick={handleOpenScanner} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
-            <ScanLine className="w-4 h-4" /> Absen QR
-          </Button>
-          <Button onClick={() => { setEditingJournalId(null); setNewJournal({...newJournal, attendanceDetail: {}}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20">
-            <Plus className="w-4 h-4" /> Input Jurnal
-          </Button>
+          {isDirty && (<Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">{isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}Simpan Cloud</Button>)}
+          <Button variant="outline" onClick={handleOpenScanner} className="gap-2 border-primary/30 text-primary hover:bg-primary/5"><ScanLine className="w-4 h-4" /> Absen QR</Button>
+          <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4">
         {journals.length === 0 ? (
           <div className="border-2 border-dashed border-border/50 py-32 rounded-2xl flex flex-col items-center justify-center text-muted-foreground bg-muted/5">
-            <BookOpen className="w-16 h-16 opacity-10 mb-4" />
-            <h3 className="font-bold text-lg">Belum Ada Jurnal</h3>
-            <p className="text-sm max-w-xs text-center mt-2 opacity-60">Catat kegiatan mengajar dan absensi siswa untuk setiap pertemuan di sini.</p>
+            <BookOpen className="w-16 h-16 opacity-10 mb-4" /><h3 className="font-bold text-lg">Belum Ada Jurnal</h3><p className="text-sm max-w-xs text-center mt-2 opacity-60">Catat kegiatan mengajar dan absensi siswa di sini.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -653,10 +592,7 @@ function TeachingJournalPageContent() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center font-bold text-primary shadow-inner">{j.meetingNumber}</div>
-                        <div>
-                          <CardTitle className="text-sm font-bold flex items-center gap-2">Pertemuan {j.meetingNumber} {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}</CardTitle>
-                          <CardDescription className="text-[10px] uppercase font-bold tracking-widest">{new Date(j.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</CardDescription>
-                        </div>
+                        <div><CardTitle className="text-sm font-bold flex items-center gap-2">Pertemuan {j.meetingNumber} {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}</CardTitle><CardDescription className="text-[10px] uppercase font-bold tracking-widest">{new Date(j.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</CardDescription></div>
                       </div>
                       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Button variant="ghost" size="icon" onClick={() => { setEditingJournalId(j.id); setNewJournal(j); setActiveView('form'); }} className="h-8 w-8 hover:text-primary"><Pencil className="w-4 h-4" /></Button>
@@ -665,19 +601,13 @@ function TeachingJournalPageContent() {
                     </div>
                   </CardHeader>
                   <CardContent className="p-4 space-y-4">
-                    <div>
-                      <Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Materi Diajarkan:</Label>
-                      <p className="mt-1 text-xs font-medium line-clamp-2 leading-relaxed h-8">{j.material || "-"}</p>
-                    </div>
+                    <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Materi Diajarkan:</Label><p className="mt-1 text-xs font-medium line-clamp-2 leading-relaxed h-8">{j.material || "-"}</p></div>
                     <div className="flex items-center justify-between bg-background/50 p-2.5 rounded-xl border border-border/50">
                        <div className="flex items-center gap-2">
                          <div className="p-1.5 bg-accent/10 rounded-lg"><Users className="w-3.5 h-3.5 text-accent" /></div>
-                         <div className="flex flex-col">
-                           <span className="text-xs font-bold">{attendCount} / {students.length}</span>
-                           <span className="text-[8px] text-muted-foreground uppercase font-bold">Hadir</span>
-                         </div>
+                         <div className="flex flex-col"><span className="text-xs font-bold">{attendCount} / {students.length}</span><span className="text-[8px] text-muted-foreground uppercase font-bold">Hadir</span></div>
                        </div>
-                       <Badge variant="secondary" className="text-[10px] font-mono">{Math.round((attendCount/students.length)*100)}%</Badge>
+                       <Badge variant="secondary" className="text-[10px] font-mono">{students.length > 0 ? Math.round((attendCount/students.length)*100) : 0}%</Badge>
                     </div>
                   </CardContent>
                 </Card>
@@ -687,20 +617,8 @@ function TeachingJournalPageContent() {
         )}
       </div>
 
-      <div className="bg-primary/5 p-4 rounded-2xl border border-primary/20 flex gap-4 mt-8 shadow-sm">
-         <div className="p-3 bg-primary/10 rounded-xl shrink-0 h-fit"><Info className="w-5 h-5 text-primary" /></div>
-         <div className="text-xs text-muted-foreground leading-relaxed">
-           <p className="font-bold text-primary mb-1 uppercase tracking-widest text-[10px]">Tips Penggunaan Offline</p>
-           Sistem ini menyimpan data secara otomatis di perangkat Anda. Jika Anda mengabsen di kelas menggunakan HP, pastikan menekan **Simpan Cloud** agar data tersebut masuk ke database sekolah dan bisa dilihat di komputer kantor.
-         </div>
-      </div>
-
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?</AlertDialogTitle>
-            <AlertDialogDescription>Data akan dihapus dari draf sementara. Pastikan untuk menekan **Simpan Cloud** setelah ini agar perubahan terhapus permanen dari server.</AlertDialogDescription>
-          </AlertDialogHeader>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?</AlertDialogTitle><AlertDialogDescription>Data akan dihapus dari draf sementara. Pastikan untuk menekan **Simpan Cloud** agar perubahan permanen.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Sekarang</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
