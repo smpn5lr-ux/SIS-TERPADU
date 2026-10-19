@@ -122,7 +122,7 @@ export interface Journal {
   absentStudents: string[];
   attendanceDetail: Record<string, 'H' | 'S' | 'I' | 'A'>;
   hasTask: boolean;
-  taskType: 'task1' | 'task2' | 'task3' | 'groupTask' | null;
+  taskType: 'task1' | 'task2' | 'task3' | 'task4' | 'task5' | 'groupTask' | null;
   taskScores?: Record<string, number>;
   semester: number;
   notes: string;
@@ -138,6 +138,11 @@ export interface Assessment {
   task1: number;
   task2: number;
   task3: number;
+  task4?: number;
+  task5?: number;
+  quiz1?: number;
+  quiz2?: number;
+  quiz3?: number;
   groupTask: number;
   midExam: number;
   finalExam: number;
@@ -169,4 +174,11 @@ export interface RosterConfig {
   break2Period: number;
   break2Duration: number;
   globalActivities?: { day: string; period: number; name: string }[];
+}
+
+export interface GradingConfig {
+  assignmentId: string;
+  semester: number;
+  weights: Record<string, number>;
+  visibility: Record<string, boolean>;
 }
