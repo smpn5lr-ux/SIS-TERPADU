@@ -104,7 +104,8 @@ function TeachingJournalPageContent() {
   const classRef = useMemoFirebase(() => db && assignment ? doc(db, 'classes', assignment.classId) : null, [db, assignment])
   const { data: classroom } = useDoc<Classroom>(classRef)
 
-  const studentsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')) : null, [db])
+  // Memperluas kueri untuk menyertakan 'graduated' agar pencarian lebih robust
+  const studentsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated'])) : null, [db])
   const { data: allAcceptedStudents } = useCollection<Applicant>(studentsQuery)
 
   const students = useMemo(() => {
@@ -113,6 +114,12 @@ function TeachingJournalPageContent() {
       .filter(s => classroom.students.includes(s.id) && !s.isDeleted)
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [allAcceptedStudents, classroom])
+
+  // PENTING: Gunakan Ref untuk menghindari closure stale di callback scanner
+  const studentsRef = useRef<Applicant[]>([])
+  useEffect(() => {
+    studentsRef.current = students
+  }, [students])
 
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
@@ -203,9 +210,16 @@ function TeachingJournalPageContent() {
   };
 
   const handleScanSuccess = (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
+    // Baca dari Ref agar selalu mendapatkan data terbaru meskipun callback terkunci (closure)
+    const currentStudents = studentsRef.current;
+    const student = currentStudents.find(s => s.id === studentId);
+    
     if (!student) {
-      toast({ variant: "destructive", title: "Siswa Tidak Dikenali", description: "QR bukan milik siswa kelas ini." });
+      toast({ 
+        variant: "destructive", 
+        title: "Siswa Tidak Dikenali", 
+        description: "QR ini tidak terdaftar sebagai murid di kelas ini." 
+      });
       return;
     }
 
