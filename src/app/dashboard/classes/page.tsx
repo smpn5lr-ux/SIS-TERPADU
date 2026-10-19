@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ExternalLink
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,9 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from "@/components/ui/scroll-area"
+import Link from 'next/link'
 import * as XLSX from 'xlsx'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 const classFormSchema = z.object({
   name: z.string().min(1, "Nama kelas harus diisi"),
@@ -30,15 +32,26 @@ const classFormSchema = z.object({
   capacity: z.string().min(1, "Kapasitas harus diisi"),
 })
 
+const studentEditSchema = z.object({
+  fullName: z.string().min(2, "Nama minimal 2 karakter"),
+  NISN: z.string().optional(),
+  gender: z.enum(['Laki-laki', 'Perempuan']),
+})
+
 export default function ClassesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isManageStudentsOpen, setIsManageStudentsOpen] = useState(false)
+  const [isAddStudentMode, setIsAddStudentMode] = useState(false)
+  const [isEditStudentOpen, setIsEditStudentOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForStudents, setSelectedClassForStudents] = useState<Classroom | null>(null)
+  const [editingStudentData, setEditingStudentData] = useState<Applicant | null>(null)
   
   const [isDirty, setIsDirty] = useState(false)
   const [localClasses, setLocalClasses] = useState<Classroom[]>([])
+  const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   
@@ -52,7 +65,7 @@ export default function ClassesPage() {
   const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
 
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
-  const { data: applicants } = useCollection<Applicant>(applicantsQuery)
+  const { data: serverApplicants } = useCollection<Applicant>(applicantsQuery)
   const { data: systemSettings } = useDoc<any>(settingsRef)
 
   useEffect(() => {
@@ -61,9 +74,20 @@ export default function ClassesPage() {
     }
   }, [serverClasses, isDirty])
 
+  useEffect(() => {
+    if (serverApplicants && !isDirty) {
+      setLocalApplicants(serverApplicants)
+    }
+  }, [serverApplicants, isDirty])
+
   const form = useForm<z.infer<typeof classFormSchema>>({
     resolver: zodResolver(classFormSchema),
     defaultValues: { name: "", gradeLevel: "7", homeroomTeacher: "", capacity: "32" },
+  })
+
+  const studentEditForm = useForm<z.infer<typeof studentEditSchema>>({
+    resolver: zodResolver(studentEditSchema),
+    defaultValues: { fullName: "", NISN: "", gender: "Laki-laki" },
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
@@ -88,6 +112,25 @@ export default function ClassesPage() {
     toast({ title: "Perubahan Disimpan di Buffer" })
   }
 
+  const handleEditStudent = (student: Applicant) => {
+    setEditingStudentData(student)
+    studentEditForm.reset({
+      fullName: student.fullName,
+      NISN: student.NISN,
+      gender: student.gender
+    })
+    setIsEditStudentOpen(true)
+  }
+
+  const onSaveStudentLocal = (values: z.infer<typeof studentEditSchema>) => {
+    if (!editingStudentData) return
+    const updated = { ...editingStudentData, ...values, updatedAt: new Date().toISOString() }
+    setLocalApplicants(prev => prev.map(a => a.id === editingStudentData.id ? updated : a))
+    setIsDirty(true)
+    setIsEditStudentOpen(false)
+    toast({ title: "Biodata Siswa Diperbarui di Buffer" })
+  }
+
   const handleDeleteTrigger = (cls: Classroom) => {
     setClassToDelete(cls)
     setIsDeleteDialogOpen(true)
@@ -107,6 +150,7 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
+      // 1. Sync Classes
       const toDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       toDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -122,6 +166,14 @@ export default function ClassesPage() {
         }
       })
 
+      // 2. Sync Applicants (Students)
+      localApplicants.forEach(la => {
+        const serverVer = serverApplicants?.find(sa => sa.id === la.id)
+        if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(la)) {
+          batch.update(doc(db, 'applicants', la.id), la as any)
+        }
+      })
+
       await batch.commit()
       setIsDirty(false)
       toast({ title: "Sinkronisasi Berhasil" })
@@ -134,16 +186,17 @@ export default function ClassesPage() {
 
   // LOGIKA MANAJEMEN MURID
   const currentClassStudents = useMemo(() => {
-    if (!selectedClassForStudents || !applicants) return []
-    return applicants.filter(a => selectedClassForStudents.students?.includes(a.id))
-  }, [selectedClassForStudents, applicants])
+    if (!selectedClassForStudents || !localApplicants) return []
+    return localApplicants
+      .filter(a => selectedClassForStudents.students?.includes(a.id))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+  }, [selectedClassForStudents, localApplicants])
 
   const availableStudents = useMemo(() => {
-    if (!applicants || !localClasses) return []
-    // Ambil murid yang diterima tapi belum masuk rombel MANAPUN di localClasses
+    if (!localApplicants || !localClasses) return []
     const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
-    return applicants.filter(a => a.admissionStatus === 'accepted' && !assignedIds.has(a.id) && !a.isDeleted)
-  }, [applicants, localClasses])
+    return localApplicants.filter(a => a.admissionStatus === 'accepted' && !assignedIds.has(a.id) && !a.isDeleted)
+  }, [localApplicants, localClasses])
 
   const handleAddStudentToClass = (studentId: string) => {
     if (!selectedClassForStudents) return
@@ -197,7 +250,6 @@ export default function ClassesPage() {
         const name = String(row.NAMA || "").toLowerCase()
         const nisn = String(row.NISN || "")
         
-        // Cari murid di availableStudents
         const match = availableStudents.find(a => 
           (a.NISN === nisn && nisn !== "") || 
           (a.fullName.toLowerCase() === name && name !== "")
@@ -286,7 +338,7 @@ export default function ClassesPage() {
                       <div className="bg-muted/30 p-2 rounded text-xs">Wali Kelas: <span className="font-bold">{cls.homeroomTeacher || "-"}</span></div>
                       <div className="grid grid-cols-2 gap-2">
                         <Button variant="outline" className="w-full text-xs gap-1" onClick={() => { setEditingClass(cls); form.reset({...cls, gradeLevel: cls.gradeLevel.toString(), capacity: cls.capacity.toString()}); setIsDialogOpen(true); }}><Pencil className="w-3 h-3" /> Edit</Button>
-                        <Button variant="default" className="w-full text-xs gap-1" onClick={() => { setSelectedClassForStudents(cls); setIsManageStudentsOpen(true); }}><UserPlus className="w-3 h-3" /> Kelola Murid</Button>
+                        <Button variant="default" className="w-full text-xs gap-1" onClick={() => { setSelectedClassForStudents(cls); setIsManageStudentsOpen(true); setIsAddStudentMode(false); }}><Users className="w-3 h-3" /> Daftar Murid</Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -330,82 +382,134 @@ export default function ClassesPage() {
         </DialogContent>
       </Dialog>
 
-      {/* DIALOG MANAJEMEN MURID */}
+      {/* DIALOG DAFTAR MURID (REFACTORED) */}
       <Dialog open={isManageStudentsOpen} onOpenChange={setIsManageStudentsOpen}>
         <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="p-6 pb-2">
-            <div className="flex justify-between items-start">
+          <DialogHeader className="p-6 pb-2 border-b bg-muted/5">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div>
-                <DialogTitle className="text-2xl font-headline">Daftar Murid Kelas {selectedClassForStudents?.name}</DialogTitle>
-                <DialogDescription>Kelola siapa saja yang masuk dalam rombongan belajar ini.</DialogDescription>
+                <DialogTitle className="text-2xl font-headline">Daftar Murid: Kelas {selectedClassForStudents?.name}</DialogTitle>
+                <DialogDescription>Manajemen data siswa dalam rombongan belajar ini.</DialogDescription>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="text-xs h-8 gap-1"><Download className="w-3 h-3" /> Template</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="text-[10px] h-8 gap-1"><Download className="w-3 h-3" /> Template</Button>
                 <label className="cursor-pointer">
-                   <Button variant="outline" size="sm" asChild className="text-xs h-8 gap-1 border-green-500/20 text-green-500"><div className="flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> Impor Excel</div></Button>
+                   <Button variant="outline" size="sm" asChild className="text-[10px] h-8 gap-1 border-green-500/20 text-green-500"><div className="flex items-center gap-1"><FileSpreadsheet className="w-3 h-3" /> Impor Excel</div></Button>
                    <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleImportExcel} />
                 </label>
+                <Button size="sm" onClick={() => setIsAddStudentMode(!isAddStudentMode)} className="text-[10px] h-8 gap-1 bg-primary">
+                  {isAddStudentMode ? <X className="w-3 h-3" /> : <UserPlus className="w-3 h-3" />}
+                  {isAddStudentMode ? "Batal" : "Tambah Murid"}
+                </Button>
               </div>
             </div>
           </DialogHeader>
 
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-0 overflow-hidden">
-            {/* SISI KIRI: DAFTAR MURID DI KELAS */}
-            <div className="p-6 border-r flex flex-col bg-muted/5">
-               <h3 className="font-bold text-xs uppercase text-primary tracking-widest mb-4 flex items-center gap-2">
-                 <Users className="w-4 h-4" /> Murid di Kelas ({currentClassStudents.length})
-               </h3>
-               <ScrollArea className="flex-1">
-                  <div className="space-y-2">
-                    {currentClassStudents.length === 0 ? (
-                      <div className="text-center py-12 text-muted-foreground text-xs italic">Belum ada murid. Pilih dari daftar kanan.</div>
-                    ) : currentClassStudents.map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-2 rounded-lg bg-card border border-border/50 group">
-                         <div className="flex flex-col">
-                           <span className="text-sm font-bold">{s.fullName}</span>
-                           <span className="text-[10px] text-muted-foreground font-mono">{s.NISN}</span>
-                         </div>
-                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100" onClick={() => handleRemoveStudentFromClass(s.id)}><UserMinus className="w-3.5 h-3.5" /></Button>
-                      </div>
-                    ))}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {isAddStudentMode ? (
+              <div className="p-6 flex flex-col h-full bg-accent/5 animate-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-bold text-xs uppercase text-accent tracking-widest">Pilih Siswa yang Belum Berkelas</h3>
+                  <div className="relative w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+                    <Input placeholder="Cari Nama/NISN..." className="pl-8 h-8 text-xs bg-background" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
                   </div>
-               </ScrollArea>
-            </div>
-
-            {/* SISI KANAN: PILIH MURID BELUM BERKELAS */}
-            <div className="p-6 flex flex-col">
-               <h3 className="font-bold text-xs uppercase text-accent tracking-widest mb-4">Tambah Murid</h3>
-               <div className="relative mb-4">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                 <Input placeholder="Cari Nama/NISN..." className="pl-8 h-8 text-xs bg-muted/20" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
-               </div>
-               <ScrollArea className="flex-1">
-                  <div className="space-y-2">
+                </div>
+                <ScrollArea className="flex-1 border rounded-lg bg-background">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 p-4">
                     {availableStudents
                       .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
                       .map(s => (
-                      <div key={s.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 border border-transparent hover:border-border/50 transition-all">
+                      <div key={s.id} className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 border border-border/40 transition-all">
                          <div className="flex flex-col">
-                           <span className="text-sm font-medium">{s.fullName}</span>
-                           <Badge variant="outline" className="w-fit text-[9px] px-1 py-0">{s.originSchool}</Badge>
+                           <span className="text-sm font-bold">{s.fullName}</span>
+                           <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.originSchool}</span>
                          </div>
-                         <Button size="sm" variant="ghost" className="h-7 px-2 text-primary text-[10px]" onClick={() => handleAddStudentToClass(s.id)}>Pilih <Plus className="w-3 h-3 ml-1" /></Button>
+                         <Button size="sm" variant="outline" className="h-7 px-3 text-primary border-primary/20 hover:bg-primary/10 text-[10px] font-bold" onClick={() => handleAddStudentToClass(s.id)}>Pilih <Plus className="w-3 h-3 ml-1" /></Button>
                       </div>
                     ))}
                     {availableStudents.length === 0 && (
-                      <div className="text-center py-12 text-muted-foreground text-xs italic">Semua murid sudah memiliki kelas.</div>
+                      <div className="col-span-2 text-center py-12 text-muted-foreground text-sm italic">Semua murid sudah memiliki kelas.</div>
                     )}
                   </div>
-               </ScrollArea>
-            </div>
+                </ScrollArea>
+              </div>
+            ) : (
+              <div className="p-0 flex flex-col h-full">
+                <ScrollArea className="flex-1">
+                  <Table>
+                    <TableHeader className="bg-muted/20 sticky top-0 z-10">
+                      <TableRow>
+                        <TableHead className="w-[60px] text-center font-bold">No</TableHead>
+                        <TableHead className="font-bold">Nama Lengkap</TableHead>
+                        <TableHead className="font-bold">NISN</TableHead>
+                        <TableHead className="font-bold">Status</TableHead>
+                        <TableHead className="text-right font-bold pr-6">Aksi</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {currentClassStudents.length === 0 ? (
+                        <TableRow><TableCell colSpan={5} className="text-center py-20 text-muted-foreground italic">Belum ada murid di kelas ini.</TableCell></TableRow>
+                      ) : currentClassStudents.map((s, idx) => (
+                        <TableRow key={s.id} className="hover:bg-muted/10 transition-colors">
+                          <TableCell className="text-center font-mono text-xs">{idx + 1}</TableCell>
+                          <TableCell className="font-bold text-sm">{s.fullName}</TableCell>
+                          <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                          <TableCell>
+                            <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[9px] py-0 px-2 font-bold">AKTIF</Badge>
+                          </TableCell>
+                          <TableCell className="text-right pr-4">
+                            <div className="flex justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" asChild title="Lihat Detail">
+                                <Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-3.5 h-3.5" /></Link>
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-primary" onClick={() => handleEditStudent(s)} title="Edit Biodata">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleRemoveStudentFromClass(s.id)} title="Hapus dari Kelas">
+                                <UserMinus className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </ScrollArea>
+              </div>
+            )}
           </div>
           <DialogFooter className="p-4 bg-muted/20 border-t">
-            <Button onClick={() => setIsManageStudentsOpen(false)} className="w-full">Selesai Menata Rombel</Button>
+            <Button onClick={() => setIsManageStudentsOpen(false)} className="w-full">Tutup Daftar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* ALERT DIALOG HAPUS */}
+      {/* DIALOG EDIT BIODATA SISWA (QUICK EDIT) */}
+      <Dialog open={isEditStudentOpen} onOpenChange={setIsEditStudentOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Edit Biodata Siswa</DialogTitle>
+            <DialogDescription>Ubah data dasar murid di buffer lokal.</DialogDescription>
+          </DialogHeader>
+          <Form {...studentEditForm}>
+            <form onSubmit={studentEditForm.handleSubmit(onSaveStudentLocal)} className="space-y-4 pt-4">
+              <FormField control={studentEditForm.control} name="fullName" render={({ field }) => (
+                <FormItem><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+              )} />
+              <FormField control={studentEditForm.control} name="NISN" render={({ field }) => (
+                <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
+              )} />
+              <FormField control={studentEditForm.control} name="gender" render={({ field }) => (
+                <FormItem><FormLabel>Jenis Kelamin</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Laki-laki">Laki-laki</SelectItem><SelectItem value="Perempuan">Perempuan</SelectItem></SelectContent></Select></FormItem>
+              )} />
+              <DialogFooter className="pt-4"><Button type="submit" className="w-full">Simpan Perubahan</Button></DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ALERT DIALOG HAPUS ROMBEL */}
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
