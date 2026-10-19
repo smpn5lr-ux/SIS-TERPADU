@@ -23,7 +23,11 @@ import {
   ArrowLeftRight,
   UserMinus,
   GraduationCap,
-  QrCode
+  QrCode,
+  UserPlus,
+  Search,
+  Upload,
+  Check
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -106,6 +110,8 @@ export default function ClassesPage() {
   const [isShuffleDialogOpen, setIsShuffleDialogOpen] = useState(false)
   const [isViewOpen, setIsViewOpen] = useState(false)
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
+  const [isAddStudentOpen, setIsAddStudentOpen] = useState(false)
+  
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForView, setSelectedClassForView] = useState<Classroom | null>(null)
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
@@ -114,6 +120,8 @@ export default function ClassesPage() {
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState<string>("")
   const [movingStudent, setMovingStudent] = useState(false)
+  const [studentSearch, setStudentSearch] = useState("")
+  const [selectedStudentsToAdd, setSelectedStudentsToAdd] = useState<string[]>([])
 
   const [shuffleOptions, setShuffleOptions] = useState({
     balanceGender: true,
@@ -146,6 +154,23 @@ export default function ClassesPage() {
 
   const dinasName = systemSettings?.dinasName || "DINAS PENDIDIKAN"
   const schoolName = systemSettings?.schoolName || "SIS TERPADU"
+
+  const unassignedStudents = useMemo(() => {
+    if (!applicants || !classes) return []
+    const allAssignedIds = new Set(classes.flatMap(c => c.students || []))
+    return applicants.filter(a => 
+      !a.isDeleted && 
+      a.admissionStatus === 'accepted' && 
+      !allAssignedIds.has(a.id)
+    ).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+  }, [applicants, classes])
+
+  const filteredUnassigned = useMemo(() => {
+    return unassignedStudents.filter(s => 
+      s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || 
+      (s.NISN || "").includes(studentSearch)
+    )
+  }, [unassignedStudents, studentSearch])
 
   const form = useForm<z.infer<typeof classFormSchema>>({
     resolver: zodResolver(classFormSchema),
@@ -355,6 +380,102 @@ export default function ClassesPage() {
     }, 1200)
   }
 
+  const handleAddStudentsToClass = async () => {
+    if (!db || !selectedClassForView || selectedStudentsToAdd.length === 0) return
+    setSubmitting(true)
+
+    const classRef = doc(db, 'classes', selectedClassForView.id)
+    const updatedStudents = [...(selectedClassForView.students || []), ...selectedStudentsToAdd]
+    
+    if (updatedStudents.length > selectedClassForView.capacity) {
+      toast({ variant: "destructive", title: "Kapasitas Penuh", description: "Jumlah murid melebihi kapasitas kelas." })
+      setSubmitting(false)
+      return
+    }
+
+    try {
+      await updateDoc(classRef, {
+        students: updatedStudents,
+        currentEnrollment: updatedStudents.length
+      })
+      toast({ title: "Murid Berhasil Ditambahkan" })
+      setSelectedClassForView({
+        ...selectedClassForView,
+        students: updatedStudents,
+        currentEnrollment: updatedStudents.length
+      })
+      setIsAddStudentOpen(false)
+      setSelectedStudentsToAdd([])
+    } catch (err) {
+      errorEmitter.emit('permission-error', new FirestorePermissionError({ path: classRef.path, operation: 'update' }))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleImportExcelToClass = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedClassForView) return
+    setSubmitting(true)
+
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const content = event.target?.result
+        const workbook = XLSX.read(content, { type: 'binary' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(sheet)
+        
+        const matchedIds: string[] = []
+        data.forEach((row: any) => {
+          const name = (row['NAMA'] || row['Nama Lengkap'] || row['Nama'] || "").toString().toLowerCase().trim()
+          const nisn = (row['NISN'] || "").toString().trim()
+          
+          const match = unassignedStudents.find(s => 
+            (nisn && s.NISN === nisn) || 
+            (name && s.fullName.toLowerCase().trim() === name)
+          )
+          
+          if (match) matchedIds.push(match.id)
+        })
+
+        if (matchedIds.length === 0) {
+          toast({ variant: "destructive", title: "Tidak Ada Data Cocok", description: "Gunakan Nama atau NISN yang sesuai dengan database." })
+          return
+        }
+
+        const uniqueMatches = Array.from(new Set(matchedIds))
+        const finalStudents = [...(selectedClassForView.students || []), ...uniqueMatches]
+        
+        if (finalStudents.length > selectedClassForView.capacity) {
+          toast({ variant: "destructive", title: "Kapasitas Melebihi Batas", description: "Beberapa murid tidak dimasukkan karena kelas penuh." })
+        }
+
+        const slicedStudents = finalStudents.slice(0, selectedClassForView.capacity)
+        const classRef = doc(db, 'classes', selectedClassForView.id)
+        
+        await updateDoc(classRef, {
+          students: slicedStudents,
+          currentEnrollment: slicedStudents.length
+        })
+
+        toast({ title: "Impor Berhasil", description: `${slicedStudents.length - selectedClassForView.students.length} murid ditambahkan ke kelas.` })
+        setSelectedClassForView({
+          ...selectedClassForView,
+          students: slicedStudents,
+          currentEnrollment: slicedStudents.length
+        })
+        setIsAddStudentOpen(false)
+      } catch (err) {
+        toast({ variant: "destructive", title: "Gagal Impor" })
+      } finally {
+        setSubmitting(false)
+        e.target.value = ''
+      }
+    }
+    reader.readAsBinaryString(file)
+  }
+
   const handleMoveStudentTrigger = (student: Applicant) => {
     setStudentToMove(student)
     setIsMoveDialogOpen(true)
@@ -484,17 +605,13 @@ export default function ClassesPage() {
         let x = 10;
         let y = 35;
         const cardWidth = 62;
-        const cardHeight = 68; // Ukuran sedikit lebih tinggi untuk label kelas
+        const cardHeight = 68;
         const margin = 2;
 
         students.forEach((s, idx) => {
-          // Frame Kartu Modern
           doc.setDrawColor(230).setLineWidth(0.2).rect(x, y, cardWidth, cardHeight)
-          
-          // Header Aksen Warna
           doc.setFillColor(headerColor[0], headerColor[1], headerColor[2]).rect(x, y, cardWidth, 5, 'F')
           
-          // Biodata Tengah (Centered)
           doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
           const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 23) + "..." : s.fullName
           doc.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 12, { align: "center" })
@@ -502,17 +619,14 @@ export default function ClassesPage() {
           doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
           doc.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 17, { align: "center" })
 
-          // Label Kelas Dinamis
           doc.setFontSize(6).setFont("helvetica", "bold").setTextColor(headerColor[0], headerColor[1], headerColor[2])
           doc.text(`KELAS: ${cls.name}`, x + cardWidth/2, y + 22, { align: "center" })
 
-          // QR Code Image (Using QR Server API)
           const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
           doc.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 26, 35, 35)
           
           doc.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 65, { align: "center" })
 
-          // Grid Logic (3 per row)
           x += cardWidth + margin;
           if (x + cardWidth > 200) {
             x = 10;
@@ -579,7 +693,7 @@ export default function ClassesPage() {
   const getStudentsInClass = (studentIds: string[]) => {
     if (!applicants) return []
     return applicants
-      .filter(a => studentIds.includes(a.id) && !a.isDeleted)
+      .filter(a => (studentIds || []).includes(a.id) && !a.isDeleted)
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }
 
@@ -794,6 +908,9 @@ export default function ClassesPage() {
                 )}
               </div>
               <div className="flex gap-2 mr-6">
+                <Button onClick={() => setIsAddStudentOpen(true)} size="sm" className="gap-2 bg-primary">
+                   <UserPlus className="w-4 h-4" /> Tambah Murid
+                </Button>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-2">
@@ -872,8 +989,16 @@ export default function ClassesPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {selectedClassForView?.students.length === 0 && (
-                    <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground italic">Belum ada murid di kelas ini.</TableCell></TableRow>
+                  {(!selectedClassForView?.students || selectedClassForView.students.length === 0) && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-20 text-muted-foreground italic">
+                        <div className="flex flex-col items-center gap-4">
+                           <Users className="w-12 h-12 opacity-10" />
+                           <p>Belum ada murid di kelas ini.</p>
+                           <Button onClick={() => setIsAddStudentOpen(true)} variant="outline" size="sm">Tambah Murid Sekarang</Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   )}
                 </TableBody>
               </Table>
@@ -881,6 +1006,98 @@ export default function ClassesPage() {
           </div>
           <DialogFooter className="p-4 border-t bg-muted/10">
             <Button variant="outline" onClick={() => setIsViewOpen(false)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isAddStudentOpen} onOpenChange={setIsAddStudentOpen}>
+        <DialogContent className="sm:max-w-[600px] flex flex-col p-0">
+          <DialogHeader className="p-6 pb-0">
+            <DialogTitle>Kelola Murid Kelas {selectedClassForView?.name}</DialogTitle>
+            <DialogDescription>Pilih murid dari database atau impor melalui file Excel.</DialogDescription>
+          </DialogHeader>
+          
+          <div className="p-6 flex flex-col gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div 
+                className="border-2 border-dashed rounded-xl p-6 text-center bg-primary/5 border-primary/20 hover:bg-primary/10 transition-colors cursor-pointer group"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = '.xlsx,.xls';
+                  input.onchange = (e: any) => handleImportExcelToClass(e);
+                  input.click();
+                }}
+              >
+                <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                  <Upload className="w-5 h-5 text-primary" />
+                </div>
+                <h4 className="text-sm font-bold">Impor via Excel</h4>
+                <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-tighter">Match by Nama/NISN</p>
+              </div>
+
+              <div className="bg-muted/20 border rounded-xl p-4 flex flex-col justify-center">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                  <span className="text-xs font-bold uppercase">Status Kelas</span>
+                </div>
+                <div className="flex justify-between items-end">
+                  <div className="text-2xl font-bold">{selectedClassForView?.currentEnrollment || 0} <span className="text-xs text-muted-foreground font-normal">/ {selectedClassForView?.capacity}</span></div>
+                  <Badge variant="outline" className="text-[10px]">{selectedStudentsToAdd.length} dipilih</Badge>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input 
+                  placeholder="Cari murid yang belum ada kelas..." 
+                  className="pl-9 h-9 text-xs" 
+                  value={studentSearch}
+                  onChange={(e) => setStudentSearch(e.target.value)}
+                />
+              </div>
+              <ScrollArea className="h-[250px] border rounded-lg bg-card">
+                <div className="p-2 space-y-1">
+                  {filteredUnassigned.length === 0 ? (
+                    <div className="text-center py-10 text-xs text-muted-foreground italic">Tidak ada murid tersedia.</div>
+                  ) : filteredUnassigned.map((s) => (
+                    <div 
+                      key={s.id} 
+                      className={`flex items-center justify-between p-2 rounded-md hover:bg-muted/50 transition-colors border ${selectedStudentsToAdd.includes(s.id) ? 'border-primary bg-primary/5' : 'border-transparent'}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Checkbox 
+                          id={`add-${s.id}`} 
+                          checked={selectedStudentsToAdd.includes(s.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedStudentsToAdd(prev => checked ? [...prev, s.id] : prev.filter(id => id !== s.id))
+                          }}
+                        />
+                        <div>
+                          <Label htmlFor={`add-${s.id}`} className="text-xs font-bold block cursor-pointer">{s.fullName}</Label>
+                          <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} • {s.originSchool}</span>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-[9px] uppercase">{s.gender === 'Laki-laki' ? 'L' : 'P'}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+          </div>
+
+          <DialogFooter className="p-4 border-t bg-muted/5">
+            <Button variant="ghost" onClick={() => setIsAddStudentOpen(false)}>Batal</Button>
+            <Button 
+              onClick={handleAddStudentsToClass} 
+              disabled={selectedStudentsToAdd.length === 0 || submitting}
+              className="gap-2"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Masukkan {selectedStudentsToAdd.length} Murid
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
