@@ -28,7 +28,8 @@ import {
   ShieldAlert,
   CloudUpload,
   CloudOff,
-  Info
+  Info,
+  Check
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -69,10 +70,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
-import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc, useAuth } from "@/firebase"
-import { collection, query, where, doc, writeBatch, deleteDoc, updateDoc } from "firebase/firestore"
+import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
+import { collection, query, where, doc, writeBatch } from "firebase/firestore"
 import { TeacherAssignment, Applicant, Classroom, Journal } from "@/lib/types"
 import { useToast } from '@/hooks/use-toast'
 import { Html5Qrcode } from 'html5-qrcode'
@@ -82,7 +82,6 @@ function TeachingJournalPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const db = useFirestore()
-  const auth = useAuth()
   const { user, loading: userLoading } = useUser()
   const { toast } = useToast()
   
@@ -90,7 +89,6 @@ function TeachingJournalPageContent() {
   const [isScannerOpen, setIsScannerOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null)
-  const [studentSearchTerm, setStudentSearchTerm] = useState('')
   
   const [localJournals, setLocalJournals] = useState<Journal[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -102,6 +100,7 @@ function TeachingJournalPageContent() {
   const scannerDivId = "qr-reader-journal"
 
   const activeSemester = parseInt(searchParams.get('semester') || "1")
+  const autoScan = searchParams.get('scan') === '1'
 
   const assignmentRef = useMemoFirebase(() => db && assignmentId ? doc(db, 'teacherAssignments', assignmentId as string) : null, [db, assignmentId])
   const { data: assignment, loading: loadingA } = useDoc<TeacherAssignment>(assignmentRef)
@@ -120,7 +119,7 @@ function TeachingJournalPageContent() {
   }, [allAcceptedStudents, classroom])
 
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
-  const { data: serverJournals, loading: loadingJ } = useCollection<Journal>(journalQuery)
+  const { data: serverJournals } = useCollection<Journal>(journalQuery)
 
   useEffect(() => {
     if (serverJournals && !isDirty) {
@@ -139,7 +138,6 @@ function TeachingJournalPageContent() {
     jp: 2,
     learningGoal: "",
     material: "",
-    kktpAchievement: "",
     attendanceDetail: {},
     absentStudents: [],
     hasTask: false,
@@ -148,6 +146,92 @@ function TeachingJournalPageContent() {
     notes: ""
   })
 
+  // Handle auto-open scanner from dashboard
+  useEffect(() => {
+    if (autoScan && !loadingA && assignment) {
+      handleOpenScanner();
+    }
+  }, [autoScan, loadingA, assignment]);
+
+  const handleOpenScanner = () => {
+    // If we are creating a new journal, just open scanner
+    // Otherwise, find the journal for today or last meeting
+    const today = new Date().toISOString().split('T')[0];
+    const existingToday = localJournals.find(j => j.date === today);
+    
+    if (existingToday) {
+      setEditingJournalId(existingToday.id);
+      setNewJournal(existingToday);
+    } else {
+      setEditingJournalId(null);
+      const nextMeeting = localJournals.length > 0 ? Math.max(...localJournals.map(j => j.meetingNumber)) + 1 : 1;
+      setNewJournal({
+        meetingNumber: nextMeeting,
+        date: today,
+        jamKe: "1-2",
+        jp: 2,
+        attendanceDetail: {},
+        absentStudents: [],
+        taskScores: {}
+      });
+    }
+    
+    setIsScannerOpen(true);
+    setTimeout(() => startScanner(), 300);
+  };
+
+  const startScanner = async () => {
+    if (!scannerRef.current) {
+      scannerRef.current = new Html5Qrcode(scannerDivId);
+    }
+    
+    try {
+      await scannerRef.current.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          handleScanSuccess(decodedText);
+        },
+        () => {}
+      );
+    } catch (err) {
+      console.error("Scanner error", err);
+      toast({ variant: "destructive", title: "Gagal Kamera", description: "Pastikan izin kamera diaktifkan." });
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      await scannerRef.current.stop();
+    }
+    setIsScannerOpen(false);
+  };
+
+  const handleScanSuccess = (studentId: string) => {
+    const student = students.find(s => s.id === studentId);
+    if (!student) {
+      toast({ variant: "destructive", title: "Siswa Tidak Dikenali", description: "QR bukan milik siswa kelas ini." });
+      return;
+    }
+
+    setNewJournal(prev => {
+      const detail = { ...(prev.attendanceDetail || {}) };
+      if (detail[studentId] === 'H') {
+        toast({ title: "Sudah Hadir", description: `${student.fullName} sudah diproses.` });
+        return prev;
+      }
+      
+      detail[studentId] = 'H';
+      toast({ 
+        title: "Scan Berhasil", 
+        description: `${student.fullName} hadir.`,
+        className: "bg-green-600 text-white" 
+      });
+
+      return { ...prev, attendanceDetail: detail };
+    });
+  };
+
   const onSaveLocal = () => {
     const journalData = {
       ...newJournal,
@@ -155,7 +239,9 @@ function TeachingJournalPageContent() {
       assignmentId: assignmentId as string,
       semester: activeSemester,
       updatedAt: new Date().toISOString(),
-      createdAt: editingJournalId ? localJournals.find(j => j.id === editingJournalId)?.createdAt : new Date().toISOString()
+      createdAt: editingJournalId ? localJournals.find(j => j.id === editingJournalId)?.createdAt : new Date().toISOString(),
+      // Recalculate absent students for logic consistency
+      absentStudents: students.filter(s => newJournal.attendanceDetail?.[s.id] !== 'H').map(s => s.id)
     } as Journal
 
     if (editingJournalId) {
@@ -167,7 +253,7 @@ function TeachingJournalPageContent() {
     setIsDirty(true)
     setIsAddOpen(false)
     setEditingJournalId(null)
-    toast({ title: "Jurnal Disimpan di Buffer", description: "Klik Sinkronkan untuk mengirim ke database." })
+    toast({ title: "Jurnal Disimpan di Buffer" })
   }
 
   const handleSyncToCloud = async () => {
@@ -176,7 +262,6 @@ function TeachingJournalPageContent() {
     const batch = writeBatch(db)
     
     try {
-      // 1. Manage Journals
       const currentSemesterServerJournals = serverJournals.filter(j => j.semester === activeSemester)
       const toDelete = currentSemesterServerJournals.filter(sj => !localJournals.some(lj => lj.id === sj.id))
       toDelete.forEach(j => batch.delete(doc(db, 'journals', j.id)))
@@ -193,16 +278,15 @@ function TeachingJournalPageContent() {
         }
       })
 
-      // 2. Recalculate Attendance & Task Scores for Assessments
+      // Recalculate Attendance & Task Scores for Assessments
       students.forEach(s => {
-        const absences = localJournals.filter(j => j.absentStudents?.includes(s.id)).length
         const totalMeetings = localJournals.length
-        const attendancePercent = totalMeetings > 0 ? Math.round(((totalMeetings - absences) / totalMeetings) * 100) : 100
+        const attendances = localJournals.filter(j => j.attendanceDetail?.[s.id] === 'H').length
+        const attendancePercent = totalMeetings > 0 ? Math.round((attendances / totalMeetings) * 100) : 100
         
         const assessmentId = `${assignmentId}_${s.id}_sem${activeSemester}`
         const aRef = doc(db, 'assessments', assessmentId)
         
-        // Base assessment data
         const baseUpdate: any = {
           studentId: s.id,
           assignmentId,
@@ -211,7 +295,6 @@ function TeachingJournalPageContent() {
           updatedAt: new Date().toISOString()
         }
 
-        // Add task scores from local journals
         localJournals.forEach(lj => {
           if (lj.hasTask && lj.taskType && lj.taskScores?.[s.id] !== undefined) {
             baseUpdate[lj.taskType] = lj.taskScores[s.id]
@@ -223,7 +306,7 @@ function TeachingJournalPageContent() {
 
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Jurnal & Nilai Berhasil Tersinkron" })
+      toast({ title: "Data Berhasil Sinkron" })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -241,8 +324,6 @@ function TeachingJournalPageContent() {
     setLocalJournals(prev => prev.filter(j => j.id !== journalToDeleteId))
     setIsDirty(true)
     setIsDeleteDialogOpen(false)
-    setJournalToDeleteId(null)
-    toast({ title: "Dihapus dari draf" })
   }
 
   if (userLoading || loadingA) return <div className="flex justify-center py-24"><Loader2 className="animate-spin" /></div>
@@ -257,21 +338,24 @@ function TeachingJournalPageContent() {
             <div className="flex items-center gap-2 mt-1">
                <Badge variant="outline">Kelas {assignment?.className}</Badge>
                {isDirty ? (
-                 <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Perubahan Belum Sinkron</Badge>
+                 <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Ada Draf Baru</Badge>
                ) : (
                  <Badge className="bg-green-500/10 text-green-500 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron</Badge>
                )}
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 shadow-lg shadow-green-500/20 gap-2">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Simpan Permanen ke Cloud
+              Simpan Cloud
             </Button>
           )}
-          <Button onClick={() => { setEditingJournalId(null); setIsAddOpen(true); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Tambah Jurnal</Button>
+          <Button variant="outline" onClick={handleOpenScanner} className="gap-2 border-primary/30 text-primary">
+            <ScanLine className="w-4 h-4" /> Absen QR
+          </Button>
+          <Button onClick={() => { setEditingJournalId(null); setIsAddOpen(true); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
         </div>
       </div>
 
@@ -279,12 +363,13 @@ function TeachingJournalPageContent() {
         {journals.length === 0 ? (
           <Card className="border-dashed border-2 py-20 flex flex-col items-center justify-center text-muted-foreground">
             <BookOpen className="w-12 h-12 opacity-20 mb-4" />
-            <p>Belum ada catatan jurnal. Klik tombol tambah di atas.</p>
+            <p>Belum ada catatan jurnal mengajar.</p>
           </Card>
         ) : (
           <div className="space-y-4">
             {journals.map((j) => {
               const isTemp = j.id.startsWith('temp-')
+              const attendCount = Object.values(j.attendanceDetail || {}).filter(v => v === 'H').length;
               return (
                 <Card key={j.id} className={`border-border/50 overflow-hidden bg-card/30 ${isTemp ? 'border-dashed border-2 border-amber-500/30' : ''}`}>
                   <CardHeader className="bg-muted/10 p-4 border-b">
@@ -302,10 +387,17 @@ function TeachingJournalPageContent() {
                       </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                      <div><Label className="text-[10px] uppercase font-bold text-primary">Materi:</Label><p>{j.material || "-"}</p></div>
-                      <div><Label className="text-[10px] uppercase font-bold text-accent">Status Absensi:</Label><p className="text-xs">{Object.values(j.attendanceDetail || {}).filter(v => v !== 'H').length} Siswa Tidak Hadir</p></div>
+                  <CardContent className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <Label className="text-[10px] uppercase font-bold text-primary">Materi Pembelajaran:</Label>
+                      <p className="mt-1 font-medium">{j.material || "-"}</p>
+                    </div>
+                    <div className="flex items-center justify-between bg-muted/20 p-3 rounded-lg border">
+                       <div>
+                         <Label className="text-[10px] uppercase font-bold text-accent">Kehadiran Siswa:</Label>
+                         <p className="text-lg font-bold">{attendCount} / {students.length}</p>
+                       </div>
+                       <Badge variant="outline" className="bg-background">{Math.round((attendCount/students.length)*100)}% Hadir</Badge>
                     </div>
                   </CardContent>
                 </Card>
@@ -315,26 +407,105 @@ function TeachingJournalPageContent() {
         )}
       </div>
 
-      <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-4 mt-8">
-         <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-         <div className="text-xs text-muted-foreground leading-relaxed italic">
-           <strong>Offline Mode Aktif:</strong> Anda dapat mengisi jurnal & absensi tanpa koneksi internet yang stabil. Seluruh data yang Anda masukkan disimpan di memori browser. Jangan lupa menekan tombol <strong>"Simpan Permanen"</strong> saat sudah mendapatkan sinyal WiFi/Internet agar nilai terhitung ke sistem raport.
-         </div>
-      </div>
+      {/* DIALOG SCANNER QR */}
+      <Dialog open={isScannerOpen} onOpenChange={(v) => { if(!v) stopScanner(); setIsScannerOpen(v); }}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><ScanLine className="w-5 h-5 text-primary" /> Pemindai Absensi QR</DialogTitle>
+            <DialogDescription>Arahkan kamera ke kartu QR siswa untuk mencatat kehadiran.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+             <div id={scannerDivId} className="w-full aspect-square bg-black rounded-xl overflow-hidden shadow-inner border-4 border-muted/50"></div>
+             
+             <div className="bg-primary/5 p-4 rounded-xl border border-primary/20">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-[10px] font-bold uppercase text-primary">Siswa Terdeteksi:</Label>
+                  <Badge variant="secondary" className="text-[10px]">{Object.keys(newJournal.attendanceDetail || {}).length} Siswa</Badge>
+                </div>
+                <div className="max-h-[150px] overflow-y-auto space-y-1">
+                   {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
+                     const s = students.find(x => x.id === id);
+                     return (
+                       <div key={id} className="flex items-center justify-between text-xs p-2 bg-background rounded-md border border-border/50 animate-in fade-in slide-in-from-right-4">
+                          <span className="font-bold">{s?.fullName}</span>
+                          <Check className="w-3 h-3 text-green-500" />
+                       </div>
+                     )
+                   })}
+                   {Object.keys(newJournal.attendanceDetail || {}).length === 0 && (
+                     <p className="text-center text-[10px] text-muted-foreground italic py-4">Belum ada scan masuk...</p>
+                   )}
+                </div>
+             </div>
+          </div>
+          <DialogFooter className="grid grid-cols-2 gap-2">
+            <Button variant="ghost" onClick={stopScanner}>Tutup & Batal</Button>
+            <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary shadow-lg shadow-primary/20">Simpan Kehadiran</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
+      {/* DIALOG INPUT JURNAL */}
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent className="sm:max-w-[850px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editingJournalId ? 'Edit Jurnal (Draft)' : 'Input Jurnal Baru (Draft)'}</DialogTitle></DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="space-y-2"><Label>Pertemuan Ke-</Label><Input type="number" value={newJournal.meetingNumber || 0} onChange={e => setNewJournal({...newJournal, meetingNumber: parseInt(e.target.value) || 0})} /></div>
-              <div className="space-y-2"><Label>Tanggal</Label><Input type="date" value={newJournal.date || ""} onChange={e => setNewJournal({...newJournal, date: e.target.value})} /></div>
-              <div className="space-y-2"><Label>Jam Ke</Label><Input placeholder="1-2" value={newJournal.jamKe || ""} onChange={e => setNewJournal({...newJournal, jamKe: e.target.value})} /></div>
-              <div className="space-y-2"><Label>JP</Label><Input type="number" value={newJournal.jp || 0} onChange={e => setNewJournal({...newJournal, jp: parseInt(e.target.value) || 0})} /></div>
+          <DialogHeader><DialogTitle>{editingJournalId ? 'Edit Catatan Mengajar' : 'Input Jurnal Baru'}</DialogTitle></DialogHeader>
+          <div className="space-y-8 py-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-muted/20 p-4 rounded-xl border">
+              <div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Pertemuan Ke-</Label><Input type="number" value={newJournal.meetingNumber || 0} onChange={e => setNewJournal({...newJournal, meetingNumber: parseInt(e.target.value) || 0})} /></div>
+              <div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Tanggal</Label><Input type="date" value={newJournal.date || ""} onChange={e => setNewJournal({...newJournal, date: e.target.value})} /></div>
+              <div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Jam Ke</Label><Input placeholder="1-2" value={newJournal.jamKe || ""} onChange={e => setNewJournal({...newJournal, jamKe: e.target.value})} /></div>
+              <div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Durasi (JP)</Label><Input type="number" value={newJournal.jp || 0} onChange={e => setNewJournal({...newJournal, jp: parseInt(e.target.value) || 0})} /></div>
             </div>
-            <div className="space-y-2"><Label>Materi Pembelajaran</Label><Textarea placeholder="Bahasan materi..." value={newJournal.material || ""} onChange={e => setNewJournal({...newJournal, material: e.target.value})} /></div>
+            
+            <div className="space-y-2"><Label className="text-[10px] font-bold uppercase text-primary">Materi Pembelajaran</Label><Textarea placeholder="Tuliskan pokok bahasan atau materi yang diajarkan..." value={newJournal.material || ""} onChange={e => setNewJournal({...newJournal, material: e.target.value})} className="h-24" /></div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] font-bold uppercase text-accent">Daftar Kehadiran & Partisipasi</Label>
+                <Button variant="outline" size="sm" onClick={() => {
+                  const allH: any = {};
+                  students.forEach(s => allH[s.id] = 'H');
+                  setNewJournal({...newJournal, attendanceDetail: allH});
+                }} className="h-7 text-[9px] font-bold">SET SEMUA HADIR</Button>
+              </div>
+              <div className="border rounded-xl overflow-hidden">
+                <Table>
+                  <TableHeader className="bg-muted/50"><TableRow><TableHead>Nama Siswa</TableHead><TableHead className="text-center w-40">Status Absensi</TableHead></TableRow></TableHeader>
+                  <TableBody>
+                    {students.map(s => (
+                      <TableRow key={s.id} className="h-12">
+                        <TableCell className="text-xs font-bold">{s.fullName}</TableCell>
+                        <TableCell>
+                          <div className="flex justify-center gap-1">
+                            {['H', 'S', 'I', 'A'].map(v => (
+                              <button
+                                key={v}
+                                onClick={() => {
+                                  const detail = { ...(newJournal.attendanceDetail || {}) };
+                                  detail[s.id] = v as any;
+                                  setNewJournal({...newJournal, attendanceDetail: detail});
+                                }}
+                                className={`w-8 h-8 rounded-md text-[10px] font-bold transition-all border ${
+                                  newJournal.attendanceDetail?.[s.id] === v 
+                                    ? 'bg-primary text-white border-primary shadow-md' 
+                                    : 'bg-background hover:bg-muted text-muted-foreground'
+                                }`}
+                              >
+                                {v}
+                              </button>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           </div>
-          <DialogFooter><Button onClick={onSaveLocal} className="w-full">Simpan ke Buffer</Button></DialogFooter>
+          <DialogFooter className="border-t pt-4">
+            <Button onClick={onSaveLocal} className="w-full h-11 bg-primary">Simpan ke Buffer</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -342,9 +513,9 @@ function TeachingJournalPageContent() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?</AlertDialogTitle>
-            <AlertDialogDescription>Tindakan ini menghapus jurnal dari draf Anda. Pastikan Sinkron setelahnya agar data di server benar-benar terhapus.</AlertDialogDescription>
+            <AlertDialogDescription>Data akan dihapus dari draf. Klik Sinkron setelahnya untuk menghapus permanen dari cloud.</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Jurnal</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
@@ -353,7 +524,7 @@ function TeachingJournalPageContent() {
 
 export default function TeachingJournalPage() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-24"><Loader2 className="animate-spin" /></div>}>
+    <Suspense fallback={<div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>}>
       <TeachingJournalPageContent />
     </Suspense>
   )
