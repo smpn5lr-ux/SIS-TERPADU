@@ -47,6 +47,7 @@ import * as z from "zod"
 const formSchema = z.object({
   fullName: z.string().min(2, "Nama minimal 2 karakter"),
   gender: z.enum(['Laki-laki', 'Perempuan']),
+  NIS: z.string().optional(),
   NISN: z.string().optional(),
   NIK: z.string().optional(),
   birthPlace: z.string().optional(),
@@ -84,7 +85,7 @@ export default function EditStudentPage() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      fullName: "", gender: "Laki-laki", NISN: "", NIK: "",
+      fullName: "", gender: "Laki-laki", NIS: "", NISN: "", NIK: "",
       birthPlace: "", birthDate: "", religion: "Katolik",
       address: "", rt: "", rw: "", kelurahan: "", kecamatan: "", propinsi: "Jawa Barat",
       livingWith: "Bersama Orang Tua", transportation: "Jalan Kaki",
@@ -164,6 +165,12 @@ export default function EditStudentPage() {
                           <FormLabel>Nama Lengkap</FormLabel>
                           <FormControl><Input placeholder="Sesuai Akta Kelahiran" {...field} value={field.value || ""} /></FormControl>
                           <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={form.control} name="NIS" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>NIS</FormLabel>
+                          <FormControl><Input className="font-mono" {...field} value={field.value || ""} /></FormControl>
                         </FormItem>
                       )} />
                       <FormField control={form.control} name="gender" render={({ field }) => (

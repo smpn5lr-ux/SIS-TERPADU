@@ -44,7 +44,10 @@ export default function StudentDatabasePage() {
   const filteredStudents = useMemo(() => {
     return localStudents.filter(a => 
       !a.isDeleted &&
-      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm) || (a.registrationNumber || "").includes(searchTerm))
+      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+       (a.NISN || "").includes(searchTerm) || 
+       (a.NIS || "").includes(searchTerm) || 
+       (a.registrationNumber || "").includes(searchTerm))
     )
   }, [localStudents, searchTerm])
 
@@ -91,14 +94,15 @@ export default function StudentDatabasePage() {
         <div className="p-4 border-b border-border/50">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Cari No. Urut, Nama, atau NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Cari NIS, Nama, atau NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
-              <TableHead className="font-bold text-primary w-[140px]">No. Urut</TableHead>
-              <TableHead className="font-bold text-primary">NISN</TableHead>
+              <TableHead className="font-bold text-primary w-[60px]">No</TableHead>
+              <TableHead className="font-bold text-primary w-[120px]">NIS</TableHead>
+              <TableHead className="font-bold text-primary w-[140px]">NISN</TableHead>
               <TableHead className="font-bold text-primary">Nama Lengkap</TableHead>
               <TableHead className="font-bold text-primary">Status</TableHead>
               <TableHead className="text-right font-bold text-primary">Aksi</TableHead>
@@ -106,14 +110,15 @@ export default function StudentDatabasePage() {
           </TableHeader>
           <TableBody>
             {loading && !localStudents.length ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredStudents.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada data siswa.</TableCell></TableRow>
-            ) : filteredStudents.map((s) => {
+              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada data siswa.</TableCell></TableRow>
+            ) : filteredStudents.map((s, idx) => {
               const isGraduated = s.admissionStatus === 'graduated';
               return (
                 <TableRow key={s.id} className="hover:bg-muted/10 transition-colors">
-                  <TableCell className="font-mono text-xs font-bold text-primary">{s.registrationNumber || s.registrationSequence}</TableCell>
+                  <TableCell className="text-xs font-medium text-muted-foreground">{idx + 1}</TableCell>
+                  <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
                   <TableCell className="font-mono text-xs font-bold text-accent">{s.NISN || "-"}</TableCell>
                   <TableCell className="font-medium">{s.fullName}</TableCell>
                   <TableCell>

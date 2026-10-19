@@ -10,6 +10,7 @@ export interface Applicant {
   registrationNumber: string;
   registrationSequence: number;
   NISN: string;
+  NIS?: string;
   NIK: string;
   familyCardNumber: string;
   aktaLahirNumber: string;

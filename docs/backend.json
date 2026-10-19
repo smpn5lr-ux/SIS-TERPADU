@@ -9,6 +9,7 @@
         "registrationNumber": { "type": "string" },
         "registrationSequence": { "type": "number" },
         "NISN": { "type": "string" },
+        "NIS": { "type": "string" },
         "NIK": { "type": "string" },
         "familyCardNumber": { "type": "string" },
         "aktaLahirNumber": { "type": "string" },

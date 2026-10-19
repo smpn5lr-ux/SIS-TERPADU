@@ -41,6 +41,7 @@ const classFormSchema = z.object({
 
 const studentEditSchema = z.object({
   fullName: z.string().min(2, "Nama minimal 2 karakter"),
+  NIS: z.string().optional(),
   NISN: z.string().optional(),
   gender: z.enum(['Laki-laki', 'Perempuan']),
 })
@@ -95,7 +96,7 @@ export default function ClassesPage() {
 
   const studentEditForm = useForm<z.infer<typeof studentEditSchema>>({
     resolver: zodResolver(studentEditSchema),
-    defaultValues: { fullName: "", NISN: "", gender: "Laki-laki" },
+    defaultValues: { fullName: "", NIS: "", NISN: "", gender: "Laki-laki" },
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
@@ -124,6 +125,7 @@ export default function ClassesPage() {
     setEditingStudentData(student)
     studentEditForm.reset({
       fullName: student.fullName,
+      NIS: student.NIS || "",
       NISN: student.NISN,
       gender: student.gender
     })
@@ -267,8 +269,8 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const ws = XLSX.utils.json_to_sheet([
-      { "NO": 1, "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789", "JENIS KELAMIN": "Laki-laki" },
-      { "NO": 2, "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321", "JENIS KELAMIN": "Perempuan" }
+      { "NO": 1, "NIS": "12345", "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789", "JENIS KELAMIN": "Laki-laki" },
+      { "NO": 2, "NIS": "12346", "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321", "JENIS KELAMIN": "Perempuan" }
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template_Impor")
@@ -297,6 +299,7 @@ export default function ClassesPage() {
         const keys = Object.keys(firstRow);
         const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA LENGKAP";
         const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
+        const nisKey = keys.find(k => k.toUpperCase() === "NIS") || "NIS";
         const genderKey = keys.find(k => k.toUpperCase().includes("KELAMIN") || k.toUpperCase().includes("GENDER") || k.toUpperCase().includes("JK")) || "JENIS KELAMIN";
 
         let addedCount = 0
@@ -308,29 +311,29 @@ export default function ClassesPage() {
           const rawName = String(row[nameKey] || "").trim()
           const name = rawName.toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
+          const nis = String(row[nisKey] || "").trim()
           let rawGender = String(row[genderKey] || "Laki-laki").trim()
           
-          // Normalisasi Gender
           let gender: 'Laki-laki' | 'Perempuan' = 'Laki-laki'
           if (rawGender.toLowerCase().startsWith('p') || rawGender.toLowerCase().includes('wanita') || rawGender.toLowerCase().includes('perempuan')) {
             gender = 'Perempuan'
           }
 
-          if (!rawName && !nisn) return;
+          if (!rawName && !nisn && !nis) return;
 
-          // 1. Cari di local database
           let student = currentApplicants.find(a => {
             const dbNisn = (a.NISN || "").trim();
+            const dbNis = (a.NIS || "").trim();
             const dbName = (a.fullName || "").trim().toLowerCase();
-            return (nisn !== "" && dbNisn === nisn) || (name !== "" && dbName === name);
+            return (nisn !== "" && dbNisn === nisn) || (nis !== "" && dbNis === nis) || (name !== "" && dbName === name);
           });
 
-          // 2. Jika tidak ada, buat baru otomatis
           if (!student) {
              student = {
                id: `temp-new-${Date.now()}-${createdCount}`,
                fullName: rawName,
                NISN: nisn,
+               NIS: nis,
                gender: gender,
                admissionStatus: "accepted",
                verificationStatus: "Lengkap",
@@ -340,11 +343,10 @@ export default function ClassesPage() {
              currentApplicants.push(student)
              createdCount++
           } else {
-            // Update gender jika berbeda
             student.gender = gender;
+            if (nis) student.NIS = nis;
           }
 
-          // 3. Masukkan ke kelas jika belum ada
           if (!currentStudents.includes(student.id)) {
             currentStudents.push(student.id)
             addedCount++
@@ -419,17 +421,17 @@ export default function ClassesPage() {
               <h3 className="font-bold text-xs uppercase text-accent tracking-widest flex items-center gap-2"><Plus className="w-3 h-3" /> Pilih Murid untuk Masuk Kelas</h3>
               <div className="relative w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Cari Nama/NISN..." className="pl-9 bg-background" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
+                <Input placeholder="Cari Nama/NISN/NIS..." className="pl-9 bg-background" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
               </div>
             </div>
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto">
               {availableStudents
-                .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
+                .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch) || (s.NIS || "").includes(studentSearch))
                 .map(s => (
                 <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-muted/50 border border-border/40 bg-muted/20 transition-all group">
                    <div className="flex flex-col">
                      <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
-                     <span className="text-[10px] text-muted-foreground font-mono">{s.NISN} | {s.gender}</span>
+                     <span className="text-[10px] text-muted-foreground font-mono">NIS: {s.NIS || "-"} | {s.gender}</span>
                    </div>
                    <Button size="sm" variant="outline" className="h-8 px-4 text-primary border-primary/20 hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s.id)}>Pilih <ChevronRight className="w-3 h-3 ml-1" /></Button>
                 </div>
@@ -449,8 +451,9 @@ export default function ClassesPage() {
                 <TableHeader className="bg-muted/50 border-b">
                   <TableRow>
                     <TableHead className="w-16 text-center font-bold">No</TableHead>
+                    <TableHead className="font-bold w-[120px]">NIS</TableHead>
+                    <TableHead className="font-bold w-[140px]">NISN</TableHead>
                     <TableHead className="font-bold">Nama Lengkap</TableHead>
-                    <TableHead className="font-bold">NISN</TableHead>
                     <TableHead className="font-bold text-center">JK</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
@@ -458,15 +461,16 @@ export default function ClassesPage() {
                 </TableHeader>
                 <TableBody>
                   {currentClassStudents.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
+                    <TableRow><TableCell colSpan={7} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                       <GraduationCap className="w-16 h-16 opacity-5" />
                       <p>Belum ada murid di kelas ini. Klik tombol "Tambah Murid" atau "Impor Excel" untuk mengisi rombel.</p>
                     </TableCell></TableRow>
                   ) : currentClassStudents.map((s, idx) => (
                     <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
                       <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
+                      <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline" className="text-[9px] font-bold">
                           {s.gender === 'Laki-laki' ? 'L' : 'P'}
@@ -517,9 +521,14 @@ export default function ClassesPage() {
                 <FormField control={studentEditForm.control} name="fullName" render={({ field }) => (
                   <FormItem><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
-                <FormField control={studentEditForm.control} name="NISN" render={({ field }) => (
-                  <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                )} />
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={studentEditForm.control} name="NIS" render={({ field }) => (
+                    <FormItem><FormLabel>NIS</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
+                  )} />
+                  <FormField control={studentEditForm.control} name="NISN" render={({ field }) => (
+                    <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
+                  )} />
+                </div>
                 <FormField control={studentEditForm.control} name="gender" render={({ field }) => (
                   <FormItem><FormLabel>Jenis Kelamin</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>

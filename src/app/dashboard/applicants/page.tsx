@@ -49,6 +49,7 @@ const formSchema = z.object({
   registrationSequence: z.string().min(1, "No. Urut harus diisi"),
   fullName: z.string().min(2, "Nama minimal 2 karakter"),
   gender: z.enum(['Laki-laki', 'Perempuan']),
+  NIS: z.string().optional(),
   NISN: z.string().optional(),
   NIK: z.string().optional(),
   birthPlace: z.string().optional(),
@@ -90,7 +91,7 @@ export default function ApplicantsPage() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       registrationSequence: "",
-      fullName: "", gender: "Laki-laki", NISN: "", NIK: "",
+      fullName: "", gender: "Laki-laki", NIS: "", NISN: "", NIK: "",
       birthPlace: "", birthDate: "", religion: "Katolik",
       address: "", rt: "", rw: "", kelurahan: "", kecamatan: "", propinsi: "Jawa Barat",
       livingWith: "Bersama Orang Tua", transportation: "Jalan Kaki",
@@ -118,7 +119,9 @@ export default function ApplicantsPage() {
   const filteredApplicants = useMemo(() => {
     return localApplicants.filter(a => 
       !a.isDeleted &&
-      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || (a.NISN || "").includes(searchTerm))
+      ((a.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+       (a.NISN || "").includes(searchTerm) || 
+       (a.NIS || "").includes(searchTerm))
     )
   }, [localApplicants, searchTerm])
 
@@ -213,13 +216,14 @@ export default function ApplicantsPage() {
         <div className="p-4 border-b border-border/50">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input placeholder="Cari Nama atau NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <Input placeholder="Cari Nama/NIS/NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           </div>
         </div>
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
-              <TableHead className="font-bold text-primary">No. Reg</TableHead>
+              <TableHead className="font-bold text-primary w-[60px]">No</TableHead>
+              <TableHead className="font-bold text-primary w-[120px]">NIS</TableHead>
               <TableHead className="font-bold text-primary">Nama Lengkap</TableHead>
               <TableHead className="font-bold text-primary">Asal Sekolah</TableHead>
               <TableHead className="font-bold text-primary">Status</TableHead>
@@ -228,14 +232,15 @@ export default function ApplicantsPage() {
           </TableHeader>
           <TableBody>
             {loading && !localApplicants.length ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredApplicants.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar.</TableCell></TableRow>
-            ) : filteredApplicants.map((a) => {
+              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar.</TableCell></TableRow>
+            ) : filteredApplicants.map((a, idx) => {
               const isTemp = a.id.startsWith('temp-')
               return (
                 <TableRow key={a.id} className={isTemp ? 'bg-amber-500/5' : ''}>
-                  <TableCell className="font-mono text-xs font-bold">{a.registrationNumber}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
+                  <TableCell className="font-mono text-xs font-bold text-primary">{a.NIS || "-"}</TableCell>
                   <TableCell className="font-medium">{a.fullName}</TableCell>
                   <TableCell className="text-sm">{a.originSchool || "-"}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{a.verificationStatus}</Badge></TableCell>
@@ -275,8 +280,8 @@ export default function ApplicantsPage() {
                       <FormField control={form.control} name="fullName" render={({ field }) => (
                         <FormItem className="col-span-2"><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl><FormMessage /></FormItem>
                       )} />
-                      <FormField control={form.control} name="registrationSequence" render={({ field }) => (
-                        <FormItem><FormLabel>No. Urut Daftar</FormLabel><FormControl><Input type="number" {...field} value={field.value || ""} /></FormControl></FormItem>
+                      <FormField control={form.control} name="NIS" render={({ field }) => (
+                        <FormItem><FormLabel>NIS</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
                       )} />
                       <FormField control={form.control} name="gender" render={({ field }) => (
                         <FormItem><FormLabel>Jenis Kelamin</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Laki-laki">Laki-laki</SelectItem><SelectItem value="Perempuan">Perempuan</SelectItem></SelectContent></Select></FormItem>
@@ -295,6 +300,9 @@ export default function ApplicantsPage() {
                       )} />
                       <FormField control={form.control} name="applicationPath" render={({ field }) => (
                         <FormItem className="col-span-2"><FormLabel>Jalur Masuk</FormLabel><Select onValueChange={field.onChange} value={field.value}><FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl><SelectContent><SelectItem value="Zonasi">Zonasi</SelectItem><SelectItem value="Prestasi">Prestasi</SelectItem><SelectItem value="Afirmasi">Afirmasi</SelectItem><SelectItem value="Perpindahan Orang Tua">Perpindahan</SelectItem></SelectContent></Select></FormItem>
+                      )} />
+                      <FormField control={form.control} name="registrationSequence" render={({ field }) => (
+                        <FormItem className="col-span-2"><FormLabel>No. Urut Daftar</FormLabel><FormControl><Input type="number" {...field} value={field.value || ""} /></FormControl></FormItem>
                       )} />
                     </div>
                   </TabsContent>
