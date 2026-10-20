@@ -268,10 +268,12 @@ export default function ClassesPage() {
   }
 
   const handleDownloadTemplate = () => {
-    const ws = XLSX.utils.json_to_sheet([
-      { "NO": 1, "NIS": "12345", "NAMA LENGKAP": "BUDI SANTOSO", "NISN": "0123456789", "JENIS KELAMIN": "Laki-laki" },
-      { "NO": 2, "NIS": "12346", "NAMA LENGKAP": "SITI AMINAH", "NISN": "0987654321", "JENIS KELAMIN": "Perempuan" }
-    ])
+    // Header sesuai gambar: No, NIS, NISN, Nama Lengkap, JK
+    const data = [
+      { "No": 1, "NIS": "1001", "NISN": "0123456789", "Nama Lengkap": "BUDI SANTOSO", "JK": "Laki-laki" },
+      { "No": 2, "NIS": "1002", "NISN": "0987654321", "Nama Lengkap": "SITI AMINAH", "JK": "Perempuan" }
+    ]
+    const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template_Impor")
     XLSX.writeFile(wb, "Template_Impor_Murid.xlsx")
@@ -297,10 +299,10 @@ export default function ClassesPage() {
 
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
-        const nameKey = keys.find(k => k.toUpperCase().includes("NAMA")) || "NAMA LENGKAP";
-        const nisnKey = keys.find(k => k.toUpperCase().includes("NISN")) || "NISN";
-        const nisKey = keys.find(k => k.toUpperCase() === "NIS") || "NIS";
-        const genderKey = keys.find(k => k.toUpperCase().includes("KELAMIN") || k.toUpperCase().includes("GENDER") || k.toUpperCase().includes("JK")) || "JENIS KELAMIN";
+        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "Nama Lengkap";
+        const nisnKey = keys.find(k => k.toLowerCase().includes("nisn")) || "NISN";
+        const nisKey = keys.find(k => k.toLowerCase() === "nis") || "NIS";
+        const genderKey = keys.find(k => k.toLowerCase().includes("jk") || k.toLowerCase().includes("kelamin") || k.toLowerCase().includes("gender")) || "JK";
 
         let addedCount = 0
         let createdCount = 0
