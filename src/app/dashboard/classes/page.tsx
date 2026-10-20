@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck, Trash
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -62,6 +62,7 @@ export default function ClassesPage() {
   const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false)
 
   const [isPromotionDialogOpen, setIsPromotionDialogOpen] = useState(false)
   const [classToPromote, setClassToPromote] = useState<Classroom | null>(null)
@@ -100,6 +101,21 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
+    // Check for unique name
+    const isDuplicate = localClasses.some(c => 
+      c.name.toLowerCase().trim() === values.name.toLowerCase().trim() && 
+      (!editingClass || c.id !== editingClass.id)
+    );
+
+    if (isDuplicate) {
+      toast({ 
+        variant: "destructive", 
+        title: "Gagal Menyimpan", 
+        description: `Kelas ${values.name} sudah terdaftar.` 
+      });
+      return;
+    }
+
     const classData = {
       id: editingClass ? editingClass.id : `temp-${Date.now()}`,
       name: values.name,
@@ -152,6 +168,20 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsDeleteDialogOpen(false)
     setClassToDelete(null)
+  }
+
+  const handleClearAllStudents = () => {
+    if (!selectedClassForStudents) return
+    const updatedClass = {
+      ...selectedClassForStudents,
+      students: [],
+      currentEnrollment: 0
+    }
+    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+    setSelectedClassForStudents(updatedClass)
+    setIsDirty(true)
+    setIsClearAllDialogOpen(false)
+    toast({ title: "Daftar Murid Dikosongkan", description: "Seluruh murid telah dikeluarkan dari rombel ini (Draf)." })
   }
 
   const handlePromoteClassLocal = () => {
@@ -268,7 +298,6 @@ export default function ClassesPage() {
   }
 
   const handleDownloadTemplate = () => {
-    // Header sesuai gambar: No, NIS, NISN, Nama Lengkap, JK
     const data = [
       { "No": 1, "NIS": "1001", "NISN": "0123456789", "Nama Lengkap": "BUDI SANTOSO", "JK": "Laki-laki" },
       { "No": 2, "NIS": "1002", "NISN": "0987654321", "Nama Lengkap": "SITI AMINAH", "JK": "Perempuan" }
@@ -410,6 +439,9 @@ export default function ClassesPage() {
                </div>
                <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleImportExcel} />
             </label>
+            <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5" disabled={currentClassStudents.length === 0}>
+               <Trash className="w-4 h-4" /> Kosongkan Rombel
+            </Button>
             <Button onClick={() => setIsAddStudentMode(!isAddStudentMode)} className="gap-2 bg-primary">
               {isAddStudentMode ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
               {isAddStudentMode ? "Batal Tambah" : "Tambah Murid"}
@@ -547,6 +579,25 @@ export default function ClassesPage() {
             </Form>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <Trash className="w-5 h-5 text-destructive" /> Kosongkan Daftar Murid?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Apakah Anda yakin ingin mengeluarkan **seluruh murid** ({currentClassStudents.length}) dari Kelas **{selectedClassForStudents.name}**? Data biodata murid tetap aman di database induk.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Batal</AlertDialogCancel>
+              <AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Ya, Kosongkan Sekarang
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     )
   }
