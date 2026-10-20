@@ -271,6 +271,13 @@ export default function ClassesPage() {
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
   }, [selectedClassForStudents, localApplicants])
 
+  const classGenderStats = useMemo(() => {
+    const total = currentClassStudents.length
+    const male = currentClassStudents.filter(s => s.gender === 'Laki-laki').length
+    const female = total - male
+    return { total, male, female }
+  }, [currentClassStudents])
+
   const handleAddStudentToClass = (studentId: string) => {
     if (!selectedClassForStudents) return
     const updatedClass = {
@@ -429,6 +436,18 @@ export default function ClassesPage() {
                 <Badge variant="outline" className="font-mono">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
               </div>
               <p className="text-muted-foreground text-sm">Manajemen data siswa dalam rombongan belajar ini.</p>
+              
+              <div className="flex items-center gap-3 mt-3">
+                 <Badge className="bg-primary/10 text-primary border-primary/20 gap-1.5 py-1 px-3">
+                   <Users className="w-3.5 h-3.5" /> TOTAL: {classGenderStats.total}
+                 </Badge>
+                 <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20 gap-1.5 py-1 px-3">
+                   <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div> L: {classGenderStats.male}
+                 </Badge>
+                 <Badge className="bg-pink-500/10 text-pink-500 border-pink-500/20 gap-1.5 py-1 px-3">
+                   <div className="w-1.5 h-1.5 rounded-full bg-pink-500"></div> P: {classGenderStats.female}
+                 </Badge>
+              </div>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
