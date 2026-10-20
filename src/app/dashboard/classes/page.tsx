@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck, Trash
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck, Trash, Printer
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -52,6 +52,7 @@ export default function ClassesPage() {
   const [isAddStudentMode, setIsAddStudentMode] = useState(false)
   const [isEditStudentOpen, setIsEditStudentOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForStudents, setSelectedClassForStudents] = useState<Classroom | null>(null)
@@ -71,6 +72,9 @@ export default function ClassesPage() {
   
   const { toast } = useToast()
   const db = useFirestore()
+
+  const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
+  const { data: config } = useDoc<any>(settingsRef)
 
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
   const applicantsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants')) : null, [db])
@@ -101,7 +105,6 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
-    // Check for unique name
     const isDuplicate = localClasses.some(c => 
       c.name.toLowerCase().trim() === values.name.toLowerCase().trim() && 
       (!editingClass || c.id !== editingClass.id)
@@ -410,6 +413,69 @@ export default function ClassesPage() {
     e.target.value = '';
   }
 
+  const handleDownloadAttendancePDF = async () => {
+    if (!selectedClassForStudents || currentClassStudents.length === 0) return;
+    setIsExporting(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF('p', 'mm', 'a4');
+
+      const sName = (config?.schoolName || "SIS TERPADU").toUpperCase();
+      const dName = (config?.dinasName || "DINAS PENDIDIKAN").toUpperCase();
+      const aYear = (config?.academicYear || "-").toUpperCase();
+      const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
+
+      // Header Laporan
+      doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(0);
+      doc.text(dName, 105, 15, { align: "center" });
+      doc.text("DAFTAR HADIR SISWA", 105, 25, { align: "center" });
+      doc.text(sName, 105, 30, { align: "center" });
+      doc.text(`TAHUN PELAJARAN ${aYear}`, 105, 35, { align: "center" });
+
+      doc.setFontSize(9).setFont("helvetica", "normal");
+      doc.text(`${hTeacher}`, 14, 42);
+      doc.text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 47);
+
+      const tableHead = [
+        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA SISWA', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'LP', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KET', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
+        ['URUT', 'NISN', 'NIS']
+      ];
+
+      const tableBody = currentClassStudents.map((s, i) => [
+        i + 1,
+        s.NISN || "-",
+        s.NIS || "-",
+        s.fullName.toUpperCase(),
+        s.gender === 'Laki-laki' ? 'L' : 'P',
+        ""
+      ]);
+
+      autoTable(doc, {
+        head: tableHead,
+        body: tableBody,
+        startY: 52,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
+        columnStyles: {
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 25, halign: 'center' },
+          2: { cellWidth: 20, halign: 'center' },
+          4: { cellWidth: 10, halign: 'center' },
+          5: { cellWidth: 20 }
+        }
+      });
+
+      doc.save(`Daftar_Hadir_${selectedClassForStudents.name.replace(/\s+/g, '_')}.pdf`);
+      toast({ title: "Laporan Berhasil Diunduh" });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal mencetak PDF" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const groupedClasses = useMemo(() => {
     const groups: Record<number, Classroom[]> = {}
     localClasses.forEach(cls => {
@@ -451,6 +517,10 @@ export default function ClassesPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleDownloadAttendancePDF} disabled={isExporting} className="gap-2 border-primary/30 text-primary">
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+              Cetak Daftar Hadir
+            </Button>
             <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2"><Download className="w-4 h-4" /> Template</Button>
             <label className="cursor-pointer">
                <div className="flex items-center gap-2 border border-green-500/20 text-green-500 bg-green-500/5 hover:bg-green-500/10 h-10 px-4 py-2 rounded-md text-sm font-medium transition-colors">
