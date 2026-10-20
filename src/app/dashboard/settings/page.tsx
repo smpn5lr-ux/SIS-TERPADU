@@ -51,7 +51,7 @@ export default function SettingsPage() {
     schoolName: "SMP Negeri 5 Langke Rembong",
     dinasName: "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA",
     govName: "PEMERINTAH KABUPATEN MANGGARAI",
-    schoolAddress: "Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong",
+    schoolAddress: "Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong",
     npsn: "00000000",
     academicYear: "2024/2025",
     activeSemester: 1
@@ -273,8 +273,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> Alamat Lengkap (Baris 4 Kop)
-                  </label>
+                    <MapPin className="w-3 h-3" /> Alamat Lengkap (Baris 4 Kop)</label>
                   <Input 
                     value={localConfig.schoolAddress}
                     onChange={(e) => setLocalConfig({...localConfig, schoolAddress: e.target.value})}
