@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
-import { collection, doc, updateDoc, writeBatch, query, orderBy } from 'firebase/firestore'
+import { collection, doc, updateDoc, writeBatch, query, orderBy, getDocs } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -219,42 +219,72 @@ export default function ClassesPage() {
   }
 
   const handleSyncToCloud = async () => {
-    if (!db || !serverClasses) return
+    if (!db || !serverClasses || !serverApplicants) return
     setIsSyncing(true)
     const batch = writeBatch(db)
 
     try {
-      const toDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
-      toDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
+      // Map untuk melacak ID sementara ke ID Firestore yang baru
+      const idMap = new Map<string, string>();
 
-      localClasses.forEach(lc => {
-        if (lc.id.startsWith('temp-')) {
-          const { id, ...data } = lc
-          batch.set(doc(collection(db, 'classes')), data)
-        } else {
-          const serverVer = serverClasses.find(sc => sc.id === lc.id)
-          if (JSON.stringify(serverVer) !== JSON.stringify(lc)) {
-            batch.update(doc(db, 'classes', lc.id), lc as any)
-          }
-        }
-      })
-
-      localApplicants.forEach(la => {
+      // 1. Sinkronkan Applicants (Murid) dulu agar kita dapat ID aslinya
+      const nextApplicants = localApplicants.map(la => {
         if (la.id.startsWith('temp-')) {
-           const { id, ...data } = la
-           batch.set(doc(collection(db, 'applicants')), data)
+          const newRef = doc(collection(db, 'applicants'))
+          idMap.set(la.id, newRef.id);
+          const { id, ...data } = la
+          batch.set(newRef, { ...data, id: newRef.id })
+          return { ...la, id: newRef.id }
         } else {
-          const serverVer = serverApplicants?.find(sa => sa.id === la.id)
+          const serverVer = serverApplicants.find(sa => sa.id === la.id)
           if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(la)) {
             batch.update(doc(db, 'applicants', la.id), la as any)
           }
+          return la
         }
       })
 
+      // 2. Sinkronkan Classes (Kelas) dengan ID Murid yang sudah dipetakan
+      const nextClasses = localClasses.map(lc => {
+        // Update array students dengan ID baru jika ada di map
+        const updatedStudents = (lc.students || []).map(sid => idMap.get(sid) || sid);
+        const updatedClass = { ...lc, students: updatedStudents, currentEnrollment: updatedStudents.length };
+
+        if (lc.id.startsWith('temp-')) {
+          const newRef = doc(collection(db, 'classes'))
+          const { id, ...data } = updatedClass
+          batch.set(newRef, { ...data, id: newRef.id })
+          return { ...updatedClass, id: newRef.id }
+        } else {
+          const serverVer = serverClasses.find(sc => sc.id === lc.id)
+          if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(updatedClass)) {
+            batch.update(doc(db, 'classes', lc.id), updatedClass as any)
+          }
+          return updatedClass
+        }
+      })
+
+      // 3. Tangani Penghapusan
+      const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
+      classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
+
       await batch.commit()
+      
+      // Update state lokal agar sinkron dengan ID baru dari server
+      setLocalApplicants(nextApplicants)
+      setLocalClasses(nextClasses)
+      if (selectedClassForStudents) {
+         const updatedSelected = nextClasses.find(c => 
+           c.name === selectedClassForStudents.name && 
+           c.gradeLevel === selectedClassForStudents.gradeLevel
+         )
+         if (updatedSelected) setSelectedClassForStudents(updatedSelected)
+      }
+      
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil" })
+      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data telah aman di Cloud." })
     } catch (e) {
+      console.error("Sync Error:", e)
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
       setIsSyncing(false)
@@ -309,9 +339,9 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const data = [
-      { "NO": 1, "NISN": "3149664895", "NIS": "-", "NAMA SISWA": "Abel Artasasta Sutono", "LP": "L" },
-      { "NO": 2, "NISN": "3133865046", "NIS": "-", "NAMA SISWA": "Adrianus Nggaro", "LP": "L" },
-      { "NO": 3, "NISN": "3143191449", "NIS": "-", "NAMA SISWA": "Afila Hana", "LP": "P" }
+      { "NO": 1, "NISN": "3149664895", "NIS": "12345", "NAMA SISWA": "Abel Artasasta Sutono", "LP": "L" },
+      { "NO": 2, "NISN": "3133865046", "NIS": "12346", "NAMA SISWA": "Adrianus Nggaro", "LP": "L" },
+      { "NO": 3, "NISN": "3143191449", "NIS": "12347", "NAMA SISWA": "Afila Hana", "LP": "P" }
     ]
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -347,12 +377,12 @@ export default function ClassesPage() {
 
         let addedCount = 0
         let createdCount = 0
-        const currentStudents = [...(selectedClassForStudents.students || [])]
-        const currentApplicants = [...localApplicants]
+        const currentStudentsInClass = [...(selectedClassForStudents.students || [])]
+        const currentApplicantsInDb = [...localApplicants]
         
         data.forEach(row => {
           const rawName = String(row[nameKey] || "").trim()
-          const name = rawName.toLowerCase()
+          const nameLower = rawName.toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
           const nis = String(row[nisKey] || "").trim()
           let rawGender = String(row[genderKey] || "L").trim()
@@ -364,51 +394,56 @@ export default function ClassesPage() {
 
           if (!rawName && !nisn && !nis) return;
 
-          let student = currentApplicants.find(a => {
+          // Cari apakah murid sudah ada di database utama
+          let student = currentApplicantsInDb.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbNis = (a.NIS || "").trim();
             const dbName = (a.fullName || "").trim().toLowerCase();
-            return (nisn !== "" && dbNisn === nisn) || (nis !== "" && dbNis === nis) || (name !== "" && dbName === name);
+            return (nisn !== "" && dbNisn === nisn) || (nis !== "" && dbNis === nis) || (nameLower !== "" && dbName === nameLower);
           });
 
           if (!student) {
+             // Jika belum ada, buat sebagai murid baru di draf
              student = {
                id: `temp-new-${Date.now()}-${createdCount}`,
                fullName: rawName,
                NISN: nisn,
-               NIS: nis === '-' ? "" : nis,
+               NIS: (nis === '-' || !nis) ? "" : nis,
                gender: gender,
                admissionStatus: "accepted",
                verificationStatus: "Lengkap",
                createdAt: new Date().toISOString(),
                isDeleted: false
              } as Applicant
-             currentApplicants.push(student)
+             currentApplicantsInDb.push(student)
              createdCount++
           } else {
+            // Update data dasar jika ada perubahan di Excel
             student.gender = gender;
             if (nis && nis !== '-') student.NIS = nis;
+            if (nisn && nisn !== '-') student.NISN = nisn;
           }
 
-          if (!currentStudents.includes(student.id)) {
-            currentStudents.push(student.id)
+          // Masukkan ke daftar siswa kelas jika belum ada
+          if (!currentStudentsInClass.includes(student.id)) {
+            currentStudentsInClass.push(student.id)
             addedCount++
           }
         })
 
         if (addedCount > 0 || createdCount > 0) {
-          setLocalApplicants(currentApplicants)
-          const updatedClass = { ...selectedClassForStudents, students: currentStudents, currentEnrollment: currentStudents.length }
+          setLocalApplicants(currentApplicantsInDb)
+          const updatedClass = { ...selectedClassForStudents, students: currentStudentsInClass, currentEnrollment: currentStudentsInClass.length }
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
           toast({ 
             title: "Impor Berhasil", 
-            description: `${addedCount} murid dimasukkan ke kelas (${createdCount} murid baru terdaftar).` 
+            description: `${addedCount} murid masuk ke kelas (${createdCount} murid baru terdaftar di database).` 
           })
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Kesalahan File", description: "Format file tidak dikenali." });
+        toast({ variant: "destructive", title: "Kesalahan File", description: "Gagal memproses data Excel." });
       }
     }
     reader.readAsBinaryString(file)
@@ -718,7 +753,7 @@ export default function ClassesPage() {
                       <TableCell>
                         <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] py-0.5 px-3 font-bold gap-1.5">
                           <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                          AKTIF
+                          {s.admissionStatus === 'graduated' ? 'LULUSAN' : 'AKTIF'}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right pr-6">
