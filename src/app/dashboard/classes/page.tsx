@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck, Trash, Printer
+  Users, Trash2, Plus, Pencil, Eye, FileSpreadsheet, Loader2, CheckCircle2, UserPlus, Search, Upload, Download, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, Hash, ArrowUpCircle, School, UserCheck, Trash, Printer, FileText
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -415,7 +415,7 @@ export default function ClassesPage() {
     e.target.value = '';
   }
 
-  const handleDownloadAttendancePDF = async () => {
+  const handleDownloadStudentsPDF = async () => {
     if (!selectedClassForStudents || currentClassStudents.length === 0) return;
     setIsExporting(true);
     try {
@@ -452,7 +452,7 @@ export default function ClassesPage() {
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
-      doc.text("DAFTAR HADIR SISWA", 105, 42, { align: "center" });
+      doc.text("DAFTAR MURID", 105, 42, { align: "center" });
       doc.setFontSize(10);
       doc.text(`TAHUN PELAJARAN ${academicYear}`, 105, 47, { align: "center" });
 
@@ -494,7 +494,92 @@ export default function ClassesPage() {
         margin: { bottom: 10 }
       });
 
-      doc.save(`Daftar_Hadir_${className.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Daftar_Murid_${className.replace(/\s+/g, '_')}.pdf`);
+      toast({ title: "Laporan Berhasil Diunduh" });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal mencetak PDF" });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadMonthlyAttendancePDF = async () => {
+    if (!selectedClassForStudents || currentClassStudents.length === 0) return;
+    setIsExporting(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF('l', 'mm', 'a4');
+
+      const govName = (config?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
+      let dinasName = (config?.dinasName || "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA").toUpperCase();
+      if (dinasName.startsWith(govName)) dinasName = dinasName.replace(govName, "").trim();
+
+      const schoolName = (config?.schoolName || "SMP NEGERI 5 LANGKE REMBONG").toUpperCase();
+      const schoolAddress = config?.schoolAddress || "Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong";
+      const academicYear = (config?.academicYear || "-").toUpperCase();
+      const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
+      const className = selectedClassForStudents.name.toUpperCase();
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(govName, 148.5, 10, { align: "center" });
+      doc.text(dinasName, 148.5, 14, { align: "center" });
+      doc.setFontSize(12);
+      doc.text(schoolName, 148.5, 20, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(schoolAddress, 148.5, 24, { align: "center" });
+      doc.setLineWidth(0.6);
+      doc.line(14, 27, 283, 27); 
+      doc.setLineWidth(0.1);
+      doc.line(14, 28, 283, 28); 
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("DAFTAR HADIR SISWA (BULANAN)", 148.5, 36, { align: "center" });
+      doc.setFontSize(9);
+      doc.text(`TAHUN PELAJARAN ${academicYear}`, 148.5, 41, { align: "center" });
+
+      doc.setFontSize(8);
+      doc.text(`KELAS: ${className}`, 14, 48);
+      doc.text(`WALI KELAS: ${hTeacher}`, 283, 48, { align: "right" });
+      doc.setFont("helvetica", "normal");
+      doc.text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 52);
+
+      const daysHeader = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
+      const tableHead = [
+        ['NO', 'NAMA SISWA', 'LP', ...daysHeader, 'S', 'I', 'A']
+      ];
+
+      const tableBody = currentClassStudents.map((s, i) => [
+        i + 1,
+        s.fullName,
+        s.gender === 'Laki-laki' ? 'L' : 'P',
+        ...Array(31).fill(""),
+        "", "", ""
+      ]);
+
+      autoTable(doc, {
+        head: tableHead,
+        body: tableBody,
+        startY: 55,
+        theme: 'grid',
+        styles: { fontSize: 6, cellPadding: 0.8, textColor: [0, 0, 0], lineColor: [0, 0, 0], halign: 'center' },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.1, fontStyle: 'bold' },
+        columnStyles: {
+          0: { cellWidth: 7 },
+          1: { cellWidth: 50, halign: 'left' },
+          2: { cellWidth: 6 },
+          ...Object.fromEntries(Array.from({length: 31}, (_, i) => [i + 3, { cellWidth: 6.2 }])),
+          34: { cellWidth: 6 },
+          35: { cellWidth: 6 },
+          36: { cellWidth: 6 }
+        },
+        margin: { left: 14, right: 14 }
+      });
+
+      doc.save(`Absensi_Bulanan_${className.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Laporan Berhasil Diunduh" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal mencetak PDF" });
@@ -544,9 +629,13 @@ export default function ClassesPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleDownloadAttendancePDF} disabled={isExporting} className="gap-2 border-primary/30 text-primary">
+            <Button variant="outline" onClick={handleDownloadStudentsPDF} disabled={isExporting} className="gap-2 border-primary/30 text-primary">
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-              Cetak Daftar Hadir
+              Cetak Daftar Murid
+            </Button>
+            <Button variant="outline" onClick={handleDownloadMonthlyAttendancePDF} disabled={isExporting} className="gap-2 border-accent/30 text-accent">
+              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+              Cetak Absensi Bulanan
             </Button>
             <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2"><Download className="w-4 h-4" /> Template</Button>
             <label className="cursor-pointer">
