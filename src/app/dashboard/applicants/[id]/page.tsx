@@ -62,7 +62,6 @@ export default function ApplicantDetailPage() {
       updatedAt: new Date().toISOString()
     }
     
-    // Sinkronisasi status: Jika Lengkap, otomatis diterima (agar muncul di Rombel)
     if (status === 'Lengkap') {
       updateData.admissionStatus = 'accepted'
     } else if (status === 'Ditolak') {
@@ -108,7 +107,7 @@ export default function ApplicantDetailPage() {
       ["NIK :", applicant.NIK || "-"],
       ["No. KK :", applicant.familyCardNumber || "-"],
       ["No. Akta Lahir :", applicant.aktaLahirNumber || "-"],
-      ["Nama Lengkap :", (applicant.fullName || "-").toUpperCase()],
+      ["Nama Lengkap :", applicant.fullName || "-"],
       ["Tempat, Tgl Lahir :", `${applicant.birthPlace || "-"}, ${formatDate(applicant.birthDate)}`],
       ["Jenis Kelamin :", applicant.gender || "-"],
       ["Agama :", applicant.religion || "-"],

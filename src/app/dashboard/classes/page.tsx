@@ -309,9 +309,9 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const data = [
-      { "NO": 1, "NISN": "3149664895", "NIS": "-", "NAMA SISWA": "ABEL ARTASASTA SUTONO", "LP": "L" },
-      { "NO": 2, "NISN": "3133865046", "NIS": "-", "NAMA SISWA": "ADRIANUS NGGARO", "LP": "L" },
-      { "NO": 3, "NISN": "3143191449", "NIS": "-", "NAMA SISWA": "AFILA HANA", "LP": "P" }
+      { "NO": 1, "NISN": "3149664895", "NIS": "-", "NAMA SISWA": "Abel Artasasta Sutono", "LP": "L" },
+      { "NO": 2, "NISN": "3133865046", "NIS": "-", "NAMA SISWA": "Adrianus Nggaro", "LP": "L" },
+      { "NO": 3, "NISN": "3143191449", "NIS": "-", "NAMA SISWA": "Afila Hana", "LP": "P" }
     ]
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -340,7 +340,6 @@ export default function ClassesPage() {
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
         
-        // Deteksi Header Sesuai Gambar
         const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA SISWA";
         const nisnKey = keys.find(k => k.toLowerCase().includes("nisn")) || "NISN";
         const nisKey = keys.find(k => k.toLowerCase() === "nis") || "NIS";
@@ -437,7 +436,6 @@ export default function ClassesPage() {
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
 
-      // --- KOP SURAT ---
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.text(govName, 105, 12, { align: "center" });
@@ -474,7 +472,7 @@ export default function ClassesPage() {
         i + 1,
         s.NISN || "-",
         s.NIS || "-",
-        s.fullName.toUpperCase(),
+        s.fullName,
         s.gender === 'Laki-laki' ? 'L' : 'P',
         ""
       ]);
@@ -622,7 +620,7 @@ export default function ClassesPage() {
                       <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
                       <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
-                      <TableCell className="font-bold text-sm text-foreground uppercase">{s.fullName}</TableCell>
+                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline" className="text-[9px] font-bold">
                           {s.gender === 'Laki-laki' ? 'L' : 'P'}
