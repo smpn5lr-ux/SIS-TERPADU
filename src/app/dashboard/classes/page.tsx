@@ -421,24 +421,51 @@ export default function ClassesPage() {
       const { default: autoTable } = await import('jspdf-autotable');
       const doc = new jsPDF('p', 'mm', 'a4');
 
-      const sName = (config?.schoolName || "SIS TERPADU").toUpperCase();
-      const dName = (config?.dinasName || "DINAS PENDIDIKAN").toUpperCase();
-      const aYear = (config?.academicYear || "-").toUpperCase();
+      const govName = (config?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
+      const dinasName = (config?.dinasName || "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA").toUpperCase();
+      const schoolName = (config?.schoolName || "SMP NEGERI 5 LANGKE REMBONG").toUpperCase();
+      const schoolAddress = config?.schoolAddress || "Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong";
+      const academicYear = (config?.academicYear || "-").toUpperCase();
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
+      const className = selectedClassForStudents.name.toUpperCase();
 
-      // Header Laporan
-      doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(0);
-      doc.text(dName, 105, 15, { align: "center" });
-      doc.text("DAFTAR HADIR SISWA", 105, 25, { align: "center" });
-      doc.text(sName, 105, 30, { align: "center" });
-      doc.text(`TAHUN PELAJARAN ${aYear}`, 105, 35, { align: "center" });
+      // --- KOP SURAT (LETTERHEAD) ---
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text(govName, 105, 15, { align: "center" });
+      doc.text(dinasName, 105, 21, { align: "center" });
+      
+      doc.setFontSize(14);
+      doc.text(schoolName, 105, 28, { align: "center" });
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(schoolAddress, 105, 33, { align: "center" });
 
-      doc.setFontSize(9).setFont("helvetica", "normal");
-      doc.text(`${hTeacher}`, 14, 42);
-      doc.text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 47);
+      // Double Line
+      doc.setLineWidth(0.8);
+      doc.line(14, 36, 196, 36); // Garis tebal
+      doc.setLineWidth(0.2);
+      doc.line(14, 37, 196, 37); // Garis tipis
+
+      // Judul Laporan
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.text("DAFTAR HADIR SISWA", 105, 47, { align: "center" });
+      doc.setFontSize(10);
+      doc.text(`TAHUN PELAJARAN ${academicYear}`, 105, 52, { align: "center" });
+
+      // Informasi Kelas & Wali
+      doc.setFontSize(10);
+      doc.text(`KELAS: ${className}`, 14, 62);
+      doc.text(`WALI KELAS: ${hTeacher}`, 196, 62, { align: "right" });
+      
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Total Siswa: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 67);
 
       const tableHead = [
-        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA SISWA', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'LP', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KET', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
+        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA SISWA', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'LP', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KETERANGAN', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
         ['URUT', 'NISN', 'NIS']
       ];
 
@@ -454,7 +481,7 @@ export default function ClassesPage() {
       autoTable(doc, {
         head: tableHead,
         body: tableBody,
-        startY: 52,
+        startY: 72,
         theme: 'grid',
         styles: { fontSize: 8, cellPadding: 2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
@@ -463,11 +490,11 @@ export default function ClassesPage() {
           1: { cellWidth: 25, halign: 'center' },
           2: { cellWidth: 20, halign: 'center' },
           4: { cellWidth: 10, halign: 'center' },
-          5: { cellWidth: 20 }
+          5: { cellWidth: 25 }
         }
       });
 
-      doc.save(`Daftar_Hadir_${selectedClassForStudents.name.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Daftar_Hadir_${className.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Laporan Berhasil Diunduh" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal mencetak PDF" });

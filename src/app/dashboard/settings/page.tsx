@@ -10,7 +10,8 @@ import {
   ImageIcon,
   Type,
   Upload,
-  Calendar
+  Calendar,
+  MapPin
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -47,8 +48,10 @@ export default function SettingsPage() {
   const [localConfig, setLocalConfig] = useState<any>({
     appName: "SIS TERPADU",
     appLogoUrl: "",
-    schoolName: "SMP Negeri 5 LR",
-    dinasName: "DINAS PENDIDIKAN",
+    schoolName: "SMP Negeri 5 Langke Rembong",
+    dinasName: "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA",
+    govName: "PEMERINTAH KABUPATEN MANGGARAI",
+    schoolAddress: "Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong",
     npsn: "00000000",
     academicYear: "2024/2025",
     activeSemester: 1
@@ -232,21 +235,30 @@ export default function SettingsPage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-primary" />
-                <CardTitle className="font-headline text-lg">Identitas Sekolah</CardTitle>
+                <CardTitle className="font-headline text-lg">Identitas Sekolah (Kop Surat)</CardTitle>
               </div>
-              <CardDescription>Informasi resmi sekolah untuk laporan.</CardDescription>
+              <CardDescription>Informasi resmi sekolah untuk Kop Surat Laporan.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Dinas Pendidikan</label>
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Pemerintah Daerah (Baris 1 Kop)</label>
+                  <Input 
+                    value={localConfig.govName}
+                    onChange={(e) => setLocalConfig({...localConfig, govName: e.target.value})}
+                    placeholder="Contoh: PEMERINTAH KABUPATEN MANGGARAI"
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Dinas Pendidikan (Baris 2 Kop)</label>
                   <Input 
                     value={localConfig.dinasName}
                     onChange={(e) => setLocalConfig({...localConfig, dinasName: e.target.value})}
+                    placeholder="Contoh: DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Nama Sekolah</label>
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Nama Sekolah (Baris 3 Kop)</label>
                   <Input 
                     value={localConfig.schoolName}
                     onChange={(e) => setLocalConfig({...localConfig, schoolName: e.target.value})}
@@ -257,6 +269,16 @@ export default function SettingsPage() {
                   <Input 
                     value={localConfig.npsn}
                     onChange={(e) => setLocalConfig({...localConfig, npsn: e.target.value})}
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
+                    <MapPin className="w-3 h-3" /> Alamat Lengkap (Baris 4 Kop)
+                  </label>
+                  <Input 
+                    value={localConfig.schoolAddress}
+                    onChange={(e) => setLocalConfig({...localConfig, schoolAddress: e.target.value})}
+                    placeholder="Contoh: Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong"
                   />
                 </div>
               </div>
@@ -270,9 +292,9 @@ export default function SettingsPage() {
               <div className="flex items-start gap-4">
                 <ShieldCheck className="w-6 h-6 text-primary mt-1" />
                 <div>
-                  <h4 className="font-bold text-sm">Penting: Periode Aktif</h4>
+                  <h4 className="font-bold text-sm">Penting: Kop Surat Laporan</h4>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Mengubah **Semester Aktif** akan mengarahkan semua input nilai guru ke buku nilai semester tersebut. Pastikan Anda mengubahnya hanya saat pergantian semester resmi.
+                    Data Identitas Sekolah akan digunakan sebagai header (Kop Surat) pada seluruh dokumen PDF yang dihasilkan sistem, termasuk **Daftar Hadir Siswa**.
                   </p>
                 </div>
               </div>
