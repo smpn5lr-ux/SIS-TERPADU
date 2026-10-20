@@ -309,8 +309,9 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const data = [
-      { "No": 1, "NIS": "1001", "NISN": "0123456789", "Nama Lengkap": "BUDI SANTOSO", "JK": "Laki-laki" },
-      { "No": 2, "NIS": "1002", "NISN": "0987654321", "Nama Lengkap": "SITI AMINAH", "JK": "Perempuan" }
+      { "NO": 1, "NISN": "3149664895", "NIS": "-", "NAMA SISWA": "ABEL ARTASASTA SUTONO", "LP": "L" },
+      { "NO": 2, "NISN": "3133865046", "NIS": "-", "NAMA SISWA": "ADRIANUS NGGARO", "LP": "L" },
+      { "NO": 3, "NISN": "3143191449", "NIS": "-", "NAMA SISWA": "AFILA HANA", "LP": "P" }
     ]
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -338,10 +339,12 @@ export default function ClassesPage() {
 
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
-        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "Nama Lengkap";
+        
+        // Deteksi Header Sesuai Gambar
+        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA SISWA";
         const nisnKey = keys.find(k => k.toLowerCase().includes("nisn")) || "NISN";
         const nisKey = keys.find(k => k.toLowerCase() === "nis") || "NIS";
-        const genderKey = keys.find(k => k.toLowerCase().includes("jk") || k.toLowerCase().includes("kelamin") || k.toLowerCase().includes("gender")) || "JK";
+        const genderKey = keys.find(k => k.toLowerCase() === "lp" || k.toLowerCase().includes("jk") || k.toLowerCase().includes("kelamin")) || "LP";
 
         let addedCount = 0
         let createdCount = 0
@@ -353,10 +356,10 @@ export default function ClassesPage() {
           const name = rawName.toLowerCase()
           const nisn = String(row[nisnKey] || "").trim()
           const nis = String(row[nisKey] || "").trim()
-          let rawGender = String(row[genderKey] || "Laki-laki").trim()
+          let rawGender = String(row[genderKey] || "L").trim()
           
           let gender: 'Laki-laki' | 'Perempuan' = 'Laki-laki'
-          if (rawGender.toLowerCase().startsWith('p') || rawGender.toLowerCase().includes('wanita') || rawGender.toLowerCase().includes('perempuan')) {
+          if (rawGender.toLowerCase().startsWith('p') || rawGender.toLowerCase() === 'wanita' || rawGender.toLowerCase() === 'perempuan') {
             gender = 'Perempuan'
           }
 
@@ -374,7 +377,7 @@ export default function ClassesPage() {
                id: `temp-new-${Date.now()}-${createdCount}`,
                fullName: rawName,
                NISN: nisn,
-               NIS: nis,
+               NIS: nis === '-' ? "" : nis,
                gender: gender,
                admissionStatus: "accepted",
                verificationStatus: "Lengkap",
@@ -385,7 +388,7 @@ export default function ClassesPage() {
              createdCount++
           } else {
             student.gender = gender;
-            if (nis) student.NIS = nis;
+            if (nis && nis !== '-') student.NIS = nis;
           }
 
           if (!currentStudents.includes(student.id)) {
@@ -424,7 +427,6 @@ export default function ClassesPage() {
       const govName = (config?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
       let dinasName = (config?.dinasName || "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA").toUpperCase();
       
-      // Bersihkan dinasName dari redundansi govName jika ada
       if (dinasName.startsWith(govName)) {
         dinasName = dinasName.replace(govName, "").trim();
       }
@@ -435,39 +437,30 @@ export default function ClassesPage() {
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
 
-      // --- KOP SURAT (LETTERHEAD) ---
+      // --- KOP SURAT ---
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.text(govName, 105, 12, { align: "center" });
-      
-      doc.setFontSize(11);
       doc.text(dinasName, 105, 17, { align: "center" });
-      
       doc.setFontSize(13);
       doc.text(schoolName, 105, 23, { align: "center" });
-      
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
       doc.text(schoolAddress, 105, 28, { align: "center" });
-
-      // Double Line
       doc.setLineWidth(0.6);
       doc.line(14, 31, 196, 31); 
       doc.setLineWidth(0.1);
       doc.line(14, 32, 196, 32); 
 
-      // Judul Laporan
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.text("DAFTAR HADIR SISWA", 105, 42, { align: "center" });
       doc.setFontSize(10);
       doc.text(`TAHUN PELAJARAN ${academicYear}`, 105, 47, { align: "center" });
 
-      // Informasi Kelas & Wali
       doc.setFontSize(9);
       doc.text(`KELAS: ${className}`, 14, 56);
       doc.text(`WALI KELAS: ${hTeacher}`, 196, 56, { align: "right" });
-      
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.text(`Total Siswa: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 61);
@@ -610,10 +603,10 @@ export default function ClassesPage() {
                 <TableHeader className="bg-muted/50 border-b">
                   <TableRow>
                     <TableHead className="w-16 text-center font-bold">No</TableHead>
-                    <TableHead className="font-bold w-[120px]">NIS</TableHead>
                     <TableHead className="font-bold w-[140px]">NISN</TableHead>
-                    <TableHead className="font-bold">Nama Lengkap</TableHead>
-                    <TableHead className="font-bold text-center">JK</TableHead>
+                    <TableHead className="font-bold w-[120px]">NIS</TableHead>
+                    <TableHead className="font-bold">Nama Murid</TableHead>
+                    <TableHead className="font-bold text-center">LP</TableHead>
                     <TableHead className="font-bold">Status</TableHead>
                     <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
                   </TableRow>
@@ -627,9 +620,9 @@ export default function ClassesPage() {
                   ) : currentClassStudents.map((s, idx) => (
                     <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
                       <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
-                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
+                      <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
+                      <TableCell className="font-bold text-sm text-foreground uppercase">{s.fullName}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline" className="text-[9px] font-bold">
                           {s.gender === 'Laki-laki' ? 'L' : 'P'}
