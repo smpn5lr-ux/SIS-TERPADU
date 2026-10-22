@@ -94,8 +94,7 @@ export default function LoginPage() {
 
   if (authLoading) return null
 
-  const rawAppName = config?.appName || "SIS TERPADU"
-  const appName = rawAppName.toUpperCase().includes("SPMB") ? "SIS TERPADU" : rawAppName
+  const appName = config?.appName || "SIS TERPADU"
   const appLogoUrl = config?.appLogoUrl || "/icon-logo.webp"
 
   return (

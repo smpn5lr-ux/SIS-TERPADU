@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useMemo, useEffect } from 'react';
@@ -7,17 +8,17 @@ import { FirebaseErrorListener } from '@/components/FirebaseErrorListener';
 import { doc } from 'firebase/firestore';
 
 /**
- * Komponen internal untuk mengelola Favicon secara dinamis.
- * Mengambil logo dari Firestore dan memperbarui elemen <link rel="icon"> di head dokumen.
+ * Komponen internal untuk mengelola Branding secara dinamis (Favicon & Title).
+ * Mengambil logo dan nama aplikasi dari Firestore dan memperbarui elemen browser.
  */
-function FaviconManager() {
+function BrandingManager() {
   const db = useFirestore();
   const settingsRef = useMemoFirebase(() => (db ? doc(db, 'settings', 'system') : null), [db]);
   const { data: config } = useDoc<any>(settingsRef);
 
   useEffect(() => {
     if (config?.appLogoUrl) {
-      // Cari semua elemen link yang berkaitan dengan ikon
+      // Perbarui Favicon
       const selectors = [
         "link[rel='icon']",
         "link[rel='shortcut icon']",
@@ -29,18 +30,19 @@ function FaviconManager() {
         if (link) {
           link.href = config.appLogoUrl;
         } else if (selector === "link[rel='icon']") {
-          // Jika tidak ada, buat baru
           const newLink = document.createElement('link');
           newLink.rel = 'icon';
           newLink.href = config.appLogoUrl;
           document.head.appendChild(newLink);
         }
       });
-      
-      // Opsional: Perbarui judul tab jika nama aplikasi berubah
-      if (config?.appName && !document.title.includes(config.appName)) {
-        // Kita biarkan metadata layout yang menangani judul utama agar tidak konflik
-      }
+    }
+
+    if (config?.appName) {
+      // Perbarui Judul Tab Browser
+      // Menggunakan format: Nama Aplikasi | Instansi (jika ada)
+      const schoolName = config.schoolName ? ` | ${config.schoolName}` : '';
+      document.title = `${config.appName}${schoolName}`;
     }
   }, [config]);
 
@@ -58,7 +60,7 @@ export function FirebaseClientProvider({ children }: { children: React.ReactNode
       auth={services.auth}
     >
       <FirebaseErrorListener />
-      <FaviconManager />
+      <BrandingManager />
       {children}
     </FirebaseProvider>
   );

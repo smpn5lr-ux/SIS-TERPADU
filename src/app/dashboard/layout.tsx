@@ -142,7 +142,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
   if (!user) return null
 
-  const appName = "SIS TERPADU"
+  const appName = config?.appName || "SIS TERPADU"
   const appLogoUrl = config?.appLogoUrl || "/icon-logo.webp"
   
   const userRole = staffData?.[0]?.role || 'Administrator'

@@ -249,7 +249,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const appName = "SIS TERPADU"
+  const appName = config?.appName || "SIS TERPADU"
   const appLogoUrl = config?.appLogoUrl || "/icon-logo.webp"
 
   return (
