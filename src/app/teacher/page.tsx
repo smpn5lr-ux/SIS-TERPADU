@@ -24,7 +24,7 @@ import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
 import { collection, query, where, doc } from "firebase/firestore"
-import { TeacherAssignment, Staff, RosterEntry } from "@/lib/types"
+import { TeacherAssignment, Staff, RosterEntry, Classroom } from "@/lib/types"
 import { format, parse, addMinutes } from 'date-fns'
 import { id as localeId } from 'date-fns/locale'
 
@@ -59,16 +59,32 @@ function TeacherDashboardContent() {
     return query(collection(db, 'rosterEntries'), where('teacherId', '==', teacherId))
   }, [db, teacherId])
 
+  const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
+
   const { data: assignments, loading: loadingA } = useCollection<TeacherAssignment>(assignmentsQuery)
   const { data: rosters, loading: loadingR } = useCollection<RosterEntry>(rosterQuery)
+  const { data: classes } = useCollection<Classroom>(classesQuery)
+
+  // SINKRONISASI NAMA KELAS UNTUK GURU
+  const displayAssignments = useMemo(() => {
+    if (!assignments || !classes) return assignments;
+    return assignments.map(a => {
+      const cls = classes.find(c => c.id === a.classId)
+      return { ...a, className: cls ? cls.name : a.className }
+    })
+  }, [assignments, classes])
 
   const today = format(new Date(), 'eeee', { locale: localeId }) // Senin, Selasa, dll
   const todaySchedule = useMemo(() => {
-    if (!rosters) return []
+    if (!rosters || !classes) return []
     return rosters
       .filter(r => r.day === today)
+      .map(r => {
+         const cls = classes.find(c => c.id === r.classId)
+         return { ...r, className: cls ? cls.name : r.className }
+      })
       .sort((a, b) => a.period - b.period)
-  }, [rosters, today])
+  }, [rosters, today, classes])
 
   const getTimeForPeriod = (period: number) => {
     if (!rosterConfig) return "-"
@@ -162,7 +178,7 @@ function TeacherDashboardContent() {
              <BookOpen className="w-4 h-4" /> Mata Pelajaran Anda
            </h2>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {assignments?.map((a) => (
+              {displayAssignments?.map((a) => (
                 <Card key={a.id} className="border-border/50 transition-all shadow-sm hover:shadow-md bg-card/40 backdrop-blur-sm relative group h-full">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
@@ -195,7 +211,7 @@ function TeacherDashboardContent() {
                   </CardContent>
                 </Card>
               ))}
-              {assignments?.length === 0 && (
+              {displayAssignments?.length === 0 && (
                 <div className="col-span-full py-20 text-center border-2 border-dashed rounded-2xl bg-muted/20">
                   <Backpack className="w-12 h-12 mx-auto text-muted-foreground opacity-20 mb-4" />
                   <h3 className="text-xl font-bold">Belum Ada Penugasan</h3>

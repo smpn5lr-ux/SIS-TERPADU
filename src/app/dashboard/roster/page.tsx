@@ -163,8 +163,12 @@ export default function RosterManagementPage() {
   }
 
   const workloadStats = useMemo(() => {
-    if (!assignments) return []
+    if (!assignments || !classes) return []
     return assignments.map(a => {
+      // SINKRONISASI NAMA KELAS: Ambil nama terbaru dari koleksi classes
+      const cls = classes.find(c => c.id === a.classId)
+      const displayClassName = cls ? cls.name : a.className
+
       const scheduledCount = localEntries.filter(e => 
         e.teacherId === a.teacherId && 
         e.subjectId === a.subjectId && 
@@ -172,12 +176,13 @@ export default function RosterManagementPage() {
       ).length
       return {
         ...a,
+        className: displayClassName, // Ganti dengan nama terbaru
         scheduled: scheduledCount,
         isMet: scheduledCount >= (a.totalJP || 0),
         percent: Math.min(100, Math.round((scheduledCount / (a.totalJP || 1)) * 100))
       }
     })
-  }, [assignments, localEntries])
+  }, [assignments, localEntries, classes])
 
   const teacherCoding = useMemo(() => {
     if (!assignments) return { teacherMap: new Map(), subjectColors: new Map() };
@@ -529,7 +534,7 @@ export default function RosterManagementPage() {
               Sinkronkan ke Cloud
             </Button>
           )}
-          <Button variant="outline" onClick={handleSyncGlobalBlocksLocal} className="gap-2 border-primary/30 text-primary">
+          <Button variant="outline" onClick={handleSyncGlobalBlocksLocal} className="gap-2 border-primary/30 text-primary hover:bg-primary/5">
             <Layers className="w-4 h-4" /> Blok Global
           </Button>
           <Button variant="outline" onClick={handleAutoGenerateLocal} className="gap-2 border-accent/30 text-accent hover:bg-accent/5">

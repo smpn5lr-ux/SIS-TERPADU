@@ -127,13 +127,18 @@ export default function TeacherAssignmentsPage() {
     }>()
 
     localAssignments.forEach(a => {
+      // SINKRONISASI NAMA KELAS: Ambil nama terbaru dari koleksi classes
+      const cls = classes?.find(c => c.id === a.classId)
+      const displayClassName = cls ? cls.name : a.className
+      const assignmentWithLatestName = { ...a, className: displayClassName }
+
       const existing = map.get(a.teacherId) || { 
         teacherId: a.teacherId, 
         teacherName: a.teacherName, 
         list: [], 
         totalJP: 0 
       }
-      existing.list.push(a)
+      existing.list.push(assignmentWithLatestName)
       existing.totalJP += (a.totalJP || 0)
       map.set(a.teacherId, existing)
     })
@@ -143,7 +148,7 @@ export default function TeacherAssignmentsPage() {
     })
 
     return Array.from(map.values()).sort((a, b) => a.teacherName.localeCompare(b.teacherName))
-  }, [localAssignments])
+  }, [localAssignments, classes])
 
   const handleOpenAdd = () => {
     setEditingAssignment(null)
@@ -178,7 +183,7 @@ export default function TeacherAssignmentsPage() {
       teacherId: selectedTeacherId,
       teacherName: teacher?.fullName || "",
       classId: selectedClassId,
-      className: cls?.name || "",
+      className: cls?.name || "", // Gunakan nama terbaru dari input kelas
       subjectId: selectedSubjectId,
       subjectName: subject?.name || "",
       totalJP: parseInt(totalJP) || 0
@@ -218,14 +223,18 @@ export default function TeacherAssignmentsPage() {
       toDelete.forEach(a => batch.delete(doc(db, 'teacherAssignments', a.id)))
 
       localAssignments.forEach(la => {
+        // Saat sinkronisasi, pastikan className yang tersimpan adalah yang terbaru
+        const cls = classes?.find(c => c.id === la.classId)
+        const updatedLa = { ...la, className: cls ? cls.name : la.className }
+
         if (la.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'teacherAssignments'))
-          const { id, ...data } = la
+          const { id, ...data } = updatedLa
           batch.set(newRef, data)
         } else {
           const serverVer = serverAssignments.find(sa => sa.id === la.id)
-          if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
-            batch.update(doc(db, 'teacherAssignments', la.id), la as any)
+          if (JSON.stringify(serverVer) !== JSON.stringify(updatedLa)) {
+            batch.update(doc(db, 'teacherAssignments', la.id), updatedLa as any)
           }
         }
       })
@@ -276,7 +285,7 @@ export default function TeacherAssignmentsPage() {
           groupedAssignments.map(group => (
             <Card key={group.teacherId} className="border-border/50 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
               <div className="flex flex-col md:flex-row">
-                {/* Info Guru - Sidebar di Desktop, Header di Mobile */}
+                {/* Info Guru */}
                 <div className="p-4 md:w-[250px] border-b md:border-b-0 md:border-r bg-primary/5 shrink-0">
                   <div className="flex items-center md:flex-col md:items-start gap-3 md:gap-4">
                     <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 font-bold text-xl md:text-2xl shadow-inner">
@@ -296,9 +305,8 @@ export default function TeacherAssignmentsPage() {
                   </div>
                 </div>
                 
-                {/* Daftar Penugasan - List di Desktop, List di Mobile */}
+                {/* Daftar Penugasan */}
                 <div className="flex-1 p-4 md:p-6 bg-card/50">
-                  {/* Header List - Hanya Desktop */}
                   <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-3 text-[10px] font-black text-muted-foreground uppercase tracking-widest bg-muted/20 rounded-t-xl border-x border-t">
                     <div className="col-span-5 flex items-center gap-2"><BookMarked className="w-3.5 h-3.5" /> Mata Pelajaran</div>
                     <div className="col-span-4 flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Kelas</div>
@@ -311,7 +319,6 @@ export default function TeacherAssignmentsPage() {
                       const isTemp = asg.id.startsWith('temp-')
                       return (
                         <div key={asg.id} className={`flex flex-col gap-3 p-4 md:p-0 md:grid md:grid-cols-12 md:gap-4 md:items-center md:px-4 md:py-3 rounded-xl md:rounded-none transition-all group/item ${idx % 2 === 1 ? 'md:bg-muted/5' : 'md:bg-transparent'} ${isTemp ? 'border-dashed border-2 border-amber-500/30 bg-amber-500/5' : 'border md:border-0 bg-card md:bg-transparent'} hover:bg-primary/[0.02] md:hover:bg-primary/[0.03]`}>
-                          {/* Subject */}
                           <div className="md:col-span-5">
                              <div className="flex items-center justify-between md:justify-start gap-3">
                                <div className="flex items-center gap-2 overflow-hidden">
@@ -320,7 +327,6 @@ export default function TeacherAssignmentsPage() {
                                </div>
                                <div className="flex items-center gap-2">
                                  {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}
-                                 {/* Aksi Mobile - Tampil Langsung */}
                                  <div className="md:hidden flex items-center gap-1.5">
                                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-primary/20 text-primary" onClick={() => handleEditLocal(asg)}><Pencil className="w-4 h-4" /></Button>
                                    <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-destructive/20 text-destructive" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-4 h-4" /></Button>
@@ -329,7 +335,6 @@ export default function TeacherAssignmentsPage() {
                              </div>
                           </div>
                           
-                          {/* Class & JP row */}
                           <div className="flex items-center justify-between md:contents pt-2 md:pt-0 border-t md:border-0">
                              <div className="md:col-span-4">
                                 <div className="flex items-center gap-2">
@@ -347,7 +352,6 @@ export default function TeacherAssignmentsPage() {
                              </div>
                           </div>
 
-                          {/* Aksi Desktop */}
                           <div className="hidden md:flex md:col-span-2 justify-end gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
                              <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10 rounded-full" onClick={() => handleEditLocal(asg)}><Pencil className="w-4 h-4" /></Button>
                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-4 h-4" /></Button>
