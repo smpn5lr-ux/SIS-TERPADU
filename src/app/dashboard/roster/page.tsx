@@ -65,7 +65,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
@@ -670,7 +670,7 @@ export default function RosterManagementPage() {
               <CardContent className="pt-6 space-y-4">
                 <div className="space-y-2">
                   <Label>Jam Masuk Sekolah</Label>
-                  <Input type="time" value={config.entryTime || "07:00"} onChange={e => {
+                  <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={config.entryTime || "07:00"} onChange={e => {
                     const newTime = e.target.value || "07:00"
                     if (configRef) setDoc(configRef, { ...config, entryTime: newTime }, { merge: true }).catch(() => {})
                   }} />
