@@ -271,11 +271,11 @@ export default function RosterManagementPage() {
       classId: newEntry.isActivity ? "" : (newEntry.classId || ""),
       className: newEntry.isActivity ? "SEMUA" : (c?.name || ""),
       teacherId: newEntry.isActivity ? "" : newEntry.teacherId,
-      teacherName: newEntry.isActivity ? "" : t?.fullName || "",
+      teacherName: newEntry.isActivity ? "" : (t?.fullName || ""),
       subjectId: newEntry.isActivity ? "" : newEntry.subjectId,
-      subjectName: newEntry.isActivity ? "" : s?.name || "",
+      subjectName: newEntry.isActivity ? "" : (s?.name || ""),
       isActivity: !!newEntry.isActivity,
-      activityName: newEntry.isActivity ? newEntry.activityName : "",
+      activityName: newEntry.isActivity ? (newEntry.activityName || "KEGIATAN") : "",
       duration: newEntry.isActivity ? (newEntry.duration || 0) : config.jpDuration
     }
 
@@ -375,7 +375,7 @@ export default function RosterManagementPage() {
 
           if (isRealActivity) {
             lessonRow.push({ 
-              content: globalActivity.activityName || "KEGIATAN", 
+              content: (globalActivity.activityName || "KEGIATAN").toUpperCase(), 
               colSpan: sorted.length, 
               styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
             });
@@ -386,7 +386,7 @@ export default function RosterManagementPage() {
               if (entry) {
                 const colorInfo = getEntryColor(entry.subjectName);
                 lessonRow.push({ 
-                  content: `${entry.subjectName}\n(${entry.teacherName})`, 
+                  content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
                   styles: { fillColor: colorInfo.rgb, textColor: [0, 0, 0], fontSize: 6 } 
                 });
               } else {
@@ -396,19 +396,19 @@ export default function RosterManagementPage() {
             tableBody.push(lessonRow);
           }
 
-          const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
+          const checkBreak = (breakPeriod: number, active: boolean, duration: number) => {
             if (active && p === breakPeriod) {
               const breakRow: any[] = ["B", getBreakTime(day, breakPeriod, duration)];
               breakRow.push({ 
-                content: label, 
+                content: "ISTIRAHAT", 
                 colSpan: sorted.length, 
                 styles: { fillColor: [230, 230, 230], fontStyle: 'bold', textColor: [80, 80, 80], halign: 'center' } 
               });
               tableBody.push(breakRow);
             }
           }
-          checkBreak(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
-          checkBreak(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
+          checkBreak(config.break1Period, config.break1Active, config.break1Duration);
+          checkBreak(config.break2Period, config.break2Active, config.break2Duration);
         }
         
         const dismissalRow: any[] = ["P", getDismissalTime(day)];
@@ -488,7 +488,7 @@ export default function RosterManagementPage() {
                   {workloadStats.map((w, idx) => (
                     <div key={idx} className="mb-4 space-y-1.5">
                       <div className="flex justify-between items-end">
-                        <div className="flex flex-col"><span className="text-[10px] font-bold text-primary truncate max-w-[120px]">{w.teacherName}</span><span className="text-[9px] text-muted-foreground">{w.subjectName} ({w.className})</span></div>
+                        <div className="flex flex-col"><span className="text-[10px] font-bold text-primary truncate max-w-[120px]">{w.teacherName || "-"}</span><span className="text-[9px] text-muted-foreground">{(w.subjectName || "-")} ({w.className})</span></div>
                         <span className="text-[10px] font-bold">{w.scheduled} / {w.totalJP || 0} JP</span>
                       </div>
                       <Progress value={w.percent} className={`h-1.5 ${w.isMet ? 'bg-green-500/20' : 'bg-amber-500/20'}`} />
@@ -537,7 +537,7 @@ export default function RosterManagementPage() {
                              {isRealActivity ? (
                                <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-24 relative bg-amber-50 group">
                                   <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
-                                    <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.activityName}</div>
+                                    <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.activityName || "KEGIATAN"}</div>
                                     <div className="text-[9px] text-amber-600 font-bold mt-1">{globalActivity.duration} Menit</div>
                                     <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(globalActivity.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                   </div>
@@ -550,8 +550,8 @@ export default function RosterManagementPage() {
                                    <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                      {entry ? (
                                        <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.bg} ${colorInfo.border}`}>
-                                         <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName}</div>
-                                         <div className="text-[9px] text-muted-foreground mt-1 font-medium italic">({entry.teacherName})</div>
+                                         <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName || "-"}</div>
+                                         <div className="text-[9px] text-muted-foreground mt-1 font-medium italic">({entry.teacherName || "-"})</div>
                                          <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                        </div>
                                      ) : (
@@ -564,21 +564,21 @@ export default function RosterManagementPage() {
                            </TableRow>
                          );
 
-                         const checkInject = (period: number, active: boolean, label: string, duration: number) => {
+                         const checkInject = (period: number, active: boolean, duration: number) => {
                            if (active && p === period) {
                              rows.push(
                                <TableRow key={`${day}-break-${period}`} className="bg-accent/5">
                                  <TableCell className="border-r font-bold text-[10px] text-center p-2 text-accent">B</TableCell>
                                  <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getBreakTime(day, period, duration)}</TableCell>
                                  <TableCell colSpan={sortedClasses.length} className="p-0 border-r last:border-r-0 border-y border-accent/10">
-                                   <div className="h-10 flex items-center justify-center text-accent font-black text-[11px] tracking-[0.8em] uppercase bg-muted/20">{label}</div>
+                                   <div className="h-10 flex items-center justify-center text-accent font-black text-[11px] tracking-[0.8em] uppercase bg-muted/20">ISTIRAHAT</div>
                                  </TableCell>
                                </TableRow>
                              );
                            }
                          }
-                         checkInject(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
-                         checkInject(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
+                         checkInject(config.break1Period, config.break1Active, config.break1Duration);
+                         checkInject(config.break2Period, config.break2Active, config.break2Duration);
                        }
 
                        rows.push(
