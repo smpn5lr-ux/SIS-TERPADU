@@ -1,14 +1,20 @@
 'use client';
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { firebaseConfig } from './config';
 import { useMemo, useRef } from 'react';
 
 export function initializeFirebase() {
   const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-  const firestore = getFirestore(firebaseApp);
+  
+  // Enable long-polling to bypass WebSocket restrictions often found in cloud workstation environments.
+  // This addresses the "Could not reach Cloud Firestore backend" timeout errors.
+  const firestore = initializeFirestore(firebaseApp, {
+    experimentalForceLongPolling: true,
+  });
+  
   const auth = getAuth(firebaseApp);
 
   return { firebaseApp, firestore, auth };
