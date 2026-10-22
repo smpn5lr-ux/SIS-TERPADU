@@ -186,7 +186,6 @@ export default function RosterManagementPage() {
     setIsDirty(true);
     let currentRoster = [...localEntries];
     
-    // Shuffle assignments for randomness
     const shuffledAssignments = [...assignments].sort(() => Math.random() - 0.5);
     
     shuffledAssignments.forEach(asg => {
@@ -206,9 +205,7 @@ export default function RosterManagementPage() {
         for (const p of shuffledPeriods) {
           if (remainingJP <= 0) break;
           
-          // Check if class slot is free
           const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
-          // Check if teacher is free
           const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
           
           if (isSlotFree && isTeacherFree) {
@@ -327,19 +324,35 @@ export default function RosterManagementPage() {
           sorted.forEach(cls => {
             const entry = getEntry(day, p, cls.id);
             if (entry) {
-              const text = entry.isActivity ? (entry.activityName || "REHAT") : `${entry.subjectName}\n(${entry.teacherName})`;
-              lessonRow.push({ content: text, styles: { fillColor: entry.isActivity ? [255, 248, 230] : [240, 247, 255] } });
+              const text = entry.isActivity 
+                ? (entry.activityName || "KEGIATAN") 
+                : `${entry.subjectName}\n(${entry.teacherName})`;
+              lessonRow.push({ 
+                content: text, 
+                styles: { 
+                  fillColor: entry.isActivity ? [255, 248, 230] : [240, 247, 255],
+                  textColor: [0, 0, 0]
+                } 
+              });
             } else {
               lessonRow.push("");
             }
           });
           tableBody.push(lessonRow);
 
-          // Injection Logic for Breaks
           const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
             if (active && p === breakPeriod) {
               const breakRow: any[] = ["B", getBreakTime(breakPeriod, duration)];
-              breakRow.push({ content: label, colSpan: sorted.length, styles: { fillColor: [245, 245, 245], fontStyle: 'bold', textColor: [80, 80, 80], halign: 'center' } });
+              breakRow.push({ 
+                content: label, 
+                colSpan: sorted.length, 
+                styles: { 
+                  fillColor: [245, 245, 245], 
+                  fontStyle: 'bold', 
+                  textColor: [80, 80, 80], 
+                  halign: 'center' 
+                } 
+              });
               tableBody.push(breakRow);
             }
           }
@@ -370,7 +383,6 @@ export default function RosterManagementPage() {
 
   const getEntry = (day: string, period: number, classId: string) => {
     const entry = localEntries.find(e => e.day === day && e.period === period && e.classId === classId);
-    // Jika entry adalah "Istirahat" manual, abaikan karena sekarang ada baris Istirahat Global
     if (entry && (entry.activityName?.toLowerCase().includes("istirahat") || entry.subjectName?.toLowerCase().includes("istirahat"))) {
       return null;
     }
@@ -435,10 +447,6 @@ export default function RosterManagementPage() {
                 </ScrollArea>
               </CardContent>
             </Card>
-            <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
-              <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-              <p className="text-[10px] text-muted-foreground italic">Jam istirahat berlaku otomatis untuk semua kelas pada slot yang dikonfigurasi.</p>
-            </div>
           </div>
 
           <div className="lg:col-span-3">
@@ -478,13 +486,13 @@ export default function RosterManagementPage() {
                                return (
                                  <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                    {entry ? (
-                                     <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-amber-500/15 border-amber-500/30' : 'bg-blue-600/15 border-blue-500/30'} ${isTemp ? 'border-dashed border-2 border-primary/30' : ''}`}>
-                                       <div className="text-[10px] font-black truncate uppercase leading-tight text-foreground">
+                                     <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${entry.isActivity ? 'bg-amber-500/15 border-amber-500/30' : 'bg-blue-600/15 border-blue-500/30'} ${isTemp ? 'border-dashed border-2 border-primary/30' : ''}`}>
+                                       <div className="text-[10px] font-bold leading-tight text-foreground">
                                          {entry.isActivity ? (entry.activityName || "KEGIATAN") : entry.subjectName}
                                        </div>
                                        {!entry.isActivity && (
-                                         <div className="text-[9px] text-muted-foreground truncate mt-1 font-medium border-t border-border/20 pt-1">
-                                           {entry.teacherName || "Guru Belum Set"}
+                                         <div className="text-[9px] text-muted-foreground mt-1 font-medium italic">
+                                           ({entry.teacherName || "Guru Belum Set"})
                                          </div>
                                        )}
                                        <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => { setEntryToDeleteId(entry.id); setIsDeleteDialogOpen(true); }}><Trash2 className="w-3.5 h-3.5" /></Button>
