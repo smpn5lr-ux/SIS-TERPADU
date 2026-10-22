@@ -163,6 +163,7 @@ export interface RosterEntry {
   subjectName?: string;
   isActivity?: boolean;
   activityName?: string;
+  duration?: number; // In minutes
 }
 
 export interface RosterConfig {
