@@ -98,7 +98,6 @@ export default function TeacherAssignmentsPage() {
     }
   }, [serverAssignments, isDirty])
 
-  // PENGURUTAN CERDAS UNTUK PEMILIHAN (DROPDOWN)
   const sortedTeachers = useMemo(() => {
     if (!staff) return []
     return staff
@@ -245,103 +244,129 @@ export default function TeacherAssignmentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-headline font-bold">Penugasan Guru</h1>
+          <h1 className="text-2xl md:text-3xl font-headline font-bold">Penugasan Guru</h1>
           <div className="flex items-center gap-2 mt-1">
              <p className="text-muted-foreground text-sm">Hubungkan Guru dengan Mapel, Kelas, dan Beban Jam (JP).</p>
              {isDirty ? (
-               <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Perbaikan Belum Sinkron</Badge>
+               <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1 text-[10px]"><CloudOff className="w-3 h-3" /> Belum Sinkron</Badge>
              ) : (
-               <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1"><CheckCircle2 className="w-3 h-3" /> Tersinkron</Badge>
+               <Badge className="bg-green-500/10 text-green-500 border-green-500/20 gap-1 text-[10px]"><CheckCircle2 className="w-3 h-3" /> Tersinkron</Badge>
              )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full md:w-auto">
           {isDirty && (
-            <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">
+            <Button onClick={handleSyncToCloud} disabled={isSyncing} className="flex-1 md:flex-none bg-green-600 hover:bg-green-700 gap-2">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Sinkronkan ke Cloud
+              Sinkron
             </Button>
           )}
-          <Button onClick={handleOpenAdd} className="gap-2 shadow-lg shadow-primary/20">
-            <Plus className="w-4 h-4" /> Tambah Penugasan
+          <Button onClick={handleOpenAdd} className="flex-1 md:flex-none gap-2 shadow-lg shadow-primary/20">
+            <Plus className="w-4 h-4" /> Tambah
           </Button>
         </div>
       </div>
 
-      <Card className="border-border/50 overflow-hidden shadow-sm">
-        <Table>
-          <TableHeader className="bg-primary/5">
-            <TableRow>
-              <TableHead className="font-bold text-primary w-[250px]">Guru Pengajar</TableHead>
-              <TableHead className="font-bold text-primary">Daftar Penugasan</TableHead>
-              <TableHead className="font-bold text-primary text-center w-[120px]">Total JP</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loadingA ? (
-              <TableRow><TableCell colSpan={3} className="text-center py-12"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell></TableRow>
-            ) : groupedAssignments.length === 0 ? (
-              <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground italic">Belum ada penugasan guru.</TableCell></TableRow>
-            ) : groupedAssignments.map(group => (
-              <TableRow key={group.teacherId} className="hover:bg-muted/5 transition-colors align-top">
-                <TableCell className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary border border-primary/20 font-bold">
+      <div className="space-y-4">
+        {loadingA ? (
+          <div className="text-center py-12"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+        ) : groupedAssignments.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground italic bg-card border rounded-xl">Belum ada penugasan guru.</div>
+        ) : (
+          groupedAssignments.map(group => (
+            <Card key={group.teacherId} className="border-border/50 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex flex-col md:flex-row">
+                {/* Info Guru - Sidebar di Desktop, Header di Mobile */}
+                <div className="p-4 md:w-[250px] border-b md:border-b-0 md:border-r bg-primary/5 shrink-0">
+                  <div className="flex items-center md:flex-col md:items-start gap-3 md:gap-4">
+                    <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 font-bold text-xl md:text-2xl shadow-inner">
                       {group.teacherName.charAt(0)}
                     </div>
-                    <div>
-                      <span className="font-bold text-sm block leading-tight">{group.teacherName}</span>
-                      <Badge variant="outline" className="text-[9px] uppercase mt-1.5">{group.list.length} Rombel</Badge>
+                    <div className="flex-1">
+                      <span className="font-bold text-base md:text-lg block leading-tight text-foreground">{group.teacherName}</span>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge variant="outline" className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider">
+                          {group.list.length} Rombel
+                        </Badge>
+                        <Badge className="bg-amber-500 text-white border-none font-bold text-[9px] md:text-[10px] py-0.5 px-2">
+                          {group.totalJP} JP
+                        </Badge>
+                      </div>
                     </div>
                   </div>
-                </TableCell>
-                <TableCell className="pt-6">
-                  <div className="space-y-1.5 pr-6">
-                    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-muted/20 rounded-t-lg">
-                       <div className="col-span-5 flex items-center gap-1.5"><BookMarked className="w-3 h-3" /> Mata Pelajaran</div>
-                       <div className="col-span-4 flex items-center gap-1.5"><Users className="w-3 h-3" /> Kelas</div>
-                       <div className="col-span-1 text-center">JP</div>
-                       <div className="col-span-2 text-right">Aksi</div>
-                    </div>
+                </div>
+                
+                {/* Daftar Penugasan - List di Desktop, List di Mobile */}
+                <div className="flex-1 p-4 md:p-6 bg-card/50">
+                  {/* Header List - Hanya Desktop */}
+                  <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-3 text-[10px] font-black text-muted-foreground uppercase tracking-widest bg-muted/20 rounded-t-xl border-x border-t">
+                    <div className="col-span-5 flex items-center gap-2"><BookMarked className="w-3.5 h-3.5" /> Mata Pelajaran</div>
+                    <div className="col-span-4 flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Kelas</div>
+                    <div className="col-span-1 text-center">JP</div>
+                    <div className="col-span-2 text-right pr-2">Aksi</div>
+                  </div>
+                  
+                  <div className="space-y-3 md:space-y-0 md:divide-y md:border">
                     {group.list.map((asg, idx) => {
                       const isTemp = asg.id.startsWith('temp-')
                       return (
-                        <div key={asg.id} className={`grid grid-cols-12 gap-2 items-center px-3 py-2.5 rounded-lg border transition-all group/item ${idx % 2 === 1 ? 'bg-muted/10' : 'bg-transparent'} ${isTemp ? 'border-dashed border-amber-500/30' : 'border-border/40'} hover:border-primary/40`}>
-                           <div className="col-span-5 text-xs font-bold flex items-center gap-2 truncate">
-                             {asg.subjectName}
-                             {isTemp && <RefreshCw className="w-2.5 h-2.5 text-amber-500 animate-spin" />}
-                           </div>
-                           <div className="col-span-4">
-                             <Badge variant="secondary" className="text-[10px] font-mono font-bold py-0 h-5 px-2 bg-accent/10 text-accent border-accent/20">
-                               KELAS {asg.className}
-                             </Badge>
-                           </div>
-                           <div className="col-span-1 text-center text-xs font-bold text-primary">{asg.totalJP}</div>
-                           <div className="col-span-2 flex justify-end gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10" onClick={() => handleEditLocal(asg)}><Pencil className="w-3.5 h-3.5" /></Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                           </div>
+                        <div key={asg.id} className={`flex flex-col gap-3 p-4 md:p-0 md:grid md:grid-cols-12 md:gap-4 md:items-center md:px-4 md:py-3 rounded-xl md:rounded-none transition-all group/item ${idx % 2 === 1 ? 'md:bg-muted/5' : 'md:bg-transparent'} ${isTemp ? 'border-dashed border-2 border-amber-500/30 bg-amber-500/5' : 'border md:border-0 bg-card md:bg-transparent'} hover:bg-primary/[0.02] md:hover:bg-primary/[0.03]`}>
+                          {/* Subject */}
+                          <div className="md:col-span-5">
+                             <div className="flex items-center justify-between md:justify-start gap-3">
+                               <div className="flex items-center gap-2 overflow-hidden">
+                                  <div className="md:hidden p-2 bg-primary/10 rounded-lg"><BookMarked className="w-4 h-4 text-primary" /></div>
+                                  <span className="text-sm md:text-[13px] font-bold text-foreground truncate">{asg.subjectName}</span>
+                               </div>
+                               <div className="flex items-center gap-2">
+                                 {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}
+                                 {/* Aksi Mobile - Tampil Langsung */}
+                                 <div className="md:hidden flex items-center gap-1.5">
+                                   <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-primary/20 text-primary" onClick={() => handleEditLocal(asg)}><Pencil className="w-4 h-4" /></Button>
+                                   <Button variant="outline" size="icon" className="h-8 w-8 rounded-lg border-destructive/20 text-destructive" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-4 h-4" /></Button>
+                                 </div>
+                               </div>
+                             </div>
+                          </div>
+                          
+                          {/* Class & JP row */}
+                          <div className="flex items-center justify-between md:contents pt-2 md:pt-0 border-t md:border-0">
+                             <div className="md:col-span-4">
+                                <div className="flex items-center gap-2">
+                                   <div className="md:hidden text-[10px] font-bold text-muted-foreground uppercase">Kelas:</div>
+                                   <Badge variant="secondary" className="text-[10px] font-mono font-bold py-0.5 h-6 px-3 bg-accent/10 text-accent border-accent/20">
+                                     {asg.className}
+                                   </Badge>
+                                </div>
+                             </div>
+                             <div className="md:col-span-1 text-right md:text-center">
+                                <div className="flex flex-col md:block">
+                                   <span className="md:hidden text-[9px] font-bold text-muted-foreground uppercase leading-none">Beban</span>
+                                   <span className="text-sm md:text-[13px] font-black text-primary">{asg.totalJP} JP</span>
+                                </div>
+                             </div>
+                          </div>
+
+                          {/* Aksi Desktop */}
+                          <div className="hidden md:flex md:col-span-2 justify-end gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                             <Button variant="ghost" size="icon" className="h-8 w-8 text-primary hover:bg-primary/10 rounded-full" onClick={() => handleEditLocal(asg)}><Pencil className="w-4 h-4" /></Button>
+                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-4 h-4" /></Button>
+                          </div>
                         </div>
                       )
                     })}
                   </div>
-                </TableCell>
-                <TableCell className="text-center pt-6">
-                  <div className="flex flex-col items-center">
-                    <Badge className="bg-amber-500 text-white border-none font-bold py-1 px-3 shadow-sm shadow-amber-500/20">{group.totalJP} JP</Badge>
-                    <span className="text-[9px] text-muted-foreground mt-1 uppercase font-bold tracking-tighter">Beban Total</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Card>
+                </div>
+              </div>
+            </Card>
+          ))
+        )}
+      </div>
 
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
         <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-        <div className="text-[10px] text-muted-foreground leading-relaxed italic">
-          <strong>Tips Pengelolaan:</strong> Daftar kelas untuk setiap guru kini diurutkan secara alfabetis. Kolom mata pelajaran dan kelas dipisahkan agar Anda dapat dengan mudah memverifikasi distribusi jam mengajar sesuai beban kerja guru.
+        <div className="text-[10px] md:text-xs text-muted-foreground leading-relaxed italic">
+          <strong>Catatan:</strong> Layout sekarang menyesuaikan dengan ukuran layar Anda. Pada HP, setiap penugasan tampil sebagai blok terpisah agar mudah dibaca dan diedit menggunakan jari.
         </div>
       </div>
 
@@ -405,7 +430,7 @@ export default function TeacherAssignmentsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button onClick={handleSaveLocal} className="w-full h-11 shadow-lg shadow-primary/20">
+            <Button onClick={handleSaveLocal} className="w-full h-11 shadow-lg shadow-primary/20 font-bold">
               Simpan ke Draf
             </Button>
           </DialogFooter>
