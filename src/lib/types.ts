@@ -169,13 +169,14 @@ export interface RosterEntry {
 export interface RosterConfig {
   entryTime: string; 
   jpDuration: number; 
+  maxPeriods: number;
   break1Active: boolean;
   break1Period: number;
   break1Duration: number;
   break2Active: boolean;
   break2Period: number;
   break2Duration: number;
-  globalActivities?: { day: string; period: number; name: string }[];
+  globalActivities?: { id: string; day: string; period: number; name: string; duration: number }[];
 }
 
 export interface GradingConfig {

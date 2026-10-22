@@ -76,7 +76,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
-const MAX_PERIODS = 10 
 
 const COLOR_PALETTE = [
   { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800', rgb: [219, 234, 254] },
@@ -153,6 +152,7 @@ export default function RosterManagementPage() {
   const config = useMemo(() => ({
     entryTime: rosterConfig?.entryTime || "07:00",
     jpDuration: Number(rosterConfig?.jpDuration) || 40,
+    maxPeriods: Number(rosterConfig?.maxPeriods) || 10,
     break1Active: rosterConfig?.break1Active ?? true,
     break1Period: rosterConfig?.break1Period ?? 4,
     break1Duration: Number(rosterConfig?.break1Duration) || 30,
@@ -192,12 +192,20 @@ export default function RosterManagementPage() {
   }
 
   const getDismissalTime = (day: string) => {
-    const lastPeriodStart = getStartTimeForPeriod(day, MAX_PERIODS);
-    const globalAct = config.globalActivities.find(a => a.day === day && a.period === MAX_PERIODS);
-    const lastDuration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
+    const lastPeriod = config.maxPeriods;
+    const startOfLast = getStartTimeForPeriod(day, lastPeriod);
+    const globalAct = config.globalActivities.find(a => a.day === day && a.period === lastPeriod);
+    const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
       ? globalAct.duration
       : config.jpDuration;
-    return format(addMinutes(lastPeriodStart, lastDuration), 'HH:mm');
+      
+    let dismissal = addMinutes(startOfLast, duration);
+    
+    // Jika jam terakhir bertepatan dengan istirahat (meskipun aneh, kita amankan logikanya)
+    if (config.break1Active && lastPeriod === config.break1Period) dismissal = addMinutes(dismissal, config.break1Duration);
+    if (config.break2Active && lastPeriod === config.break2Period) dismissal = addMinutes(dismissal, config.break2Duration);
+    
+    return format(dismissal, 'HH:mm');
   }
 
   const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
@@ -244,7 +252,7 @@ export default function RosterManagementPage() {
       if (remainingJP <= 0) return;
       
       const shuffledDays = [...DAYS].sort(() => Math.random() - 0.5);
-      const shuffledPeriods = Array.from({length: MAX_PERIODS}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+      const shuffledPeriods = Array.from({length: config.maxPeriods}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
       
       for (const day of shuffledDays) {
         for (const p of shuffledPeriods) {
@@ -380,11 +388,11 @@ export default function RosterManagementPage() {
       
       const tableBody: any[] = [];
       const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-      const rowsPerDay = MAX_PERIODS + breakCount + 1;
+      const rowsPerDay = config.maxPeriods + breakCount + 1;
 
       DAYS.forEach(day => {
         let dayCellAdded = false;
-        for (let p = 1; p <= MAX_PERIODS; p++) {
+        for (let p = 1; p <= config.maxPeriods; p++) {
           const lessonRow: any[] = [];
           if (!dayCellAdded) {
             lessonRow.push({ content: day, rowSpan: rowsPerDay, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
@@ -542,8 +550,8 @@ export default function RosterManagementPage() {
                      {DAYS.map((day) => {
                        const rows = [];
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                       const dayRows = MAX_PERIODS + breakCount + 1; 
-                       for (let p = 1; p <= MAX_PERIODS; p++) {
+                       const dayRows = config.maxPeriods + breakCount + 1; 
+                       for (let p = 1; p <= config.maxPeriods; p++) {
                          const globalActivity = config.globalActivities.find(e => e.day === day && e.period === p);
                          
                          rows.push(
@@ -634,12 +642,21 @@ export default function RosterManagementPage() {
                       if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
                     }} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>Durasi Standar 1 JP (Menit)</Label>
-                    <Input type="number" value={config.jpDuration || 60} onChange={e => {
-                      const val = parseInt(e.target.value) || 0;
-                      if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
-                    }} />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Durasi 1 JP (Menit)</Label>
+                      <Input type="number" value={config.jpDuration || 40} onChange={e => {
+                        const val = parseInt(e.target.value) || 0;
+                        if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
+                      }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Jumlah JP per Hari</Label>
+                      <Input type="number" value={config.maxPeriods || 10} onChange={e => {
+                        const val = parseInt(e.target.value) || 0;
+                        if (configRef) setDoc(configRef, { ...config, maxPeriods: val }, { merge: true }).catch(() => {})
+                      }} />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -711,7 +728,7 @@ export default function RosterManagementPage() {
                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
                                 <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{Array.from({length: 10}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                  <SelectContent>{Array.from({length: config.maxPeriods}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
                                 </Select>
                               </div>
                               <div className="space-y-1.5">
@@ -737,7 +754,7 @@ export default function RosterManagementPage() {
           <div className="space-y-6 py-4">
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Hari</Label><Select value={newEntry.day || "Senin"} onValueChange={v => setNewEntry({...newEntry, day: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
-               <div className="space-y-2"><Label>Jam Ke-</Label><Select value={newEntry.period?.toString() || "1"} onValueChange={v => setNewEntry({...newEntry, period: parseInt(v)})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({length: MAX_PERIODS}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent></Select></div>
+               <div className="space-y-2"><Label>Jam Ke-</Label><Select value={newEntry.period?.toString() || "1"} onValueChange={v => setNewEntry({...newEntry, period: parseInt(v)})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({length: config.maxPeriods}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent></Select></div>
             </div>
             <div className="space-y-4">
               <div className="space-y-2"><Label>Pilih Kelas</Label><Select value={newEntry.classId} onValueChange={v => setNewEntry({...newEntry, classId: v})}><SelectTrigger><SelectValue placeholder="Pilih Kelas" /></SelectTrigger><SelectContent>{sortedClasses.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
