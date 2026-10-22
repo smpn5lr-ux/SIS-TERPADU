@@ -64,7 +64,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
@@ -162,14 +162,15 @@ export default function RosterManagementPage() {
     globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
   }), [rosterConfig])
 
+  // REVISI: Mendukung durasi kumulatif dari multiple activities per period
   const getStartTimeForPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     const standardJP = config.jpDuration;
     
     for (let i = 1; i < period; i++) {
-      const globalAct = config.globalActivities.find(a => a.day === day && a.period === i);
-      const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0) 
-        ? globalAct.duration 
+      const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === i);
+      const duration = periodActivities.length > 0 
+        ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
         : standardJP;
       
       current = addMinutes(current, duration)
@@ -182,9 +183,9 @@ export default function RosterManagementPage() {
 
   const getTimeForDayAndPeriod = (day: string, period: number) => {
     const start = getStartTimeForPeriod(day, period);
-    const globalAct = config.globalActivities.find(a => a.day === day && a.period === period);
-    const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0) 
-      ? globalAct.duration 
+    const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === period);
+    const duration = periodActivities.length > 0 
+      ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
       : config.jpDuration;
     
     const end = addMinutes(start, duration)
@@ -194,14 +195,12 @@ export default function RosterManagementPage() {
   const getDismissalTime = (day: string) => {
     const lastPeriod = config.maxPeriods;
     const startOfLast = getStartTimeForPeriod(day, lastPeriod);
-    const globalAct = config.globalActivities.find(a => a.day === day && a.period === lastPeriod);
-    const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
-      ? globalAct.duration
+    const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === lastPeriod);
+    const duration = periodActivities.length > 0
+      ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
       : config.jpDuration;
       
     let dismissal = addMinutes(startOfLast, duration);
-    
-    // Jika jam terakhir bertepatan dengan istirahat (meskipun aneh, kita amankan logikanya)
     if (config.break1Active && lastPeriod === config.break1Period) dismissal = addMinutes(dismissal, config.break1Duration);
     if (config.break2Active && lastPeriod === config.break2Period) dismissal = addMinutes(dismissal, config.break2Duration);
     
@@ -210,9 +209,9 @@ export default function RosterManagementPage() {
 
   const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
     const startOfPeriod = getStartTimeForPeriod(day, afterPeriod);
-    const globalAct = config.globalActivities.find(a => a.day === day && a.period === afterPeriod);
-    const periodDuration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
-      ? globalAct.duration
+    const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === afterPeriod);
+    const periodDuration = periodActivities.length > 0
+      ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
       : config.jpDuration;
       
     const start = addMinutes(startOfPeriod, periodDuration);
@@ -399,14 +398,15 @@ export default function RosterManagementPage() {
             dayCellAdded = true;
           }
 
-          const globalActivity = config.globalActivities.find(e => e.day === day && e.period === p);
+          const periodActivities = config.globalActivities.filter(e => e.day === day && e.period === p);
 
           lessonRow.push(p);
           lessonRow.push(getTimeForDayAndPeriod(day, p));
 
-          if (globalActivity) {
+          if (periodActivities.length > 0) {
+            const combinedName = periodActivities.map(a => a.name.toUpperCase()).join(" + ");
             lessonRow.push({ 
-              content: (globalActivity.name || "KEGIATAN").toUpperCase(), 
+              content: combinedName, 
               colSpan: sorted.length, 
               styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
             });
@@ -552,7 +552,7 @@ export default function RosterManagementPage() {
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
                        const dayRows = config.maxPeriods + breakCount + 1; 
                        for (let p = 1; p <= config.maxPeriods; p++) {
-                         const globalActivity = config.globalActivities.find(e => e.day === day && e.period === p);
+                         const periodActivities = config.globalActivities.filter(e => e.day === day && e.period === p);
                          
                          rows.push(
                            <TableRow key={`${day}-${p}`} className="hover:bg-transparent">
@@ -564,11 +564,15 @@ export default function RosterManagementPage() {
                              <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
                              <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getTimeForDayAndPeriod(day, p)}</TableCell>
                              
-                             {globalActivity ? (
+                             {periodActivities.length > 0 ? (
                                <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-24 relative bg-amber-50 group">
                                   <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
-                                    <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.name || "KEGIATAN"}</div>
-                                    <div className="text-[9px] text-amber-600 font-bold mt-1">{globalActivity.duration} Menit</div>
+                                    {periodActivities.map((act, i) => (
+                                      <div key={act.id} className={i > 0 ? "mt-1 border-t border-amber-200 pt-1" : ""}>
+                                        <div className="text-[10px] font-black uppercase text-amber-800 tracking-widest">{act.name || "KEGIATAN"}</div>
+                                        <div className="text-[8px] text-amber-600 font-bold">{act.duration} Menit</div>
+                                      </div>
+                                    ))}
                                     <Badge variant="outline" className="absolute top-2 right-2 text-[8px] border-amber-300">GLOBAL</Badge>
                                   </div>
                                </TableCell>
