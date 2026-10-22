@@ -1,7 +1,7 @@
 
 "use client"
 
-import { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { 
   CalendarClock, 
   Plus, 
@@ -65,7 +65,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
@@ -89,7 +89,6 @@ export default function RosterManagementPage() {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("builder")
   const [isAddOpen, setIsAddOpen] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [isSavingConfig, setIsSavingConfig] = useState(false)
   const [isSyncingToCloud, setIsSyncingToCloud] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
@@ -130,6 +129,11 @@ export default function RosterManagementPage() {
   }, [serverEntries, isDirty])
 
   const teachers = staff?.filter(s => s.role === 'Guru') || []
+
+  const sortedClasses = useMemo(() => {
+    if (!classes) return []
+    return [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  }, [classes])
 
   const config = useMemo(() => ({
     entryTime: rosterConfig?.entryTime || "07:00",
@@ -398,8 +402,8 @@ export default function RosterManagementPage() {
       doc.text(dName.toUpperCase(), 148.5, 12, { align: "center" });
       doc.text(`MATRIKS JADWAL PELAJARAN TERPADU - ${sName.toUpperCase()}`, 148.5, 18, { align: "center" });
       
-      const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-      const tableHead = [['HARI', 'JAM', 'WAKTU', ...sortedClasses.map(c => c.name)]];
+      const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
       
       const tableBody: any[] = [];
       DAYS.forEach(day => {
@@ -408,7 +412,7 @@ export default function RosterManagementPage() {
           row.push(p === 1 ? day : ""); 
           row.push(p);
           row.push(getTimeForPeriod(p));
-          sortedClasses.forEach(cls => {
+          sorted.forEach(cls => {
             const entry = getEntry(day, p, cls.id);
             if (entry) {
               if (entry.isActivity) row.push(entry.activityName || "REHAT");
@@ -441,7 +445,7 @@ export default function RosterManagementPage() {
               const currentDayIdx = Math.floor(data.row.index / MAX_PERIODS);
               const day = DAYS[currentDayIdx];
               const period = (data.row.index % MAX_PERIODS) + 1;
-              const cls = sortedClasses[data.column.index - 3];
+              const cls = sorted[data.column.index - 3];
               const entry = getEntry(day, period, cls.id);
               if (entry) {
                 if (entry.isActivity) data.cell.styles.fillColor = [220, 220, 220];
@@ -545,7 +549,7 @@ export default function RosterManagementPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-muted/50 border p-1 mb-6">
-          <TabsTrigger value="builder" className="gap-2"><LayoutGrid className="w-4 h-4" /> Jadwal Mingguan</TabsTrigger>
+          <TabsTrigger value="builder" className="gap-2"><LayoutGrid className="w-4 h-4" /> Jadwal Mingguan (Matriks)</TabsTrigger>
           <TabsTrigger value="settings" className="gap-2"><Settings2 className="w-4 h-4" /> Konfigurasi Waktu</TabsTrigger>
         </TabsList>
 
@@ -576,55 +580,86 @@ export default function RosterManagementPage() {
             </div>
           </div>
 
-          <div className="lg:col-span-3 space-y-8">
-            {classes?.sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric: true })).map(cls => (
-              <Card key={cls.id} className="border-border/50 overflow-hidden shadow-md">
-                <CardHeader className="bg-muted/20 border-b py-3 px-6 flex flex-row items-center justify-between">
-                  <CardTitle className="text-lg flex items-center gap-2 font-headline uppercase"><Users className="w-4 h-4 text-primary" /> Kelas {cls.name}</CardTitle>
-                  <Badge variant="outline" className="font-mono">TINGKAT {cls.gradeLevel}</Badge>
-                </CardHeader>
-                <CardContent className="p-0 overflow-x-auto">
-                  <Table className="border-collapse">
-                    <TableHeader><TableRow className="bg-muted/10"><TableHead className="w-24 border-r font-bold text-center">WAKTU</TableHead>{DAYS.map(day => <TableHead key={day} className="text-center min-w-[150px] font-bold border-r last:border-r-0">{day.toUpperCase()}</TableHead>)}</TableRow></TableHeader>
-                    <TableBody>
-                      {Array.from({ length: MAX_PERIODS }).map((_, i) => {
-                        const period = i + 1
-                        const isGlobalBreak = (config.break1Active && period === config.break1Period) || (config.break2Active && period === config.break2Period)
-                        return (
-                          <TableRow key={period} className={isGlobalBreak ? "bg-muted/5" : ""}>
-                            <TableCell className="border-r font-medium text-[10px] text-center p-2">
-                              <div className={`font-bold ${isGlobalBreak ? 'text-accent' : 'text-primary'}`}>{isGlobalBreak ? 'REHAT' : `JAM ${period}`}</div>
-                              <div className="text-[9px] text-muted-foreground mt-0.5">{getTimeForPeriod(period)}</div>
-                            </TableCell>
-                            {DAYS.map(day => {
-                              const entry = getEntry(day, period, cls.id)
-                              const isTemp = entry?.id.startsWith('temp-')
-                              return (
-                                <TableCell key={day} className="p-1 border-r last:border-r-0 h-24 group relative">
-                                  {entry ? (
-                                    <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-accent/10 border-accent/20' : 'bg-primary/10 border-primary/20'} ${isTemp ? 'border-dashed border-2' : ''}`}>
-                                      <div className="text-[10px] font-bold truncate uppercase text-foreground leading-tight">{entry.isActivity ? (entry.activityName || "REHAT") : entry.subjectName}</div>
-                                      {!entry.isActivity && <div className="text-[9px] text-muted-foreground truncate mt-1 italic">{entry.teacherName}</div>}
-                                      {isTemp && <div className="absolute bottom-1 right-1"><RefreshCw className="w-2 h-2 text-amber-500 animate-spin" /></div>}
-                                      <Button variant="ghost" size="icon" className="absolute top-1.5 right-1.5 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive" onClick={() => handleDeleteEntryLocal(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+          <div className="lg:col-span-3">
+             <Card className="border-border/50 shadow-md overflow-hidden bg-card/30">
+               <div className="overflow-x-auto">
+                 <Table className="border-collapse">
+                   <TableHeader>
+                     <TableRow className="bg-muted/30 hover:bg-muted/30">
+                       <TableHead className="w-20 border-r font-bold text-center text-primary text-[10px] uppercase tracking-wider">HARI</TableHead>
+                       <TableHead className="w-12 border-r font-bold text-center text-primary text-[10px] uppercase tracking-wider">JAM</TableHead>
+                       <TableHead className="w-24 border-r font-bold text-center text-primary text-[10px] uppercase tracking-wider">WAKTU</TableHead>
+                       {sortedClasses.map(cls => (
+                         <TableHead key={cls.id} className="text-center min-w-[140px] font-bold border-r last:border-r-0 text-foreground text-[11px] uppercase py-3">
+                           {cls.name}
+                         </TableHead>
+                       ))}
+                     </TableRow>
+                   </TableHeader>
+                   <TableBody>
+                     {DAYS.map((day) => (
+                       <React.Fragment key={day}>
+                         {Array.from({ length: MAX_PERIODS }).map((_, i) => {
+                           const period = i + 1;
+                           const isGlobalBreak = (config.break1Active && period === config.break1Period) || (config.break2Active && period === config.break2Period);
+                           const breakName = (config.break1Active && period === config.break1Period) ? "ISTIRAHAT 1" : "ISTIRAHAT 2";
+                           
+                           return (
+                             <TableRow key={`${day}-${period}`} className={`hover:bg-transparent ${isGlobalBreak ? "bg-muted/10" : ""}`}>
+                               {period === 1 && (
+                                 <TableCell rowSpan={MAX_PERIODS} className="border-r font-bold text-center bg-muted/5 p-0">
+                                   <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">{day}</div>
+                                 </TableCell>
+                               )}
+                               <TableCell className="border-r font-bold text-[10px] text-center p-2">
+                                 <div className={isGlobalBreak ? 'text-accent' : 'text-foreground'}>{period}</div>
+                               </TableCell>
+                               <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
+                                 {getTimeForPeriod(period)}
+                               </TableCell>
+                               
+                               {isGlobalBreak ? (
+                                 <TableCell colSpan={sortedClasses.length} className="p-0 border-r last:border-r-0 border-y border-accent/20">
+                                    <div className="h-10 flex items-center justify-center bg-accent/5 text-accent font-black text-[9px] tracking-[0.4em] uppercase">
+                                       {breakName}
                                     </div>
-                                  ) : (
-                                    <div className="h-full flex flex-col items-center justify-center border-2 border-dashed border-border/30 rounded-lg group-hover:border-primary/30 cursor-pointer bg-muted/5" onClick={() => { setNewEntry({...newEntry, day, period, classId: cls.id}); setIsAddOpen(true); }}>
-                                      <Plus className="w-4 h-4 text-muted-foreground opacity-20" />
-                                      <span className="text-[8px] uppercase tracking-tighter text-muted-foreground opacity-30">Kosong</span>
-                                    </div>
-                                  )}
-                                </TableCell>
-                              )
-                            })}
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            ))}
+                                 </TableCell>
+                               ) : (
+                                 sortedClasses.map(cls => {
+                                   const entry = getEntry(day, period, cls.id);
+                                   const isTemp = entry?.id.startsWith('temp-');
+                                   return (
+                                     <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
+                                       {entry ? (
+                                         <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-accent/10 border-accent/20' : 'bg-primary/10 border-primary/20'} ${isTemp ? 'border-dashed border-2 border-amber-500/30' : ''}`}>
+                                           <div className="text-[9px] font-black truncate uppercase text-foreground leading-tight">
+                                             {entry.isActivity ? (entry.activityName || "REHAT") : entry.subjectName}
+                                           </div>
+                                           {!entry.isActivity && <div className="text-[8px] text-muted-foreground truncate mt-1 italic font-medium">{entry.teacherName}</div>}
+                                           {isTemp && <div className="absolute bottom-1 right-1"><RefreshCw className="w-2.5 h-2.5 text-amber-500 animate-spin" /></div>}
+                                           <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteEntryLocal(entry.id)}>
+                                             <Trash2 className="w-3.5 h-3.5" />
+                                           </Button>
+                                         </div>
+                                       ) : (
+                                         <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/20 rounded-lg group-hover:border-primary/40 cursor-pointer bg-muted/2 transition-colors" 
+                                              onClick={() => { setNewEntry({...newEntry, day, period, classId: cls.id}); setIsAddOpen(true); }}>
+                                           <Plus className="w-4 h-4 text-muted-foreground opacity-10 group-hover:opacity-30" />
+                                         </div>
+                                       )}
+                                     </TableCell>
+                                   );
+                                 })
+                               )}
+                             </TableRow>
+                           );
+                         })}
+                       </React.Fragment>
+                     ))}
+                   </TableBody>
+                 </Table>
+               </div>
+             </Card>
           </div>
         </TabsContent>
 
