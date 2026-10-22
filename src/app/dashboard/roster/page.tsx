@@ -22,7 +22,9 @@ import {
   Printer,
   Zap,
   BookOpen,
-  UserCheck
+  UserCheck,
+  CalendarDays,
+  X
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -71,6 +73,7 @@ import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig
 import { useToast } from '@/hooks/use-toast'
 import { addMinutes, format, parse } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 const MAX_PERIODS = 10 
@@ -114,10 +117,7 @@ export default function RosterManagementPage() {
     period: 1,
     teacherId: "",
     classId: "",
-    subjectId: "",
-    isActivity: false,
-    activityName: "",
-    duration: 40
+    subjectId: ""
   })
 
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -136,7 +136,7 @@ export default function RosterManagementPage() {
   const { data: staff } = useCollection<Staff>(staffQuery)
   const { data: classes, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
   const { data: subjects } = useCollection<Subject>(subjectsQuery)
-  const { data: rosterConfig, loading: loadingConfigDoc } = useDoc<RosterConfig>(configRef)
+  const { data: rosterConfig, loading: loadingConfigDoc } = useDoc<any>(configRef)
   const { data: systemSettings } = useDoc<any>(systemSettingsRef)
 
   useEffect(() => {
@@ -158,24 +158,22 @@ export default function RosterManagementPage() {
     break1Duration: Number(rosterConfig?.break1Duration) || 30,
     break2Active: rosterConfig?.break2Active ?? false,
     break2Period: rosterConfig?.break2Period ?? 6,
-    break2Duration: Number(rosterConfig?.break2Duration) || 15
+    break2Duration: Number(rosterConfig?.break2Duration) || 15,
+    globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
   }), [rosterConfig])
 
-  // Helper untuk mendapatkan waktu mulai suatu jam pelajaran dengan menjumlahkan durasi sebelumnya
   const getStartTimeForPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     const standardJP = config.jpDuration;
     
     for (let i = 1; i < period; i++) {
-      // Cari jika ada kegiatan khusus di jam ke-i pada hari tsb
-      const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
-      const duration = (activity && typeof activity.duration === 'number' && activity.duration > 0) 
-        ? activity.duration 
+      const globalAct = config.globalActivities.find(a => a.day === day && a.period === i);
+      const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0) 
+        ? globalAct.duration 
         : standardJP;
       
       current = addMinutes(current, duration)
       
-      // Tambah istirahat jika ada
       if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
       if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
     }
@@ -184,9 +182,9 @@ export default function RosterManagementPage() {
 
   const getTimeForDayAndPeriod = (day: string, period: number) => {
     const start = getStartTimeForPeriod(day, period);
-    const activity = localEntries.find(e => e.day === day && e.period === period && e.isActivity);
-    const duration = (activity && typeof activity.duration === 'number' && activity.duration > 0) 
-      ? activity.duration 
+    const globalAct = config.globalActivities.find(a => a.day === day && a.period === period);
+    const duration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0) 
+      ? globalAct.duration 
       : config.jpDuration;
     
     const end = addMinutes(start, duration)
@@ -195,18 +193,18 @@ export default function RosterManagementPage() {
 
   const getDismissalTime = (day: string) => {
     const lastPeriodStart = getStartTimeForPeriod(day, MAX_PERIODS);
-    const activity = localEntries.find(e => e.day === day && e.period === MAX_PERIODS && e.isActivity);
-    const lastDuration = (activity && typeof activity.duration === 'number' && activity.duration > 0)
-      ? activity.duration
+    const globalAct = config.globalActivities.find(a => a.day === day && a.period === MAX_PERIODS);
+    const lastDuration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
+      ? globalAct.duration
       : config.jpDuration;
     return format(addMinutes(lastPeriodStart, lastDuration), 'HH:mm');
   }
 
   const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
     const startOfPeriod = getStartTimeForPeriod(day, afterPeriod);
-    const activity = localEntries.find(e => e.day === day && e.period === afterPeriod && e.isActivity);
-    const periodDuration = (activity && typeof activity.duration === 'number' && activity.duration > 0)
-      ? activity.duration
+    const globalAct = config.globalActivities.find(a => a.day === day && a.period === afterPeriod);
+    const periodDuration = (globalAct && typeof globalAct.duration === 'number' && globalAct.duration > 0)
+      ? globalAct.duration
       : config.jpDuration;
       
     const start = addMinutes(startOfPeriod, periodDuration);
@@ -251,7 +249,8 @@ export default function RosterManagementPage() {
       for (const day of shuffledDays) {
         for (const p of shuffledPeriods) {
           if (remainingJP <= 0) break;
-          const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && (e.classId === asg.classId || e.isActivity));
+          const hasGlobalAct = config.globalActivities.some(a => a.day === day && a.period === p);
+          const isSlotFree = !hasGlobalAct && !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
           const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
           if (isSlotFree && isTeacherFree) {
             currentRoster.push({
@@ -275,20 +274,17 @@ export default function RosterManagementPage() {
     const c = classes?.find(c => c.id === newEntry.classId)
     const s = subjects?.find(s => s.id === newEntry.subjectId)
 
-    const dur = Number(newEntry.duration);
     const entry: RosterEntry = {
       id: `temp-${Date.now()}`,
       day: newEntry.day || "Senin",
       period: newEntry.period || 1,
-      classId: newEntry.isActivity ? "" : (newEntry.classId || ""),
-      className: newEntry.isActivity ? "SEMUA" : (c?.name || "-"),
-      teacherId: newEntry.isActivity ? "" : newEntry.teacherId,
-      teacherName: newEntry.isActivity ? "" : (t?.fullName || "-"),
-      subjectId: newEntry.isActivity ? "" : newEntry.subjectId,
-      subjectName: newEntry.isActivity ? "" : (s?.name || "-"),
-      isActivity: !!newEntry.isActivity,
-      activityName: newEntry.isActivity ? (newEntry.activityName || "KEGIATAN") : "",
-      duration: newEntry.isActivity ? (dur > 0 ? dur : config.jpDuration) : config.jpDuration
+      classId: newEntry.classId || "",
+      className: c?.name || "-",
+      teacherId: newEntry.teacherId,
+      teacherName: t?.fullName || "-",
+      subjectId: newEntry.subjectId,
+      subjectName: s?.name || "-",
+      isActivity: false
     }
 
     setLocalEntries([...localEntries, entry])
@@ -339,6 +335,22 @@ export default function RosterManagementPage() {
     setEntryToDeleteId(null)
   }
 
+  const handleAddGlobalActivity = () => {
+    const newAct = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15 };
+    const updated = [...config.globalActivities, newAct];
+    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+  };
+
+  const updateGlobalActivity = (id: string, field: string, val: any) => {
+    const updated = config.globalActivities.map(a => a.id === id ? { ...a, [field]: val } : a);
+    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+  };
+
+  const removeGlobalActivity = (id: string) => {
+    const updated = config.globalActivities.filter(a => a.id !== id);
+    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+  };
+
   const handleDownloadUnified = async () => {
     if (!localEntries || !classes) return;
     setIsExporting(true);
@@ -379,15 +391,14 @@ export default function RosterManagementPage() {
             dayCellAdded = true;
           }
 
-          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
-          const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
+          const globalActivity = config.globalActivities.find(e => e.day === day && e.period === p);
 
           lessonRow.push(p);
           lessonRow.push(getTimeForDayAndPeriod(day, p));
 
-          if (isRealActivity) {
+          if (globalActivity) {
             lessonRow.push({ 
-              content: (globalActivity.activityName || "KEGIATAN").toUpperCase(), 
+              content: (globalActivity.name || "KEGIATAN").toUpperCase(), 
               colSpan: sorted.length, 
               styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
             });
@@ -442,7 +453,7 @@ export default function RosterManagementPage() {
         columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 18 } },
       });
 
-      doc.save(`Roster_Matriks_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Matriks_Terintegrasi_${schoolName.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Berhasil Mengunduh PDF" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
@@ -459,7 +470,7 @@ export default function RosterManagementPage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Manajemen Roster</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground">Plotting jadwal mengajar terpusat.</p>
+             <p className="text-muted-foreground text-sm font-medium">Pengaturan terpadu jadwal mengajar & agenda rutin sekolah.</p>
              {isDirty ? (
                <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Belum Sinkron</Badge>
              ) : (
@@ -481,7 +492,7 @@ export default function RosterManagementPage() {
           <Button variant="secondary" onClick={handleAutoGenerate} className="gap-2 text-primary border-primary/20 hover:bg-primary/10">
             <Zap className="w-4 h-4" /> Acak Jadwal
           </Button>
-          <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Manual</Button>
+          <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Mapel</Button>
         </div>
       </div>
 
@@ -533,8 +544,7 @@ export default function RosterManagementPage() {
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
                        const dayRows = MAX_PERIODS + breakCount + 1; 
                        for (let p = 1; p <= MAX_PERIODS; p++) {
-                         const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
-                         const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
+                         const globalActivity = config.globalActivities.find(e => e.day === day && e.period === p);
                          
                          rows.push(
                            <TableRow key={`${day}-${p}`} className="hover:bg-transparent">
@@ -546,12 +556,12 @@ export default function RosterManagementPage() {
                              <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
                              <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getTimeForDayAndPeriod(day, p)}</TableCell>
                              
-                             {isRealActivity ? (
+                             {globalActivity ? (
                                <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-24 relative bg-amber-50 group">
                                   <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
-                                    <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.activityName || "KEGIATAN"}</div>
+                                    <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.name || "KEGIATAN"}</div>
                                     <div className="text-[9px] text-amber-600 font-bold mt-1">{globalActivity.duration} Menit</div>
-                                    <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(globalActivity.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                    <Badge variant="outline" className="absolute top-2 right-2 text-[8px] border-amber-300">GLOBAL</Badge>
                                   </div>
                                </TableCell>
                              ) : (
@@ -567,7 +577,7 @@ export default function RosterManagementPage() {
                                          <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                        </div>
                                      ) : (
-                                       <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: p, classId: cls.id, isActivity: false}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
+                                       <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: p, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
                                      )}
                                    </TableCell>
                                  );
@@ -614,50 +624,107 @@ export default function RosterManagementPage() {
 
         <TabsContent value="settings" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="border-border/50">
-              <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="space-y-2">
-                  <Label>Jam Masuk Sekolah</Label>
-                  <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={config.entryTime || "07:00"} onChange={e => {
-                    if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
-                  }} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Durasi Standar 1 JP (Menit)</Label>
-                  <Input type="number" value={config.jpDuration || 0} onChange={e => {
-                    const val = parseInt(e.target.value) || 0;
-                    if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
-                  }} />
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-6">
+              <Card className="border-border/50">
+                <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="space-y-2">
+                    <Label>Jam Masuk Sekolah</Label>
+                    <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={config.entryTime || "07:15"} onChange={e => {
+                      if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
+                    }} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Durasi Standar 1 JP (Menit)</Label>
+                    <Input type="number" value={config.jpDuration || 60} onChange={e => {
+                      const val = parseInt(e.target.value) || 0;
+                      if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
+                    }} />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/50">
+                <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Coffee className="w-5 h-5 text-accent" /> Istirahat Global</CardTitle></CardHeader>
+                <CardContent className="pt-6 space-y-8">
+                  <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
+                    <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Pertama</Label><Switch checked={config.break1Active} onCheckedChange={v => {
+                      if (configRef) setDoc(configRef, { ...config, break1Active: v }, { merge: true }).catch(() => {})
+                    }} /></div>
+                    {config.break1Active && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
+                          <Select value={config.break1Period?.toString() || "4"} onValueChange={v => {
+                            if (configRef) setDoc(configRef, { ...config, break1Period: parseInt(v) }, { merge: true }).catch(() => {})
+                          }}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="5">Jam Ke-5</SelectItem></SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => {
+                          const val = parseInt(e.target.value) || 0;
+                          if (configRef) setDoc(configRef, { ...config, break1Duration: val }, { merge: true }).catch(() => {})
+                        }} /></div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
             <Card className="border-border/50">
-              <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Coffee className="w-5 h-5 text-accent" /> Istirahat Global</CardTitle></CardHeader>
-              <CardContent className="pt-6 space-y-8">
-                <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                  <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Pertama</Label><Switch checked={config.break1Active} onCheckedChange={v => {
-                    if (configRef) setDoc(configRef, { ...config, break1Active: v }, { merge: true }).catch(() => {})
-                  }} /></div>
-                  {config.break1Active && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                        <Select value={config.break1Period?.toString() || "4"} onValueChange={v => {
-                           if (configRef) setDoc(configRef, { ...config, break1Period: parseInt(v) }, { merge: true }).catch(() => {})
-                        }}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem></SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 0} onChange={e => {
-                        const val = parseInt(e.target.value) || 0;
-                        if (configRef) setDoc(configRef, { ...config, break1Duration: val }, { merge: true }).catch(() => {})
-                      }} /></div>
-                    </div>
-                  )}
+              <CardHeader className="border-b bg-muted/5 flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-amber-500" /> Kegiatan Rutin Sekolah</CardTitle>
+                  <CardDescription>Agenda global (Upacara, Literasi, dll) untuk semua kelas.</CardDescription>
                 </div>
+                <Button variant="outline" size="sm" onClick={handleAddGlobalActivity} className="h-8 gap-2 border-primary/30 text-primary">
+                  <Plus className="w-3 h-3" /> Tambah
+                </Button>
+              </CardHeader>
+              <CardContent className="pt-6">
+                <ScrollArea className="h-[450px] pr-4">
+                  <div className="space-y-4">
+                    {config.globalActivities.length === 0 ? (
+                      <div className="text-center py-20 text-muted-foreground italic text-xs">Belum ada kegiatan rutin global.</div>
+                    ) : (
+                      config.globalActivities.map((act) => (
+                        <div key={act.id} className="p-4 rounded-xl border bg-muted/10 space-y-4 relative group">
+                          <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute top-2 right-2 h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
+                            <X className="w-4 h-4" />
+                          </Button>
+                          <div className="grid grid-cols-1 gap-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-[10px] font-bold uppercase text-muted-foreground">Nama Kegiatan</Label>
+                              <Input className="h-8 font-bold" value={act.name} onChange={e => updateGlobalActivity(act.id, 'name', e.target.value)} placeholder="Contoh: UPACARA BENDERA" />
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Hari</Label>
+                                <Select value={act.day} onValueChange={v => updateGlobalActivity(act.id, 'day', v)}>
+                                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                  <SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
+                                <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
+                                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                  <SelectContent>{Array.from({length: 10}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Menit</Label>
+                                <Input type="number" className="h-8" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
               </CardContent>
             </Card>
           </div>
@@ -666,49 +733,26 @@ export default function RosterManagementPage() {
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader><DialogTitle>Plot Jadwal Manual</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Plot Mata Pelajaran</DialogTitle></DialogHeader>
           <div className="space-y-6 py-4">
-            <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-xl">
-               <div><Label className="font-bold">Mode Kegiatan Sekolah</Label><p className="text-[10px] text-muted-foreground italic">Agenda global non-KBM (Upacara/Eskul)</p></div>
-               <Switch checked={newEntry.isActivity} onCheckedChange={v => setNewEntry({...newEntry, isActivity: v, duration: v ? 45 : config.jpDuration})} />
-            </div>
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Hari</Label><Select value={newEntry.day || "Senin"} onValueChange={v => setNewEntry({...newEntry, day: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
                <div className="space-y-2"><Label>Jam Ke-</Label><Select value={newEntry.period?.toString() || "1"} onValueChange={v => setNewEntry({...newEntry, period: parseInt(v)})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({length: MAX_PERIODS}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent></Select></div>
             </div>
-            {newEntry.isActivity ? (
-               <div className="space-y-4">
-                 <div className="space-y-2"><Label>Nama Kegiatan</Label><Input value={newEntry.activityName || ""} onChange={e => setNewEntry({...newEntry, activityName: e.target.value})} placeholder="Contoh: PAGI CERIA" /></div>
-                 <div className="space-y-2">
-                   <Label className="text-primary font-bold">Durasi (Menit)</Label>
-                   <Input 
-                     type="text" 
-                     inputMode="numeric"
-                     value={newEntry.duration === 0 ? "" : newEntry.duration} 
-                     onChange={e => {
-                       const val = e.target.value.replace(/[^0-9]/g, '');
-                       setNewEntry({...newEntry, duration: val === "" ? 0 : parseInt(val)});
-                     }} 
-                     placeholder={`Bawaan JP: ${config.jpDuration}`} 
-                   />
-                 </div>
-               </div>
-            ) : (
-               <div className="space-y-4">
-                 <div className="space-y-2"><Label>Pilih Kelas</Label><Select value={newEntry.classId} onValueChange={v => setNewEntry({...newEntry, classId: v})}><SelectTrigger><SelectValue placeholder="Pilih Kelas" /></SelectTrigger><SelectContent>{sortedClasses.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-                 <div className="space-y-2">
-                   <Label>Pilih Penugasan Guru</Label>
-                   <Select value={newEntry.teacherId && newEntry.subjectId ? `${newEntry.teacherId}|${newEntry.subjectId}` : ""} onValueChange={v => { const [tId, sId] = v.split('|'); setNewEntry({...newEntry, teacherId: tId, subjectId: sId}); }}>
-                     <SelectTrigger><SelectValue placeholder="Pilih Guru & Mapel" /></SelectTrigger>
-                     <SelectContent>
-                       {assignments?.filter(a => a.classId === newEntry.classId).map(a => (
-                         <SelectItem key={a.id} value={`${a.teacherId}|${a.subjectId}`}>{a.teacherName} - {a.subjectName}</SelectItem>
-                       ))}
-                     </SelectContent>
-                   </Select>
-                 </div>
-               </div>
-            )}
+            <div className="space-y-4">
+              <div className="space-y-2"><Label>Pilih Kelas</Label><Select value={newEntry.classId} onValueChange={v => setNewEntry({...newEntry, classId: v})}><SelectTrigger><SelectValue placeholder="Pilih Kelas" /></SelectTrigger><SelectContent>{sortedClasses.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-2">
+                <Label>Pilih Penugasan Guru</Label>
+                <Select value={newEntry.teacherId && newEntry.subjectId ? `${newEntry.teacherId}|${newEntry.subjectId}` : ""} onValueChange={v => { const [tId, sId] = v.split('|'); setNewEntry({...newEntry, teacherId: tId, subjectId: sId}); }}>
+                  <SelectTrigger><SelectValue placeholder="Pilih Guru & Mapel" /></SelectTrigger>
+                  <SelectContent>
+                    {assignments?.filter(a => a.classId === newEntry.classId).map(a => (
+                      <SelectItem key={a.id} value={`${a.teacherId}|${a.subjectId}`}>{a.teacherName} - {a.subjectName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
           </div>
           <DialogFooter><Button onClick={handleAddEntryLocal} className="w-full h-11 font-bold shadow-lg shadow-primary/20">Tambahkan ke Buffer</Button></DialogFooter>
         </DialogContent>
