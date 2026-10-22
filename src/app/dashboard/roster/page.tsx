@@ -180,16 +180,17 @@ export default function RosterManagementPage() {
     return current;
   }
 
-  const getTimeForDayAndPeriod = (day: string, period: number) => {
-    const start = getStartTimeForPeriod(day, period);
-    const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === period);
-    const duration = periodActivities.length > 0 
-      ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
-      : config.jpDuration;
-    
-    const end = addMinutes(start, duration)
-    return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
-  }
+  const getDayRowsCount = (day: string) => {
+    let count = 0;
+    for (let p = 1; p <= config.maxPeriods; p++) {
+      const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === p);
+      count += (periodActivities.length > 0 ? periodActivities.length : 1);
+      
+      if (config.break1Active && p === config.break1Period) count++;
+      if (config.break2Active && p === config.break2Period) count++;
+    }
+    return count + 1; // +1 for Waktu Pulang
+  };
 
   const getDismissalTime = (day: string) => {
     const lastPeriod = config.maxPeriods;
@@ -200,23 +201,7 @@ export default function RosterManagementPage() {
       : config.jpDuration;
       
     let dismissal = addMinutes(startOfLast, duration);
-    // Jika jam terakhir bertepatan dengan jadwal istirahat (meskipun tidak logis, kita handle)
-    if (config.break1Active && lastPeriod === config.break1Period) dismissal = addMinutes(dismissal, config.break1Duration);
-    if (config.break2Active && lastPeriod === config.break2Period) dismissal = addMinutes(dismissal, config.break2Duration);
-    
     return format(dismissal, 'HH:mm');
-  }
-
-  const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
-    const startOfPeriod = getStartTimeForPeriod(day, afterPeriod);
-    const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === afterPeriod);
-    const periodDuration = periodActivities.length > 0
-      ? periodActivities.reduce((sum, act) => sum + (Number(act.duration) || 0), 0)
-      : config.jpDuration;
-      
-    const start = addMinutes(startOfPeriod, periodDuration);
-    const end = addMinutes(start, Number(duration) || 0)
-    return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
   }
 
   const workloadStats = useMemo(() => {
@@ -386,32 +371,43 @@ export default function RosterManagementPage() {
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
       
       const tableBody: any[] = [];
-      const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-      const rowsPerDay = config.maxPeriods + breakCount + 1;
 
       DAYS.forEach(day => {
         let dayCellAdded = false;
+        const dayRowsCount = getDayRowsCount(day);
+
         for (let p = 1; p <= config.maxPeriods; p++) {
-          const lessonRow: any[] = [];
-          if (!dayCellAdded) {
-            lessonRow.push({ content: day, rowSpan: rowsPerDay, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
-            dayCellAdded = true;
-          }
-
           const periodActivities = config.globalActivities.filter(e => e.day === day && e.period === p);
-
-          lessonRow.push(p);
-          lessonRow.push(getTimeForDayAndPeriod(day, p));
+          let currentPeriodStart = getStartTimeForPeriod(day, p);
 
           if (periodActivities.length > 0) {
-            const combinedName = periodActivities.map(a => a.name.toUpperCase()).join(" + ");
-            lessonRow.push({ 
-              content: combinedName, 
-              colSpan: sorted.length, 
-              styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
+            periodActivities.forEach((act, actIdx) => {
+              const endTime = addMinutes(currentPeriodStart, act.duration);
+              const actRow: any[] = [];
+              if (!dayCellAdded) {
+                actRow.push({ content: day, rowSpan: dayRowsCount, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
+                dayCellAdded = true;
+              }
+              actRow.push(p);
+              actRow.push(`${format(currentPeriodStart, 'HH:mm')} - ${format(endTime, 'HH:mm')}`);
+              actRow.push({ 
+                content: `${act.name.toUpperCase()} (${act.duration} Menit)`, 
+                colSpan: sorted.length, 
+                styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
+              });
+              tableBody.push(actRow);
+              currentPeriodStart = endTime;
             });
-            tableBody.push(lessonRow);
           } else {
+            const lessonRow: any[] = [];
+            if (!dayCellAdded) {
+              lessonRow.push({ content: day, rowSpan: dayRowsCount, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
+              dayCellAdded = true;
+            }
+            lessonRow.push(p);
+            const endTime = addMinutes(currentPeriodStart, config.jpDuration);
+            lessonRow.push(`${format(currentPeriodStart, 'HH:mm')} - ${format(endTime, 'HH:mm')}`);
+
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === p && e.classId === cls.id);
               if (entry) {
@@ -429,7 +425,9 @@ export default function RosterManagementPage() {
 
           const checkBreak = (breakPeriod: number, active: boolean, duration: number) => {
             if (active && p === breakPeriod) {
-              const breakRow: any[] = ["B", getBreakTime(day, breakPeriod, duration)];
+              const startOfBreak = currentPeriodStart;
+              const endOfBreak = addMinutes(startOfBreak, duration);
+              const breakRow: any[] = ["B", `${format(startOfBreak, 'HH:mm')} - ${format(endOfBreak, 'HH:mm')}`];
               breakRow.push({ 
                 content: "ISTIRAHAT", 
                 colSpan: sorted.length, 
@@ -549,35 +547,54 @@ export default function RosterManagementPage() {
                    <TableBody>
                      {DAYS.map((day) => {
                        const rows = [];
-                       const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                       const dayRows = config.maxPeriods + breakCount + 1; 
+                       const dayRowsCount = getDayRowsCount(day);
+                       let dayCellAdded = false;
+
                        for (let p = 1; p <= config.maxPeriods; p++) {
                          const periodActivities = config.globalActivities.filter(e => e.day === day && e.period === p);
-                         
-                         rows.push(
-                           <TableRow key={`${day}-${p}`} className="hover:bg-transparent">
-                             {p === 1 && (
-                               <TableCell rowSpan={dayRows} className="border-r font-bold text-center bg-muted/5 p-0">
-                                 <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">{day}</div>
+                         let currentPeriodStart = getStartTimeForPeriod(day, p);
+
+                         if (periodActivities.length > 0) {
+                           periodActivities.forEach((act, actIdx) => {
+                             const endTime = addMinutes(currentPeriodStart, act.duration);
+                             rows.push(
+                               <TableRow key={`${day}-${p}-${act.id}`} className="hover:bg-transparent">
+                                 {p === 1 && actIdx === 0 && !dayCellAdded && (
+                                   <TableCell rowSpan={dayRowsCount} className="border-r font-bold text-center bg-muted/5 p-0">
+                                     <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">{day}</div>
+                                   </TableCell>
+                                 )}
+                                 {p === 1 && actIdx === 0 && (dayCellAdded = true) && null}
+                                 <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
+                                 <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
+                                   {format(currentPeriodStart, 'HH:mm')} - {format(endTime, 'HH:mm')}
+                                 </TableCell>
+                                 <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-16 relative bg-amber-50 group">
+                                    <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
+                                      <div className="text-[10px] font-black uppercase text-amber-800 tracking-widest">{act.name || "KEGIATAN"}</div>
+                                      <div className="text-[8px] text-amber-600 font-bold">{act.duration} Menit</div>
+                                      <Badge variant="outline" className="absolute top-2 right-2 text-[8px] border-amber-300">GLOBAL</Badge>
+                                    </div>
+                                 </TableCell>
+                               </TableRow>
+                             );
+                             currentPeriodStart = endTime;
+                           });
+                         } else {
+                           const lessonEndTime = addMinutes(currentPeriodStart, config.jpDuration);
+                           rows.push(
+                             <TableRow key={`${day}-${p}`} className="hover:bg-transparent">
+                               {p === 1 && !dayCellAdded && (
+                                 <TableCell rowSpan={dayRowsCount} className="border-r font-bold text-center bg-muted/5 p-0">
+                                   <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">{day}</div>
+                                 </TableCell>
+                               )}
+                               {p === 1 && (dayCellAdded = true) && null}
+                               <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
+                               <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
+                                 {format(currentPeriodStart, 'HH:mm')} - {format(lessonEndTime, 'HH:mm')}
                                </TableCell>
-                             )}
-                             <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
-                             <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getTimeForDayAndPeriod(day, p)}</TableCell>
-                             
-                             {periodActivities.length > 0 ? (
-                               <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-24 relative bg-amber-50 group">
-                                  <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
-                                    {periodActivities.map((act, i) => (
-                                      <div key={act.id} className={i > 0 ? "mt-1 border-t border-amber-200 pt-1" : ""}>
-                                        <div className="text-[10px] font-black uppercase text-amber-800 tracking-widest">{act.name || "KEGIATAN"}</div>
-                                        <div className="text-[8px] text-amber-600 font-bold">{act.duration} Menit</div>
-                                      </div>
-                                    ))}
-                                    <Badge variant="outline" className="absolute top-2 right-2 text-[8px] border-amber-300">GLOBAL</Badge>
-                                  </div>
-                               </TableCell>
-                             ) : (
-                               sortedClasses.map(cls => {
+                               {sortedClasses.map(cls => {
                                  const entry = localEntries.find(e => e.day === day && e.period === p && e.classId === cls.id);
                                  const colorInfo = getEntryColor(entry?.subjectName || "");
                                  return (
@@ -593,22 +610,27 @@ export default function RosterManagementPage() {
                                      )}
                                    </TableCell>
                                  );
-                               })
-                             )}
-                           </TableRow>
-                         );
+                               })}
+                             </TableRow>
+                           );
+                           currentPeriodStart = lessonEndTime;
+                         }
 
                          const checkInject = (period: number, active: boolean, duration: number) => {
                            if (active && p === period) {
+                             const endOfBreak = addMinutes(currentPeriodStart, duration);
                              rows.push(
                                <TableRow key={`${day}-break-${period}`} className="bg-accent/5">
                                  <TableCell className="border-r font-bold text-[10px] text-center p-2 text-accent">B</TableCell>
-                                 <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getBreakTime(day, period, duration)}</TableCell>
+                                 <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
+                                   {format(currentPeriodStart, 'HH:mm')} - {format(endOfBreak, 'HH:mm')}
+                                 </TableCell>
                                  <TableCell colSpan={sortedClasses.length} className="p-0 border-r last:border-r-0 border-y border-accent/10">
                                    <div className="h-10 flex items-center justify-center text-accent font-black text-[11px] tracking-[0.8em] uppercase bg-muted/20">ISTIRAHAT</div>
                                  </TableCell>
                                </TableRow>
                              );
+                             currentPeriodStart = endOfBreak;
                            }
                          }
                          checkInject(config.break1Period, config.break1Active, config.break1Duration);
