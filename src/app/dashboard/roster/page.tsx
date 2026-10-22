@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -74,6 +75,30 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 const MAX_PERIODS = 10 
+
+// Palet warna pastel untuk setiap mapel/guru
+const COLOR_PALETTE = [
+  { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800', rgb: [219, 234, 254] },
+  { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', rgb: [220, 252, 231] },
+  { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800', rgb: [243, 232, 255] },
+  { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-800', rgb: [252, 231, 243] },
+  { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-800', rgb: [255, 237, 213] },
+  { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-800', rgb: [204, 251, 241] },
+  { bg: 'bg-indigo-100', border: 'border-indigo-300', text: 'text-indigo-800', rgb: [224, 231, 255] },
+  { bg: 'bg-rose-100', border: 'border-rose-300', text: 'text-rose-800', rgb: [255, 228, 230] },
+  { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800', rgb: [254, 243, 199] },
+  { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-800', rgb: [209, 250, 229] },
+];
+
+const getEntryColor = (subjectName: string) => {
+  if (!subjectName) return COLOR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < subjectName.length; i++) {
+    hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % COLOR_PALETTE.length;
+  return COLOR_PALETTE[index];
+};
 
 export default function RosterManagementPage() {
   const db = useFirestore()
@@ -327,11 +352,14 @@ export default function RosterManagementPage() {
               const text = entry.isActivity 
                 ? (entry.activityName || "KEGIATAN") 
                 : `${entry.subjectName}\n(${entry.teacherName})`;
+              const colorInfo = entry.isActivity ? { rgb: [255, 248, 230] } : getEntryColor(entry.subjectName);
+              
               lessonRow.push({ 
                 content: text, 
                 styles: { 
-                  fillColor: entry.isActivity ? [255, 248, 230] : [240, 247, 255],
-                  textColor: [0, 0, 0]
+                  fillColor: colorInfo.rgb,
+                  textColor: [0, 0, 0],
+                  fontSize: 6
                 } 
               });
             } else {
@@ -347,7 +375,7 @@ export default function RosterManagementPage() {
                 content: label, 
                 colSpan: sorted.length, 
                 styles: { 
-                  fillColor: [245, 245, 245], 
+                  fillColor: [230, 230, 230], 
                   fontStyle: 'bold', 
                   textColor: [80, 80, 80], 
                   halign: 'center' 
@@ -483,11 +511,13 @@ export default function RosterManagementPage() {
                              {sortedClasses.map(cls => {
                                const entry = getEntry(day, p, cls.id);
                                const isTemp = entry?.id.startsWith('temp-');
+                               const colorInfo = entry?.isActivity ? { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800' } : getEntryColor(entry?.subjectName || "");
+                               
                                return (
                                  <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                    {entry ? (
-                                     <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${entry.isActivity ? 'bg-amber-500/15 border-amber-500/30' : 'bg-blue-600/15 border-blue-500/30'} ${isTemp ? 'border-dashed border-2 border-primary/30' : ''}`}>
-                                       <div className="text-[10px] font-bold leading-tight text-foreground">
+                                     <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.bg} ${colorInfo.border} ${isTemp ? 'border-dashed border-2' : ''}`}>
+                                       <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>
                                          {entry.isActivity ? (entry.activityName || "KEGIATAN") : entry.subjectName}
                                        </div>
                                        {!entry.isActivity && (
