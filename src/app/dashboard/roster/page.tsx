@@ -76,6 +76,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 const MAX_PERIODS = 10 
 
+// Palet warna pastel untuk Auto-Coloring Mata Pelajaran
 const COLOR_PALETTE = [
   { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800', rgb: [219, 234, 254] },
   { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', rgb: [220, 252, 231] },
@@ -162,7 +163,7 @@ export default function RosterManagementPage() {
     break2Duration: rosterConfig?.break2Duration ?? 15
   }), [rosterConfig])
 
-  // DINAMIS: Menghitung waktu mulai berdasarkan durasi kegiatan kustom pada hari tertentu
+  // KALKULASI WAKTU DINAMIS: Menghitung waktu mulai berdasarkan durasi kegiatan kustom pada hari tertentu
   const getTimeForDayAndPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     
@@ -303,6 +304,19 @@ export default function RosterManagementPage() {
     }
   }
 
+  const handleDeleteTrigger = (id: string) => {
+    setEntryToDeleteId(id)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const executeDeleteLocal = () => {
+    if (!entryToDeleteId) return
+    setLocalEntries(prev => prev.filter(e => e.id !== entryToDeleteId))
+    setIsDirty(true)
+    setIsDeleteDialogOpen(false)
+    setEntryToDeleteId(null)
+  }
+
   const handleDownloadUnified = async () => {
     if (!localEntries || !classes) return;
     setIsExporting(true);
@@ -404,10 +418,6 @@ export default function RosterManagementPage() {
     }
   };
 
-  const getEntry = (day: string, period: number, classId: string) => {
-    return localEntries.find(e => e.day === day && e.period === period && (e.classId === classId || (e.isActivity && !e.classId)));
-  }
-
   if (loadingR || loadingConfigDoc || loadingClasses) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
 
   return (
@@ -507,7 +517,7 @@ export default function RosterManagementPage() {
                                   <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
                                     <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.activityName}</div>
                                     <div className="text-[9px] text-amber-600 font-bold mt-1">{globalActivity.duration} Menit</div>
-                                    <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => { setEntryToDeleteId(globalActivity.id); setIsDeleteDialogOpen(true); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                    <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(globalActivity.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                   </div>
                                </TableCell>
                              ) : (
@@ -520,7 +530,7 @@ export default function RosterManagementPage() {
                                        <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.bg} ${colorInfo.border}`}>
                                          <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName}</div>
                                          <div className="text-[9px] text-muted-foreground mt-1 font-medium italic">({entry.teacherName})</div>
-                                         <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => { setEntryToDeleteId(entry.id); setIsDeleteDialogOpen(true); }}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                         <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                        </div>
                                      ) : (
                                        <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: p, classId: cls.id, isActivity: false}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
@@ -648,8 +658,12 @@ export default function RosterManagementPage() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jadwal?</AlertDialogTitle>
-            <AlertDialogDescription>Tindakan ini akan menghapus jadwal dari daftar sementara Anda.</AlertDialogDescription>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jadwal?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini akan menghapus jadwal dari daftar sementara Anda.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
