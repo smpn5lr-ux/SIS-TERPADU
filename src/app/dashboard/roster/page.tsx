@@ -64,7 +64,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
@@ -162,7 +162,6 @@ export default function RosterManagementPage() {
     globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
   }), [rosterConfig])
 
-  // REVISI: Mendukung durasi kumulatif dari multiple activities per period
   const getStartTimeForPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     const standardJP = config.jpDuration;
@@ -201,6 +200,7 @@ export default function RosterManagementPage() {
       : config.jpDuration;
       
     let dismissal = addMinutes(startOfLast, duration);
+    // Jika jam terakhir bertepatan dengan jadwal istirahat (meskipun tidak logis, kita handle)
     if (config.break1Active && lastPeriod === config.break1Period) dismissal = addMinutes(dismissal, config.break1Duration);
     if (config.break2Active && lastPeriod === config.break2Period) dismissal = addMinutes(dismissal, config.break2Duration);
     
