@@ -898,6 +898,7 @@ export default function ClassesPage() {
                           <Button 
                             variant="outline" 
                             size="sm" 
+                            disabled={config?.activeSemester !== 2}
                             className={`h-7 text-[9px] font-bold uppercase gap-1 ${isGrade9 ? 'text-green-500 border-green-500/20' : 'text-accent border-accent/20'}`}
                             onClick={() => { setClassToPromote(cls); setIsPromotionDialogOpen(true); }}
                           >
@@ -931,7 +932,8 @@ export default function ClassesPage() {
       <div className="bg-accent/5 p-5 rounded-xl border border-accent/20 flex gap-5">
          <Info className="w-6 h-6 text-accent shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed italic">
-           Sistem menggunakan <strong>Mode Offline Buffer</strong>. Menu ini adalah pintu masuk utama data murid. Anda dapat mengatur kelas dan memendaftarkan murid baru secara massal via Excel di sini.
+           <p className="font-bold text-accent mb-1">Informasi Kenaikan Kelas:</p>
+           Tombol <strong>Naik/Lulus</strong> hanya aktif pada <strong>Semester 2</strong>. Fitur ini akan mengosongkan rombel saat ini agar murid dapat dipetakan ke kelas baru di tingkat berikutnya.
          </div>
       </div>
 
