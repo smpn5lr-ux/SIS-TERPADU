@@ -224,10 +224,7 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
-      // Map untuk melacak ID sementara ke ID Firestore yang baru
       const idMap = new Map<string, string>();
-
-      // 1. Sinkronkan Applicants (Murid) dulu agar kita dapat ID aslinya
       const nextApplicants = localApplicants.map(la => {
         if (la.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'applicants'))
@@ -244,9 +241,7 @@ export default function ClassesPage() {
         }
       })
 
-      // 2. Sinkronkan Classes (Kelas) dengan ID Murid yang sudah dipetakan
       const nextClasses = localClasses.map(lc => {
-        // Update array students dengan ID baru jika ada di map
         const updatedStudents = (lc.students || []).map(sid => idMap.get(sid) || sid);
         const updatedClass = { ...lc, students: updatedStudents, currentEnrollment: updatedStudents.length };
 
@@ -264,13 +259,10 @@ export default function ClassesPage() {
         }
       })
 
-      // 3. Tangani Penghapusan
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
       await batch.commit()
-      
-      // Update state lokal agar sinkron dengan ID baru dari server
       setLocalApplicants(nextApplicants)
       setLocalClasses(nextClasses)
       if (selectedClassForStudents) {
@@ -280,11 +272,9 @@ export default function ClassesPage() {
          )
          if (updatedSelected) setSelectedClassForStudents(updatedSelected)
       }
-      
       setIsDirty(false)
       toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data telah aman di Cloud." })
     } catch (e) {
-      console.error("Sync Error:", e)
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
       setIsSyncing(false)
@@ -394,7 +384,6 @@ export default function ClassesPage() {
 
           if (!rawName && !nisn && !nis) return;
 
-          // Cari apakah murid sudah ada di database utama
           let student = currentApplicantsInDb.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbNis = (a.NIS || "").trim();
@@ -403,7 +392,6 @@ export default function ClassesPage() {
           });
 
           if (!student) {
-             // Jika belum ada, buat sebagai murid baru di draf
              student = {
                id: `temp-new-${Date.now()}-${createdCount}`,
                fullName: rawName,
@@ -418,13 +406,11 @@ export default function ClassesPage() {
              currentApplicantsInDb.push(student)
              createdCount++
           } else {
-            // Update data dasar jika ada perubahan di Excel
             student.gender = gender;
             if (nis && nis !== '-') student.NIS = nis;
             if (nisn && nisn !== '-') student.NISN = nisn;
           }
 
-          // Masukkan ke daftar siswa kelas jika belum ada
           if (!currentStudentsInClass.includes(student.id)) {
             currentStudentsInClass.push(student.id)
             addedCount++
@@ -460,10 +446,7 @@ export default function ClassesPage() {
 
       const govName = (config?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
       let dinasName = (config?.dinasName || "DINAS PENDIDIKAN PEMUDA DAN OLAHRAGA").toUpperCase();
-      
-      if (dinasName.startsWith(govName)) {
-        dinasName = dinasName.replace(govName, "").trim();
-      }
+      if (dinasName.startsWith(govName)) dinasName = dinasName.replace(govName, "").trim();
 
       const schoolName = (config?.schoolName || "SMP NEGERI 5 LANGKE REMBONG").toUpperCase();
       const schoolAddress = config?.schoolAddress || "Alamat: Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong";
@@ -471,31 +454,23 @@ export default function ClassesPage() {
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold").setFontSize(11);
       doc.text(govName, 105, 12, { align: "center" });
       doc.text(dinasName, 105, 17, { align: "center" });
       doc.setFontSize(13);
       doc.text(schoolName, 105, 23, { align: "center" });
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal").setFontSize(8.5);
       doc.text(schoolAddress, 105, 28, { align: "center" });
-      doc.setLineWidth(0.6);
-      doc.line(14, 31, 196, 31); 
-      doc.setLineWidth(0.1);
-      doc.line(14, 32, 196, 32); 
+      doc.setLineWidth(0.6).line(14, 31, 196, 31); 
+      doc.setLineWidth(0.1).line(14, 32, 196, 32); 
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold").setFontSize(11);
       doc.text("DAFTAR MURID", 105, 42, { align: "center" });
-      doc.setFontSize(10);
-      doc.text(`TAHUN PELAJARAN ${academicYear}`, 105, 47, { align: "center" });
+      doc.setFontSize(10).text(`TAHUN PELAJARAN ${academicYear}`, 105, 47, { align: "center" });
 
-      doc.setFontSize(9);
-      doc.text(`KELAS: ${className}`, 14, 56);
+      doc.setFontSize(9).text(`KELAS: ${className}`, 14, 56);
       doc.text(`WALI KELAS: ${hTeacher}`, 196, 56, { align: "right" });
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal").setFontSize(8);
       doc.text(`Total Siswa: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 61);
 
       const tableHead = [
@@ -503,14 +478,7 @@ export default function ClassesPage() {
         ['URUT', 'NISN', 'NIS']
       ];
 
-      const tableBody = currentClassStudents.map((s, i) => [
-        i + 1,
-        s.NISN || "-",
-        s.NIS || "-",
-        s.fullName,
-        s.gender === 'Laki-laki' ? 'L' : 'P',
-        ""
-      ]);
+      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.NISN || "-", s.NIS || "-", s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ""]);
 
       autoTable(doc, {
         head: tableHead,
@@ -519,13 +487,7 @@ export default function ClassesPage() {
         theme: 'grid',
         styles: { fontSize: 8, cellPadding: 1.2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
-        columnStyles: {
-          0: { cellWidth: 10, halign: 'center' },
-          1: { cellWidth: 22, halign: 'center' },
-          2: { cellWidth: 18, halign: 'center' },
-          4: { cellWidth: 10, halign: 'center' },
-          5: { cellWidth: 22 }
-        },
+        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
         margin: { bottom: 10 }
       });
 
@@ -556,44 +518,24 @@ export default function ClassesPage() {
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold").setFontSize(10);
       doc.text(govName, 148.5, 10, { align: "center" });
       doc.text(dinasName, 148.5, 14, { align: "center" });
-      doc.setFontSize(12);
-      doc.text(schoolName, 148.5, 20, { align: "center" });
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.text(schoolAddress, 148.5, 24, { align: "center" });
-      doc.setLineWidth(0.6);
-      doc.line(14, 27, 283, 27); 
-      doc.setLineWidth(0.1);
-      doc.line(14, 28, 283, 28); 
+      doc.setFontSize(12).text(schoolName, 148.5, 20, { align: "center" });
+      doc.setFont("helvetica", "normal").setFontSize(8).text(schoolAddress, 148.5, 24, { align: "center" });
+      doc.setLineWidth(0.6).line(14, 27, 283, 27); 
+      doc.setLineWidth(0.1).line(14, 28, 283, 28); 
 
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text("DAFTAR HADIR SISWA (BULANAN)", 148.5, 36, { align: "center" });
-      doc.setFontSize(9);
-      doc.text(`TAHUN PELAJARAN ${academicYear}`, 148.5, 41, { align: "center" });
+      doc.setFont("helvetica", "bold").setFontSize(11).text("DAFTAR HADIR SISWA (BULANAN)", 148.5, 36, { align: "center" });
+      doc.setFontSize(9).text(`TAHUN PELAJARAN ${academicYear}`, 148.5, 41, { align: "center" });
 
-      doc.setFontSize(8);
-      doc.text(`KELAS: ${className}`, 14, 48);
+      doc.setFontSize(8).text(`KELAS: ${className}`, 14, 48);
       doc.text(`WALI KELAS: ${hTeacher}`, 283, 48, { align: "right" });
-      doc.setFont("helvetica", "normal");
-      doc.text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 52);
+      doc.setFont("helvetica", "normal").text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 52);
 
       const daysHeader = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
-      const tableHead = [
-        ['NO', 'NAMA SISWA', 'LP', ...daysHeader, 'S', 'I', 'A']
-      ];
-
-      const tableBody = currentClassStudents.map((s, i) => [
-        i + 1,
-        s.fullName,
-        s.gender === 'Laki-laki' ? 'L' : 'P',
-        ...Array(31).fill(""),
-        "", "", ""
-      ]);
+      const tableHead = [['NO', 'NAMA SISWA', 'LP', ...daysHeader, 'S', 'I', 'A']];
+      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ...Array(31).fill(""), "", "", ""]);
 
       autoTable(doc, {
         head: tableHead,
@@ -602,15 +544,7 @@ export default function ClassesPage() {
         theme: 'grid',
         styles: { fontSize: 6, cellPadding: 0.8, textColor: [0, 0, 0], lineColor: [0, 0, 0], halign: 'center' },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.1, fontStyle: 'bold' },
-        columnStyles: {
-          0: { cellWidth: 7 },
-          1: { cellWidth: 50, halign: 'left' },
-          2: { cellWidth: 6 },
-          ...Object.fromEntries(Array.from({length: 31}, (_, i) => [i + 3, { cellWidth: 6.2 }])),
-          34: { cellWidth: 6 },
-          35: { cellWidth: 6 },
-          36: { cellWidth: 6 }
-        },
+        columnStyles: { 0: { cellWidth: 7 }, 1: { cellWidth: 50, halign: 'left' }, 2: { cellWidth: 6 }, ...Object.fromEntries(Array.from({length: 31}, (_, i) => [i + 3, { cellWidth: 6.2 }])), 34: { cellWidth: 6 }, 35: { cellWidth: 6 }, 36: { cellWidth: 6 } },
         margin: { left: 14, right: 14 }
       });
 
@@ -642,7 +576,7 @@ export default function ClassesPage() {
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => { setView('grid'); setEditingClass(null); setIsAddStudentMode(false); }} className="rounded-full border"><ArrowLeft className="w-5 h-5" /></Button>
+            <button onClick={() => { setView('grid'); setEditingClass(null); setIsAddStudentMode(false); }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-3xl font-headline font-bold">Daftar Murid: Kelas {selectedClassForStudents.name}</h1>
@@ -663,25 +597,7 @@ export default function ClassesPage() {
               </div>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleDownloadStudentsPDF} disabled={isExporting} className="gap-2 border-primary/30 text-primary">
-              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
-              Cetak Daftar Murid
-            </Button>
-            <Button variant="outline" onClick={handleDownloadMonthlyAttendancePDF} disabled={isExporting} className="gap-2 border-accent/30 text-accent">
-              {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-              Cetak Absensi Bulanan
-            </Button>
-            <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2"><Download className="w-4 h-4" /> Template</Button>
-            <label className="cursor-pointer">
-               <div className="flex items-center gap-2 border border-green-500/20 text-green-500 bg-green-500/5 hover:bg-green-500/10 h-10 px-4 py-2 rounded-md text-sm font-medium transition-colors">
-                  <FileSpreadsheet className="w-4 h-4" /> Impor Excel
-               </div>
-               <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleImportExcel} />
-            </label>
-            <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5" disabled={currentClassStudents.length === 0}>
-               <Trash className="w-4 h-4" /> Kosongkan Rombel
-            </Button>
+          <div className="flex gap-2">
             <Button onClick={() => setIsAddStudentMode(!isAddStudentMode)} className="gap-2 bg-primary">
               {isAddStudentMode ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
               {isAddStudentMode ? "Batal Tambah" : "Tambah Murid"}
@@ -710,77 +626,98 @@ export default function ClassesPage() {
                    <Button size="sm" variant="outline" className="h-8 px-4 text-primary border-primary/20 hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s.id)}>Pilih <ChevronRight className="w-3 h-3 ml-1" /></Button>
                 </div>
               ))}
-              {availableStudents.length === 0 && (
-                <div className="col-span-full py-20 text-center text-muted-foreground italic flex flex-col items-center gap-4">
-                  <Users className="w-12 h-12 opacity-10" />
-                  <p>Seluruh murid di database sudah memiliki kelas.</p>
-                </div>
-              )}
             </div>
           </div>
         ) : (
-          <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-muted/50 border-b">
-                  <TableRow>
-                    <TableHead className="w-16 text-center font-bold">No</TableHead>
-                    <TableHead className="font-bold w-[140px]">NISN</TableHead>
-                    <TableHead className="font-bold w-[120px]">NIS</TableHead>
-                    <TableHead className="font-bold">Nama Murid</TableHead>
-                    <TableHead className="font-bold text-center">LP</TableHead>
-                    <TableHead className="font-bold">Status</TableHead>
-                    <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {currentClassStudents.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
-                      <GraduationCap className="w-16 h-16 opacity-5" />
-                      <p>Belum ada murid di kelas ini. Klik tombol "Tambah Murid" atau "Impor Excel" untuk mengisi rombel.</p>
-                    </TableCell></TableRow>
-                  ) : currentClassStudents.map((s, idx) => (
-                    <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
-                      <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
-                      <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
-                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="outline" className="text-[9px] font-bold">
-                          {s.gender === 'Laki-laki' ? 'L' : 'P'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] py-0.5 px-3 font-bold gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
-                          {s.admissionStatus === 'graduated' ? 'LULUSAN' : 'AKTIF'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" asChild title="Lihat Detail">
-                            <Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/5" onClick={() => handleEditStudent(s)} title="Edit Biodata">
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)} title="Hapus dari Kelas">
-                            <UserMinus className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+          <>
+            <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader className="bg-muted/50 border-b">
+                    <TableRow>
+                      <TableHead className="w-16 text-center font-bold">No</TableHead>
+                      <TableHead className="font-bold w-[140px]">NISN</TableHead>
+                      <TableHead className="font-bold w-[120px]">NIS</TableHead>
+                      <TableHead className="font-bold">Nama Murid</TableHead>
+                      <TableHead className="font-bold text-center">LP</TableHead>
+                      <TableHead className="font-bold">Status</TableHead>
+                      <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {currentClassStudents.length === 0 ? (
+                      <TableRow><TableCell colSpan={7} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
+                        <GraduationCap className="w-16 h-16 opacity-5" />
+                        <p>Belum ada murid di kelas ini. Gunakan fitur "Tambah Murid" atau "Impor Excel" di bawah.</p>
+                      </TableCell></TableRow>
+                    ) : currentClassStudents.map((s, idx) => (
+                      <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
+                        <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                        <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
+                        <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
+                        <TableCell className="text-center">
+                          <Badge variant="outline" className="text-[9px] font-bold">
+                            {s.gender === 'Laki-laki' ? 'L' : 'P'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] py-0.5 px-3 font-bold gap-1.5">
+                            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></div>
+                            {s.admissionStatus === 'graduated' ? 'LULUSAN' : 'AKTIF'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right pr-6">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" asChild title="Lihat Detail">
+                              <Link href={`/dashboard/applicants/${s.id}`}><Eye className="w-4 h-4" /></Link>
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-primary hover:bg-primary/5" onClick={() => handleEditStudent(s)} title="Edit Biodata">
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)} title="Hapus dari Kelas">
+                              <UserMinus className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
-          </div>
+
+            <Card className="border-border/50 bg-muted/5 shadow-sm">
+              <CardContent className="p-4 flex flex-wrap items-center justify-end gap-3">
+                <Button variant="outline" onClick={handleDownloadStudentsPDF} disabled={isExporting} className="gap-2 border-primary/30 text-primary">
+                  {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
+                  Cetak Daftar Murid
+                </Button>
+                <Button variant="outline" onClick={handleDownloadMonthlyAttendancePDF} disabled={isExporting} className="gap-2 border-accent/30 text-accent">
+                  {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  Cetak Absensi Bulanan
+                </Button>
+                <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2">
+                  <Download className="w-4 h-4" /> Template
+                </Button>
+                <label className="cursor-pointer">
+                   <div className="flex items-center gap-2 border border-green-500/20 text-green-500 bg-green-500/5 hover:bg-green-500/10 h-10 px-4 py-2 rounded-md text-sm font-medium transition-colors">
+                      <FileSpreadsheet className="w-4 h-4" /> Impor Excel
+                   </div>
+                   <input type="file" className="hidden" accept=".xlsx,.xls" onChange={handleImportExcel} />
+                </label>
+                <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5" disabled={currentClassStudents.length === 0}>
+                   <Trash className="w-4 h-4" /> Kosongkan Rombel
+                </Button>
+              </CardContent>
+            </Card>
+          </>
         )}
 
         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 flex gap-4 mt-8">
            <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
            <div className="text-xs text-muted-foreground leading-relaxed italic">
-             Data yang Anda kelola bersifat <strong>Offline Draf</strong>. Impor Excel akan mendaftarkan murid baru secara otomatis jika belum ada di database. Klik <strong>"Sinkronkan ke Cloud"</strong> untuk menyimpan permanen.
+             Data yang Anda kelola bersifat <strong>Offline Draf</strong>. Gunakan panel aksi di atas untuk mencetak atau mengimpor data. Klik <strong>"Sinkronkan ke Cloud"</strong> untuk menyimpan permanen.
            </div>
         </div>
 
