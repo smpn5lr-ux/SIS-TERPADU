@@ -109,11 +109,30 @@ export default function SubjectsPage() {
   })
 
   const handleSaveLocal = (values: z.infer<typeof subjectSchema>) => {
+    // Validasi Duplikasi berdasarkan Nama atau Kode (case insensitive)
+    const normalizedName = values.name.toLowerCase().trim();
+    const normalizedCode = values.code.toLowerCase().trim();
+    
+    const isDuplicate = localSubjects.some(s => 
+      (s.name.toLowerCase().trim() === normalizedName || 
+       s.code.toLowerCase().trim() === normalizedCode) &&
+      (!editingSubject || s.id !== editingSubject.id)
+    );
+
+    if (isDuplicate) {
+      toast({ 
+        variant: "destructive", 
+        title: "Gagal Menyimpan", 
+        description: `Mata Pelajaran dengan nama "${values.name}" atau kode "${values.code}" sudah terdaftar dalam draf.` 
+      });
+      return;
+    }
+
     const payload = { 
       id: editingSubject ? editingSubject.id : `temp-${Date.now()}`,
-      name: values.name, 
-      code: values.code, 
-      grades: values.grades.map(Number).sort((a, b) => a - b) 
+      name: values.name.trim(), 
+      code: values.code.trim().toUpperCase(), 
+      grades: (values.grades || []).map(Number).sort((a, b) => a - b) 
     } as Subject
 
     if (editingSubject) {
@@ -125,7 +144,7 @@ export default function SubjectsPage() {
     setIsDirty(true)
     setIsDialogOpen(false)
     form.reset()
-    toast({ title: "Mapel Ditambahkan ke Draf", description: "Jangan lupa klik Sinkron untuk menyimpan." })
+    toast({ title: "Mapel Disimpan ke Draf", description: "Jangan lupa klik Sinkron untuk menyimpan permanen." })
   }
 
   const handleDeleteTrigger = (sub: Subject) => {
@@ -162,8 +181,9 @@ export default function SubjectsPage() {
 
       localSubjects.forEach(ls => {
         if (ls.id.startsWith('temp-')) {
+          const newRef = doc(collection(db, 'subjects'))
           const { id, ...data } = ls
-          batch.set(doc(collection(db, 'subjects')), data)
+          batch.set(newRef, data)
         } else {
           const serverVer = serverSubjects.find(ss => ss.id === ls.id)
           if (JSON.stringify(serverVer) !== JSON.stringify(ls)) {
@@ -268,7 +288,7 @@ export default function SubjectsPage() {
          <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed">
            <p className="font-bold text-primary mb-1 uppercase tracking-wider">Mode Perencanaan Offline:</p>
-           Sistem menggunakan buffer lokal untuk meminimalisir biaya pembacaan database. Seluruh perubahan yang Anda buat di atas (tambah/hapus) tidak akan membebani kuota Firestore sampai Anda menekan tombol <strong>Sinkronkan</strong>.
+           Sistem menggunakan draf lokal untuk menghindari data ganda. Perubahan hanya akan tersimpan ke database permanen saat Anda menekan tombol <strong>Sinkronkan</strong>.
          </div>
       </div>
 
@@ -285,7 +305,7 @@ export default function SubjectsPage() {
                     <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
                       <Hash className="w-3 h-3" /> Kode Mapel
                     </FormLabel>
-                    <FormControl><Input placeholder="Contoh: BING-SMP" {...field} value={field.value || ""} /></FormControl>
+                    <FormControl><Input placeholder="Contoh: PKN" {...field} value={field.value || ""} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -294,7 +314,7 @@ export default function SubjectsPage() {
                     <FormLabel className="text-xs uppercase font-bold text-muted-foreground tracking-widest flex items-center gap-2">
                       <BookMarked className="w-3 h-3" /> Nama Lengkap Mapel
                     </FormLabel>
-                    <FormControl><Input placeholder="Contoh: Bahasa Inggris" {...field} value={field.value || ""} /></FormControl>
+                    <FormControl><Input placeholder="Contoh: Pendidikan Pancasila" {...field} value={field.value || ""} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
