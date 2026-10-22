@@ -125,9 +125,9 @@ export default function RosterManagementPage() {
 
   const rosterQuery = useMemoFirebase(() => db ? collection(db, 'rosterEntries') : null, [db])
   const assignmentsQuery = useMemoFirebase(() => db ? collection(db, 'teacherAssignments') : null, [db])
-  const staffQuery = useMemoFirebase(() => db ? collection(db, 'staff') : null, [db])
   const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
   const subjectsQuery = useMemoFirebase(() => db ? collection(db, 'subjects') : null, [db])
+  const staffQuery = useMemoFirebase(() => db ? collection(db, 'staff') : null, [db])
   const configRef = useMemoFirebase(() => db ? doc(db, 'settings', 'roster') : null, [db])
   const systemSettingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
 
@@ -276,7 +276,7 @@ export default function RosterManagementPage() {
       subjectName: newEntry.isActivity ? "" : s?.name || "",
       isActivity: !!newEntry.isActivity,
       activityName: newEntry.isActivity ? newEntry.activityName : "",
-      duration: newEntry.isActivity ? (newEntry.duration || 0) : 40
+      duration: newEntry.isActivity ? (newEntry.duration || 0) : config.jpDuration
     }
 
     setLocalEntries([...localEntries, entry])
@@ -355,7 +355,8 @@ export default function RosterManagementPage() {
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
       
       const tableBody: any[] = [];
-      const rowsPerDay = MAX_PERIODS + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0) + 1;
+      const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
+      const rowsPerDay = MAX_PERIODS + breakCount + 1;
 
       DAYS.forEach(day => {
         let dayCellAdded = false;
@@ -366,9 +367,7 @@ export default function RosterManagementPage() {
             dayCellAdded = true;
           }
 
-          // Cek apakah ada kegiatan manual di jam ini
           const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
-          // HANYA anggap kegiatan jika namanya bukan "ISTIRAHAT" untuk menghindari duplikasi
           const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
 
           lessonRow.push(p);
@@ -397,7 +396,6 @@ export default function RosterManagementPage() {
             tableBody.push(lessonRow);
           }
 
-          // Injeksi Baris Istirahat Global (Hanya satu kali)
           const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
             if (active && p === breakPeriod) {
               const breakRow: any[] = ["B", getBreakTime(day, breakPeriod, duration)];
@@ -429,7 +427,7 @@ export default function RosterManagementPage() {
         theme: 'grid',
         styles: { fontSize: 6, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
-        columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 15 } },
+        columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 18 } },
       });
 
       doc.save(`Roster_Matriks_${schoolName.replace(/\s+/g, '_')}.pdf`);
@@ -521,11 +519,9 @@ export default function RosterManagementPage() {
                      {DAYS.map((day) => {
                        const rows = [];
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                       const dayRows = 10 + breakCount + 1; 
+                       const dayRows = MAX_PERIODS + breakCount + 1; 
                        for (let p = 1; p <= MAX_PERIODS; p++) {
-                         // Cek Kegiatan Manual
                          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
-                         // Sembunyikan jika namanya "Istirahat" karena sudah di-handle otomatis oleh config
                          const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
                          
                          rows.push(
@@ -568,7 +564,6 @@ export default function RosterManagementPage() {
                            </TableRow>
                          );
 
-                         // Injeksi Baris Istirahat (Hanya Muncul Sekali sesuai Config)
                          const checkInject = (period: number, active: boolean, label: string, duration: number) => {
                            if (active && p === period) {
                              rows.push(
@@ -619,7 +614,8 @@ export default function RosterManagementPage() {
                 <div className="space-y-2">
                   <Label>Durasi Standar 1 JP (Menit)</Label>
                   <Input type="number" value={config.jpDuration || 0} onChange={e => {
-                    if (configRef) setDoc(configRef, { ...config, jpDuration: parseInt(e.target.value) || 0 }, { merge: true }).catch(() => {})
+                    const val = parseInt(e.target.value) || 0;
+                    if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
                   }} />
                 </div>
               </CardContent>
@@ -644,7 +640,8 @@ export default function RosterManagementPage() {
                         </Select>
                       </div>
                       <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 0} onChange={e => {
-                        if (configRef) setDoc(configRef, { ...config, break1Duration: parseInt(e.target.value) || 0 }, { merge: true }).catch(() => {})
+                        const val = parseInt(e.target.value) || 0;
+                        if (configRef) setDoc(configRef, { ...config, break1Duration: val }, { merge: true }).catch(() => {})
                       }} /></div>
                     </div>
                   )}
@@ -661,7 +658,7 @@ export default function RosterManagementPage() {
           <div className="space-y-6 py-4">
             <div className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-xl">
                <div><Label className="font-bold">Mode Kegiatan Sekolah</Label><p className="text-[10px] text-muted-foreground italic">Agenda global non-KBM (Upacara/Eskul)</p></div>
-               <Switch checked={newEntry.isActivity} onCheckedChange={v => setNewEntry({...newEntry, isActivity: v, duration: v ? 45 : 40})} />
+               <Switch checked={newEntry.isActivity} onCheckedChange={v => setNewEntry({...newEntry, isActivity: v, duration: v ? 45 : config.jpDuration})} />
             </div>
             <div className="grid grid-cols-2 gap-4">
                <div className="space-y-2"><Label>Hari</Label><Select value={newEntry.day || "Senin"} onValueChange={v => setNewEntry({...newEntry, day: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div>
@@ -680,10 +677,9 @@ export default function RosterManagementPage() {
                        const val = e.target.value.replace(/[^0-9]/g, '');
                        setNewEntry({...newEntry, duration: val === "" ? 0 : parseInt(val)});
                      }} 
-                     placeholder="Contoh: 60" 
+                     placeholder={`Bawaan JP: ${config.jpDuration}`} 
                    />
                  </div>
-                 <div className="bg-amber-500/10 p-3 rounded-lg flex gap-2"><Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/><p className="text-[10px] text-amber-700 italic">Hindari menamai kegiatan 'Istirahat' di sini jika sudah ada di Konfigurasi Waktu.</p></div>
                </div>
             ) : (
                <div className="space-y-4">
@@ -718,7 +714,7 @@ export default function RosterManagementPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus</AlertDialogAction>
+            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Ya, Hapus</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
