@@ -453,6 +453,8 @@ export default function ClassesPage() {
       const academicYear = (config?.academicYear || "-").toUpperCase();
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
+      const headmasterName = config?.headmasterName || "-";
+      const headmasterNIP = config?.headmasterNIP || "-";
 
       doc.setFont("helvetica", "bold").setFontSize(11);
       doc.text(govName, 105, 12, { align: "center" });
@@ -488,8 +490,26 @@ export default function ClassesPage() {
         styles: { fontSize: 8, cellPadding: 1.2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
         columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
-        margin: { bottom: 10 }
+        margin: { bottom: 40 }
       });
+
+      // Tanda Tangan
+      const finalY = (doc as any).lastAutoTable.finalY + 15;
+      const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      const location = schoolAddress.split(',')[1]?.trim() || "Mando";
+
+      doc.setFontSize(9).setFont("helvetica", "normal");
+      doc.text(`Mengetahui,`, 14, finalY);
+      doc.text(`Kepala Sekolah,`, 14, finalY + 5);
+      
+      doc.text(`${location}, ${today}`, 196, finalY, { align: "right" });
+      doc.text(`Wali Kelas,`, 196, finalY + 5, { align: "right" });
+
+      doc.setFont("helvetica", "bold").text(headmasterName, 14, finalY + 25);
+      doc.setFont("helvetica", "normal").text(`NIP. ${headmasterNIP}`, 14, finalY + 29);
+
+      doc.setFont("helvetica", "bold").text(hTeacher, 196, finalY + 25, { align: "right" });
+      doc.setFont("helvetica", "normal").text(`NIP. -`, 196, finalY + 29, { align: "right" });
 
       doc.save(`Daftar_Murid_${className.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Laporan Berhasil Diunduh" });
@@ -517,6 +537,8 @@ export default function ClassesPage() {
       const academicYear = (config?.academicYear || "-").toUpperCase();
       const hTeacher = selectedClassForStudents.homeroomTeacher || "-";
       const className = selectedClassForStudents.name.toUpperCase();
+      const headmasterName = config?.headmasterName || "-";
+      const headmasterNIP = config?.headmasterNIP || "-";
 
       doc.setFont("helvetica", "bold").setFontSize(10);
       doc.text(govName, 148.5, 10, { align: "center" });
@@ -545,8 +567,26 @@ export default function ClassesPage() {
         styles: { fontSize: 6, cellPadding: 0.8, textColor: [0, 0, 0], lineColor: [0, 0, 0], halign: 'center' },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.1, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 7 }, 1: { cellWidth: 50, halign: 'left' }, 2: { cellWidth: 6 }, ...Object.fromEntries(Array.from({length: 31}, (_, i) => [i + 3, { cellWidth: 6.2 }])), 34: { cellWidth: 6 }, 35: { cellWidth: 6 }, 36: { cellWidth: 6 } },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14, bottom: 35 }
       });
+
+      // Tanda Tangan (Landscape)
+      const finalY = (doc as any).lastAutoTable.finalY + 10;
+      const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      const location = schoolAddress.split(',')[1]?.trim() || "Mando";
+
+      doc.setFontSize(8).setFont("helvetica", "normal");
+      doc.text(`Mengetahui,`, 40, finalY);
+      doc.text(`Kepala Sekolah,`, 40, finalY + 4);
+      
+      doc.text(`${location}, ${today}`, 250, finalY, { align: "center" });
+      doc.text(`Wali Kelas,`, 250, finalY + 4, { align: "center" });
+
+      doc.setFont("helvetica", "bold").text(headmasterName, 40, finalY + 20);
+      doc.setFont("helvetica", "normal").text(`NIP. ${headmasterNIP}`, 40, finalY + 24);
+
+      doc.setFont("helvetica", "bold").text(hTeacher, 250, finalY + 20, { align: "center" });
+      doc.setFont("helvetica", "normal").text(`NIP. -`, 250, finalY + 24, { align: "center" });
 
       doc.save(`Absensi_Bulanan_${className.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Laporan Berhasil Diunduh" });

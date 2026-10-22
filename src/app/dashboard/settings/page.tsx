@@ -11,7 +11,8 @@ import {
   Type,
   Upload,
   Calendar,
-  MapPin
+  MapPin,
+  UserCheck
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -54,7 +55,9 @@ export default function SettingsPage() {
     schoolAddress: "Mando, Kelurahan Compang Carep, Kecamatan Langke Rembong",
     npsn: "00000000",
     academicYear: "2024/2025",
-    activeSemester: 1
+    activeSemester: 1,
+    headmasterName: "",
+    headmasterNIP: ""
   })
 
   useEffect(() => {
@@ -188,52 +191,6 @@ export default function SettingsPage() {
           <Card className="border-border/50">
             <CardHeader>
               <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-primary" />
-                <CardTitle className="font-headline text-lg">Branding Aplikasi</CardTitle>
-              </div>
-              <CardDescription>Sesuaikan nama dan logo aplikasi sistem.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                    <Type className="w-3 h-3" /> Nama Aplikasi
-                  </label>
-                  <Input 
-                    value={localConfig.appName}
-                    onChange={(e) => setLocalConfig({...localConfig, appName: e.target.value})}
-                    placeholder="Contoh: SIS TERPADU" 
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                    <ImageIcon className="w-3 h-3" /> Logo Aplikasi
-                  </label>
-                  <div className="flex gap-2">
-                    <Button 
-                      type="button" 
-                      variant="outline" 
-                      onClick={() => logoInputRef.current?.click()}
-                      className="shrink-0 gap-2 border-primary/20 text-primary hover:bg-primary/5 w-full"
-                    >
-                      <Upload className="w-4 h-4" /> Unggah Logo
-                    </Button>
-                    <input 
-                      type="file" 
-                      ref={logoInputRef} 
-                      onChange={handleFileUpload} 
-                      accept=".jpg,.jpeg,.png,.webp,.svg" 
-                      className="hidden" 
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/50">
-            <CardHeader>
-              <div className="flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-primary" />
                 <CardTitle className="font-headline text-lg">Identitas Sekolah (Kop Surat)</CardTitle>
               </div>
@@ -283,9 +240,78 @@ export default function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <Card className="border-border/50">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-primary" />
+                <CardTitle className="font-headline text-lg">Pejabat Penandatangan</CardTitle>
+              </div>
+              <CardDescription>Data Kepala Sekolah untuk tanda tangan laporan.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Nama Kepala Sekolah</label>
+                  <Input 
+                    value={localConfig.headmasterName}
+                    onChange={(e) => setLocalConfig({...localConfig, headmasterName: e.target.value})}
+                    placeholder="Nama Lengkap & Gelar" 
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">NIP Kepala Sekolah</label>
+                  <Input 
+                    value={localConfig.headmasterNIP}
+                    onChange={(e) => setLocalConfig({...localConfig, headmasterNIP: e.target.value})}
+                    placeholder="NIP: 19xxxxxxxxxxxxxx" 
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="space-y-6">
+          <Card className="border-border/50 bg-primary/5">
+            <CardHeader>
+              <div className="flex items-center gap-2 text-primary">
+                <ImageIcon className="w-5 h-5" />
+                <CardTitle className="text-sm font-bold uppercase">Logo Aplikasi</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="aspect-square w-full rounded-xl border border-dashed border-primary/30 flex items-center justify-center overflow-hidden bg-background">
+                {localConfig.appLogoUrl ? (
+                  <img src={localConfig.appLogoUrl} alt="Preview Logo" className="w-full h-full object-contain p-4" />
+                ) : (
+                  <div className="text-center p-6">
+                    <ImageIcon className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-20" />
+                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Belum Ada Logo</p>
+                  </div>
+                )}
+              </div>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => logoInputRef.current?.click()}
+                className="w-full gap-2 border-primary/20 text-primary hover:bg-primary/5"
+              >
+                <Upload className="w-4 h-4" /> Ganti Logo
+              </Button>
+              <input 
+                type="file" 
+                ref={logoInputRef} 
+                onChange={handleFileUpload} 
+                accept=".jpg,.jpeg,.png,.webp,.svg" 
+                className="hidden" 
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed italic text-center">
+                Mendukung format JPG, PNG, WEBP, atau SVG. Ukuran maksimal 500KB.
+              </p>
+            </CardContent>
+          </Card>
+
           <Card className="border-border/50 bg-primary/5">
             <CardContent className="p-6">
               <div className="flex items-start gap-4">
@@ -293,7 +319,7 @@ export default function SettingsPage() {
                 <div>
                   <h4 className="font-bold text-sm">Penting: Kop Surat Laporan</h4>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                    Data Identitas Sekolah akan digunakan sebagai header (Kop Surat) pada seluruh dokumen PDF yang dihasilkan sistem, termasuk **Daftar Hadir Siswa**.
+                    Data Identitas Sekolah dan Kepala Sekolah akan digunakan secara otomatis pada seluruh dokumen PDF yang dihasilkan sistem.
                   </p>
                 </div>
               </div>

@@ -116,7 +116,6 @@ function GradingPageContent() {
     }
   }, [serverGradingConfig])
 
-  // --- AUTO-BALANCE LOGIC ---
   const balanceWeights = (weights: Record<string, number>, changedField: string, newVal: number, visibility: Record<string, boolean>) => {
     const visibleIds = GRADE_FIELDS.filter(f => visibility[f.id]).map(f => f.id);
     if (visibleIds.length <= 1) {
@@ -141,7 +140,6 @@ function GradingPageContent() {
       });
     }
 
-    // Clean up rounding differences to ensure total is exactly 100
     const currentTotal = visibleIds.reduce((s, id) => s + (newWeights[id] || 0), 0);
     if (currentTotal !== 100 && others.length > 0) {
       const diff = 100 - currentTotal;
@@ -158,7 +156,6 @@ function GradingPageContent() {
       
       let newWeights = { ...prev.weights };
       if (!checked) {
-        // Redistribute removed weight
         const removedWeight = prev.weights[fieldId] || 0;
         newWeights[fieldId] = 0;
         if (visibleIds.length > 0) {
@@ -174,12 +171,10 @@ function GradingPageContent() {
           }
         }
       } else {
-        // Borrow weight for the new field
         const initialShare = Math.round(100 / visibleIds.length);
         newWeights = balanceWeights(prev.weights, fieldId, initialShare, newVisibility);
       }
 
-      // Final pass to ensure 100%
       const finalTotal = visibleIds.reduce((s, id) => s + (newWeights[id] || 0), 0);
       if (finalTotal !== 100 && visibleIds.length > 0) {
         newWeights[visibleIds[0]] += (100 - finalTotal);
@@ -287,18 +282,31 @@ function GradingPageContent() {
       const { default: autoTable } = await import('jspdf-autotable')
       const doc = new jsPDF('landscape')
       
-      const dinasName = config?.dinasName || "DINAS PENDIDIKAN"
-      const schoolName = config?.schoolName || "SIS TERPADU"
+      const govName = (config?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
+      let dinasName = (config?.dinasName || "DINAS PENDIDIKAN").toUpperCase();
+      if (dinasName.startsWith(govName)) dinasName = dinasName.replace(govName, "").trim();
+      const schoolName = (config?.schoolName || "SIS TERPADU").toUpperCase();
+      const schoolAddress = config?.schoolAddress || "Alamat Sekolah";
+      const academicYear = config?.academicYear || "-";
+      const headmasterName = config?.headmasterName || "-";
+      const headmasterNIP = config?.headmasterNIP || "-";
+      const teacherName = user?.displayName || "-";
       
-      doc.setFontSize(12).setFont("helvetica", "bold").setTextColor(67, 97, 238)
-      doc.text(dinasName.toUpperCase(), 148, 15, { align: "center" })
-      doc.text(schoolName.toUpperCase(), 148, 22, { align: "center" })
-      doc.setDrawColor(67, 97, 238).setLineWidth(0.5).line(14, 26, 283, 26)
+      // Kop Surat
+      doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(0);
+      doc.text(govName, 148, 12, { align: "center" });
+      doc.text(dinasName, 148, 17, { align: "center" });
+      doc.setFontSize(12).text(schoolName, 148, 23, { align: "center" });
+      doc.setFont("helvetica", "normal").setFontSize(8).text(schoolAddress, 148, 28, { align: "center" });
+      doc.setLineWidth(0.6).line(14, 31, 283, 31);
+      doc.setLineWidth(0.1).line(14, 32, 283, 32);
 
-      doc.setFontSize(14).setTextColor(0).text(`LAPORAN NILAI SISWA - SEMESTER ${activeSemester}`, 14, 38)
-      doc.setFontSize(10).setTextColor(100)
-      doc.text(`Mata Pelajaran: ${assignment.subjectName}`, 14, 45)
-      doc.text(`Kelas: ${assignment.className} | Guru: ${user?.displayName || '-'}`, 14, 51)
+      doc.setFontSize(11).setFont("helvetica", "bold").text(`DAFTAR NILAI SISWA - SEMESTER ${activeSemester}`, 148, 42, { align: "center" });
+      doc.setFontSize(9).text(`TAHUN PELAJARAN ${academicYear}`, 148, 47, { align: "center" });
+
+      doc.setFontSize(9).text(`MATA PELAJARAN: ${assignment.subjectName.toUpperCase()}`, 14, 56);
+      doc.text(`KELAS: ${assignment.className.toUpperCase()}`, 283, 56, { align: "right" });
+      doc.text(`GURU PENGAMPU: ${teacherName.toUpperCase()}`, 14, 61);
       
       const visibleFields = GRADE_FIELDS.filter(f => localConfig.visibility[f.id])
       const head = [['No', 'Nama Murid', 'NISN', ...visibleFields.map(f => f.label), 'Total']]
@@ -314,11 +322,30 @@ function GradingPageContent() {
       autoTable(doc, {
         head: head,
         body: body,
-        startY: 58,
-        theme: 'striped',
-        headStyles: { fillColor: [67, 97, 238], textColor: [255, 255, 255] },
-        styles: { fontSize: 8, cellPadding: 2 }
+        startY: 65,
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2, textColor: [0,0,0], lineColor: [0,0,0] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.1, fontStyle: 'bold' },
+        margin: { bottom: 40 }
       })
+
+      // Tanda Tangan
+      const finalY = (doc as any).lastAutoTable.finalY + 15;
+      const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+      const location = schoolAddress.split(',')[1]?.trim() || "Mando";
+
+      doc.setFontSize(9).setFont("helvetica", "normal");
+      doc.text(`Mengetahui,`, 40, finalY);
+      doc.text(`Kepala Sekolah,`, 40, finalY + 5);
+      
+      doc.text(`${location}, ${today}`, 250, finalY, { align: "center" });
+      doc.text(`Guru Mata Pelajaran,`, 250, finalY + 5, { align: "center" });
+
+      doc.setFont("helvetica", "bold").text(headmasterName, 40, finalY + 25);
+      doc.setFont("helvetica", "normal").text(`NIP. ${headmasterNIP}`, 40, finalY + 29);
+
+      doc.setFont("helvetica", "bold").text(teacherName, 250, finalY + 25, { align: "center" });
+      doc.setFont("helvetica", "normal").text(`NIP. -`, 250, finalY + 29, { align: "center" });
 
       doc.save(`Nilai_${assignment.subjectName}_Kelas_${assignment.className}_Smt${activeSemester}.pdf`)
       toast({ title: "Berhasil Mengunduh", description: "Buku nilai telah disimpan sebagai PDF." })
@@ -340,7 +367,6 @@ function GradingPageContent() {
     </div>
   )
 
-  // --- VIEW: CONFIGURATION ---
   if (activeView === 'config') {
     return (
       <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto">
@@ -443,7 +469,6 @@ function GradingPageContent() {
     )
   }
 
-  // --- VIEW: MAIN TABLE ---
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
