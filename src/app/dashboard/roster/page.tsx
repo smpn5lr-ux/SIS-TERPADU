@@ -152,54 +152,65 @@ export default function RosterManagementPage() {
 
   const config = useMemo(() => ({
     entryTime: rosterConfig?.entryTime || "07:00",
-    jpDuration: rosterConfig?.jpDuration ?? 40,
+    jpDuration: Number(rosterConfig?.jpDuration) || 40,
     break1Active: rosterConfig?.break1Active ?? true,
     break1Period: rosterConfig?.break1Period ?? 4,
-    break1Duration: rosterConfig?.break1Duration ?? 30,
+    break1Duration: Number(rosterConfig?.break1Duration) || 30,
     break2Active: rosterConfig?.break2Active ?? false,
     break2Period: rosterConfig?.break2Period ?? 6,
-    break2Duration: rosterConfig?.break2Duration ?? 15
+    break2Duration: Number(rosterConfig?.break2Duration) || 15
   }), [rosterConfig])
 
-  const getTimeForDayAndPeriod = (day: string, period: number) => {
+  // Helper untuk mendapatkan waktu mulai suatu jam pelajaran dengan menjumlahkan durasi sebelumnya
+  const getStartTimeForPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
+    const standardJP = config.jpDuration;
     
     for (let i = 1; i < period; i++) {
+      // Cari jika ada kegiatan khusus di jam ke-i pada hari tsb
       const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
-      const duration = activity?.duration || config.jpDuration;
+      const duration = (activity && typeof activity.duration === 'number' && activity.duration > 0) 
+        ? activity.duration 
+        : standardJP;
+      
       current = addMinutes(current, duration)
+      
+      // Tambah istirahat jika ada
       if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
       if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
     }
+    return current;
+  }
 
-    const currentActivity = localEntries.find(e => e.day === day && e.period === period && e.isActivity);
-    const currentDuration = currentActivity?.duration || config.jpDuration;
-    const end = addMinutes(current, currentDuration)
+  const getTimeForDayAndPeriod = (day: string, period: number) => {
+    const start = getStartTimeForPeriod(day, period);
+    const activity = localEntries.find(e => e.day === day && e.period === period && e.isActivity);
+    const duration = (activity && typeof activity.duration === 'number' && activity.duration > 0) 
+      ? activity.duration 
+      : config.jpDuration;
     
-    return `${format(current, 'HH:mm')} - ${format(end, 'HH:mm')}`
+    const end = addMinutes(start, duration)
+    return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
   }
 
   const getDismissalTime = (day: string) => {
-    let current = parse(config.entryTime, 'HH:mm', new Date())
-    for (let i = 1; i <= MAX_PERIODS; i++) {
-      const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
-      current = addMinutes(current, activity?.duration || config.jpDuration)
-      if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
-      if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
-    }
-    return format(current, 'HH:mm');
+    const lastPeriodStart = getStartTimeForPeriod(day, MAX_PERIODS);
+    const activity = localEntries.find(e => e.day === day && e.period === MAX_PERIODS && e.isActivity);
+    const lastDuration = (activity && typeof activity.duration === 'number' && activity.duration > 0)
+      ? activity.duration
+      : config.jpDuration;
+    return format(addMinutes(lastPeriodStart, lastDuration), 'HH:mm');
   }
 
   const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
-    let current = parse(config.entryTime, 'HH:mm', new Date())
-    for (let i = 1; i < afterPeriod; i++) {
-      const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
-      current = addMinutes(current, activity?.duration || config.jpDuration)
-      if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
-      if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
-    }
-    const start = addMinutes(current, localEntries.find(e => e.day === day && e.period === afterPeriod && e.isActivity)?.duration || config.jpDuration)
-    const end = addMinutes(start, duration)
+    const startOfPeriod = getStartTimeForPeriod(day, afterPeriod);
+    const activity = localEntries.find(e => e.day === day && e.period === afterPeriod && e.isActivity);
+    const periodDuration = (activity && typeof activity.duration === 'number' && activity.duration > 0)
+      ? activity.duration
+      : config.jpDuration;
+      
+    const start = addMinutes(startOfPeriod, periodDuration);
+    const end = addMinutes(start, Number(duration) || 0)
     return `${format(start, 'HH:mm')} - ${format(end, 'HH:mm')}`
   }
 
@@ -207,7 +218,7 @@ export default function RosterManagementPage() {
     if (!assignments || !classes) return []
     return assignments.map(a => {
       const cls = classes.find(c => c.id === a.classId)
-      const displayClassName = cls ? cls.name : a.className
+      const displayClassName = cls ? cls.name : (a.className || "-")
       const scheduledCount = localEntries.filter(e => 
         e.teacherId === a.teacherId && 
         e.subjectId === a.subjectId && 
@@ -264,19 +275,20 @@ export default function RosterManagementPage() {
     const c = classes?.find(c => c.id === newEntry.classId)
     const s = subjects?.find(s => s.id === newEntry.subjectId)
 
+    const dur = Number(newEntry.duration);
     const entry: RosterEntry = {
       id: `temp-${Date.now()}`,
       day: newEntry.day || "Senin",
       period: newEntry.period || 1,
       classId: newEntry.isActivity ? "" : (newEntry.classId || ""),
-      className: newEntry.isActivity ? "SEMUA" : (c?.name || ""),
+      className: newEntry.isActivity ? "SEMUA" : (c?.name || "-"),
       teacherId: newEntry.isActivity ? "" : newEntry.teacherId,
-      teacherName: newEntry.isActivity ? "" : (t?.fullName || ""),
+      teacherName: newEntry.isActivity ? "" : (t?.fullName || "-"),
       subjectId: newEntry.isActivity ? "" : newEntry.subjectId,
-      subjectName: newEntry.isActivity ? "" : (s?.name || ""),
+      subjectName: newEntry.isActivity ? "" : (s?.name || "-"),
       isActivity: !!newEntry.isActivity,
       activityName: newEntry.isActivity ? (newEntry.activityName || "KEGIATAN") : "",
-      duration: newEntry.isActivity ? (newEntry.duration || 0) : config.jpDuration
+      duration: newEntry.isActivity ? (dur > 0 ? dur : config.jpDuration) : config.jpDuration
     }
 
     setLocalEntries([...localEntries, entry])
@@ -384,7 +396,7 @@ export default function RosterManagementPage() {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === p && e.classId === cls.id);
               if (entry) {
-                const colorInfo = getEntryColor(entry.subjectName);
+                const colorInfo = getEntryColor(entry.subjectName || "");
                 lessonRow.push({ 
                   content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
                   styles: { fillColor: colorInfo.rgb, textColor: [0, 0, 0], fontSize: 6 } 
