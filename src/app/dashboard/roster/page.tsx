@@ -20,7 +20,9 @@ import {
   ShieldAlert,
   Printer,
   Sparkles,
-  Zap
+  Zap,
+  BookOpen,
+  UserCheck
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -301,6 +303,7 @@ export default function RosterManagementPage() {
       doc.setFontSize(12).text(schoolName, 148.5, 23, { align: "center" });
       doc.setFont("helvetica", "normal").setFontSize(8).text(schoolAddress, 148.5, 28, { align: "center" });
       doc.setLineWidth(0.6).line(14, 31, 283, 31);
+      doc.setLineWidth(0.1).line(14, 32, 283, 32);
       
       doc.setFont("helvetica", "bold").setFontSize(11).text("MATRIKS JADWAL PELAJARAN TERPADU", 148.5, 40, { align: "center" });
       
@@ -322,9 +325,10 @@ export default function RosterManagementPage() {
           lessonRow.push(getTimeForPeriod(p));
           
           sorted.forEach(cls => {
-            const entry = localEntries.find(e => e.day === day && e.period === p && e.classId === cls.id);
+            const entry = getEntry(day, p, cls.id);
             if (entry) {
-              lessonRow.push(entry.isActivity ? (entry.activityName || "REHAT") : (entry.subjectName || ""));
+              const text = entry.isActivity ? (entry.activityName || "REHAT") : `${entry.subjectName}\n(${entry.teacherName})`;
+              lessonRow.push({ content: text, styles: { fillColor: entry.isActivity ? [255, 248, 230] : [240, 247, 255] } });
             } else {
               lessonRow.push("");
             }
@@ -335,7 +339,7 @@ export default function RosterManagementPage() {
           const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
             if (active && p === breakPeriod) {
               const breakRow: any[] = ["B", getBreakTime(breakPeriod, duration)];
-              breakRow.push({ content: label, colSpan: sorted.length, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', textColor: [100, 100, 100], halign: 'center' } });
+              breakRow.push({ content: label, colSpan: sorted.length, styles: { fillColor: [245, 245, 245], fontStyle: 'bold', textColor: [80, 80, 80], halign: 'center' } });
               tableBody.push(breakRow);
             }
           }
@@ -365,7 +369,12 @@ export default function RosterManagementPage() {
   };
 
   const getEntry = (day: string, period: number, classId: string) => {
-    return localEntries.find(e => e.day === day && e.period === period && e.classId === classId)
+    const entry = localEntries.find(e => e.day === day && e.period === period && e.classId === classId);
+    // Jika entry adalah "Istirahat" manual, abaikan karena sekarang ada baris Istirahat Global
+    if (entry && (entry.activityName?.toLowerCase().includes("istirahat") || entry.subjectName?.toLowerCase().includes("istirahat"))) {
+      return null;
+    }
+    return entry;
   }
 
   if (loadingR || loadingConfigDoc || loadingClasses) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
@@ -469,13 +478,19 @@ export default function RosterManagementPage() {
                                return (
                                  <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                    {entry ? (
-                                     <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-amber-500/10 border-amber-500/20' : 'bg-primary/10 border-primary/20'} ${isTemp ? 'border-dashed border-2 border-amber-500/30' : ''}`}>
-                                       <div className="text-[9px] font-black truncate uppercase leading-tight">{entry.isActivity ? (entry.activityName || "REHAT") : entry.subjectName}</div>
-                                       {!entry.isActivity && <div className="text-[8px] text-muted-foreground truncate mt-1 italic font-medium">{entry.teacherName}</div>}
+                                     <div className={`h-full border rounded-lg p-2.5 flex flex-col justify-center transition-all shadow-sm ${entry.isActivity ? 'bg-amber-500/15 border-amber-500/30' : 'bg-blue-600/15 border-blue-500/30'} ${isTemp ? 'border-dashed border-2 border-primary/30' : ''}`}>
+                                       <div className="text-[10px] font-black truncate uppercase leading-tight text-foreground">
+                                         {entry.isActivity ? (entry.activityName || "KEGIATAN") : entry.subjectName}
+                                       </div>
+                                       {!entry.isActivity && (
+                                         <div className="text-[9px] text-muted-foreground truncate mt-1 font-medium border-t border-border/20 pt-1">
+                                           {entry.teacherName || "Guru Belum Set"}
+                                         </div>
+                                       )}
                                        <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => { setEntryToDeleteId(entry.id); setIsDeleteDialogOpen(true); }}><Trash2 className="w-3.5 h-3.5" /></Button>
                                      </div>
                                    ) : (
-                                     <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/20 rounded-lg group-hover:border-primary/40 cursor-pointer bg-muted/2" onClick={() => { setNewEntry({...newEntry, day, period: p, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-10 group-hover:opacity-30" /></div>
+                                     <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: p, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
                                    )}
                                  </TableCell>
                                );
@@ -489,7 +504,7 @@ export default function RosterManagementPage() {
                                  <TableCell className="border-r font-bold text-[10px] text-center p-2 text-accent">B</TableCell>
                                  <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getBreakTime(period, duration)}</TableCell>
                                  <TableCell colSpan={sortedClasses.length} className="p-0 border-r last:border-r-0 border-y border-accent/10">
-                                   <div className="h-10 flex items-center justify-center text-accent font-black text-[10px] tracking-[0.6em] uppercase">{label}</div>
+                                   <div className="h-10 flex items-center justify-center text-accent font-black text-[11px] tracking-[0.8em] uppercase bg-muted/20">{label}</div>
                                  </TableCell>
                                </TableRow>
                              );
