@@ -28,7 +28,8 @@ import {
   Layers,
   CloudUpload,
   CloudOff,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -165,7 +166,6 @@ export default function RosterManagementPage() {
   const workloadStats = useMemo(() => {
     if (!assignments || !classes) return []
     return assignments.map(a => {
-      // SINKRONISASI NAMA KELAS: Ambil nama terbaru dari koleksi classes
       const cls = classes.find(c => c.id === a.classId)
       const displayClassName = cls ? cls.name : a.className
 
@@ -176,7 +176,7 @@ export default function RosterManagementPage() {
       ).length
       return {
         ...a,
-        className: displayClassName, // Ganti dengan nama terbaru
+        className: displayClassName,
         scheduled: scheduledCount,
         isMet: scheduledCount >= (a.totalJP || 0),
         percent: Math.min(100, Math.round((scheduledCount / (a.totalJP || 1)) * 100))
@@ -186,38 +186,33 @@ export default function RosterManagementPage() {
 
   const teacherCoding = useMemo(() => {
     if (!assignments) return { teacherMap: new Map(), subjectColors: new Map() };
-    
     const teacherMap = new Map();
     const subjectColors = new Map();
-    
-    const uniqueTeacherIds = Array.from(new Set(assignments.map(a => a.teacherId)))
-      .sort((a, b) => {
+    const uniqueTeacherIds = Array.from(new Set(assignments.map(a => a.teacherId))).sort((a, b) => {
         const nameA = assignments.find(x => x.teacherId === a)?.teacherName || "";
         const nameB = assignments.find(x => x.teacherId === b)?.teacherName || "";
         return nameA.localeCompare(nameB);
       });
-      
-    uniqueTeacherIds.forEach((id, idx) => {
-      teacherMap.set(id, idx + 1);
-    });
-
+    uniqueTeacherIds.forEach((id, idx) => { teacherMap.set(id, idx + 1); });
     const sortedAssignments = [...assignments].sort((a, b) => {
       const tComp = (a.teacherName || "").localeCompare(b.teacherName || "");
       if (tComp !== 0) return tComp;
       return (a.subjectName || "").localeCompare(b.subjectName || "");
     });
-
     sortedAssignments.forEach((asg, idx) => {
       const key = `${asg.teacherId}_${asg.subjectId}`;
-      if (!subjectColors.has(key)) {
-        subjectColors.set(key, PALETTE[idx % PALETTE.length]);
-      }
+      if (!subjectColors.has(key)) { subjectColors.set(key, PALETTE[idx % PALETTE.length]); }
     });
-
     return { teacherMap, subjectColors };
   }, [assignments]);
 
   const handleAddEntryLocal = () => {
+    const isGlobalBreak = (config.break1Active && newEntry.period === config.break1Period) || (config.break2Active && newEntry.period === config.break2Period);
+    if (isGlobalBreak && !newEntry.isActivity) {
+      toast({ variant: "destructive", title: "Jam Istirahat Global", description: "Jam ini sudah disetel untuk istirahat seluruh kelas." });
+      return;
+    }
+
     const t = teachers.find(t => t.id === newEntry.teacherId)
     const c = classes?.find(c => c.id === newEntry.classId)
     const s = subjects?.find(s => s.id === newEntry.subjectId)
@@ -239,7 +234,7 @@ export default function RosterManagementPage() {
     setLocalEntries([...localEntries, entry])
     setIsDirty(true)
     setIsAddOpen(false)
-    toast({ title: "Ditambahkan ke Buffer", description: "Perubahan belum tersimpan ke database." })
+    toast({ title: "Ditambahkan ke Buffer" })
   }
 
   const handleDeleteEntryLocal = (id: string) => {
@@ -250,7 +245,6 @@ export default function RosterManagementPage() {
   const handleSyncGlobalBlocksLocal = () => {
     if (!classes) return
     const newBlocks: RosterEntry[] = []
-    
     classes.forEach(cls => {
       DAYS.forEach(day => {
         if (config.break1Active) {
@@ -275,11 +269,10 @@ export default function RosterManagementPage() {
         }
       })
     })
-
     if (newBlocks.length > 0) {
       setLocalEntries([...localEntries, ...newBlocks])
       setIsDirty(true)
-      toast({ title: "Blok Istirahat Ditambahkan", description: `${newBlocks.length} slot disiapkan.` })
+      toast({ title: "Blok Istirahat Ditambahkan" })
     }
   }
 
@@ -287,30 +280,21 @@ export default function RosterManagementPage() {
     if (!assignments || !classes) return
     const pool = [...localEntries]
     let filledCount = 0
-
-    const unfinished = workloadStats
-      .filter(w => !w.isMet)
-      .sort(() => Math.random() - 0.5)
-
+    const unfinished = workloadStats.filter(w => !w.isMet).sort(() => Math.random() - 0.5)
     for (const job of unfinished) {
       let remaining = (job.totalJP || 0) - (pool.filter(e => e.teacherId === job.teacherId && e.subjectId === job.subjectId && e.classId === job.classId).length)
       if (remaining <= 0) continue
       const targetClass = classes.find(c => c.id === job.classId)
       if (!targetClass) continue
-
       for (const day of DAYS) {
         for (let p = 1; p <= MAX_PERIODS; p++) {
           if (remaining <= 0) break
-
           const isBreak = (config.break1Active && p === config.break1Period) || (config.break2Active && p === config.break2Period)
           if (isBreak) continue
-
           const isSlotTaken = pool.some(e => e.day === day && e.period === p && e.classId === targetClass.id)
           if (isSlotTaken) continue
-
           const isTeacherBusy = pool.some(e => e.day === day && e.period === p && e.teacherId === job.teacherId)
           if (isTeacherBusy) continue
-
           let batchSize = 1
           if (remaining >= 2 && p % 2 !== 0 && p < MAX_PERIODS) {
             const nextP = p + 1
@@ -319,7 +303,6 @@ export default function RosterManagementPage() {
             const nextIsBusy = pool.some(e => e.day === day && e.period === nextP && e.teacherId === job.teacherId)
             if (!nextIsBreak && !nextIsTaken && !nextIsBusy) batchSize = 2
           }
-
           for (let i = 0; i < batchSize; i++) {
             const currentP = p + i
             const entry: RosterEntry = {
@@ -338,11 +321,10 @@ export default function RosterManagementPage() {
         if (remaining <= 0) break
       }
     }
-
     if (filledCount > 0) {
       setLocalEntries(pool)
       setIsDirty(true)
-      toast({ title: "Generate Lokal Selesai", description: `${filledCount} slot baru ditambahkan ke buffer.` })
+      toast({ title: "Generate Selesai", description: `${filledCount} slot ditambahkan.` })
     }
   }
 
@@ -350,23 +332,18 @@ export default function RosterManagementPage() {
     if (!db || !serverEntries) return
     setIsSyncingToCloud(true)
     const batch = writeBatch(db)
-
     try {
       const toDelete = serverEntries.filter(se => !localEntries.some(le => le.id === se.id))
-      toDelete.forEach(e => {
-        batch.delete(doc(db, 'rosterEntries', e.id))
-      })
-
+      toDelete.forEach(e => { batch.delete(doc(db, 'rosterEntries', e.id)) })
       const toAdd = localEntries.filter(le => le.id.startsWith('temp-'))
       toAdd.forEach(e => {
         const newRef = doc(collection(db, 'rosterEntries'))
         const { id, ...data } = e
         batch.set(newRef, { ...data, createdAt: new Date().toISOString() })
       })
-
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil", description: "Data roster telah diperbarui di cloud." })
+      toast({ title: "Sinkronisasi Berhasil" })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -379,9 +356,9 @@ export default function RosterManagementPage() {
     setIsSavingConfig(true)
     try {
       await setDoc(configRef, config, { merge: true })
-      toast({ title: "Konfigurasi Waktu Disimpan" })
+      toast({ title: "Konfigurasi Disimpan" })
     } catch (e) {
-      toast({ variant: "destructive", title: "Gagal menyimpan konfigurasi" })
+      toast({ variant: "destructive", title: "Gagal menyimpan" })
     } finally {
       setIsSavingConfig(false)
     }
@@ -400,12 +377,20 @@ export default function RosterManagementPage() {
       const doc = new jsPDF('l', 'mm', 'a4');
       const { teacherMap, subjectColors } = teacherCoding;
 
-      const sName = systemSettings?.schoolName || "SIS TERPADU";
-      const dName = systemSettings?.dinasName || "DINAS PENDIDIKAN";
+      const govName = (systemSettings?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
+      let dinasName = (systemSettings?.dinasName || "DINAS PENDIDIKAN").toUpperCase();
+      if (dinasName.startsWith(govName)) dinasName = dinasName.replace(govName, "").trim();
+      const schoolName = (systemSettings?.schoolName || "SIS TERPADU").toUpperCase();
+      const schoolAddress = systemSettings?.schoolAddress || "Alamat Sekolah";
 
-      doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(67, 97, 238);
-      doc.text(dName.toUpperCase(), 148.5, 12, { align: "center" });
-      doc.text(`MATRIKS JADWAL PELAJARAN TERPADU - ${sName.toUpperCase()}`, 148.5, 18, { align: "center" });
+      doc.setFontSize(10).setFont("helvetica", "bold").setTextColor(0);
+      doc.text(govName, 148.5, 12, { align: "center" });
+      doc.text(dinasName, 148.5, 17, { align: "center" });
+      doc.setFontSize(12).text(schoolName, 148.5, 23, { align: "center" });
+      doc.setFont("helvetica", "normal").setFontSize(8).text(schoolAddress, 148.5, 28, { align: "center" });
+      doc.setLineWidth(0.6).line(14, 31, 283, 31);
+      
+      doc.setFont("helvetica", "bold").setFontSize(11).text("MATRIKS JADWAL PELAJARAN TERPADU", 148.5, 40, { align: "center" });
       
       const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
@@ -413,17 +398,24 @@ export default function RosterManagementPage() {
       const tableBody: any[] = [];
       DAYS.forEach(day => {
         for (let p = 1; p <= MAX_PERIODS; p++) {
+          const isGBreak = (config.break1Active && p === config.break1Period) || (config.break2Active && p === config.break2Period);
           const row: any[] = [];
           row.push(p === 1 ? day : ""); 
           row.push(p);
           row.push(getTimeForPeriod(p));
-          sorted.forEach(cls => {
-            const entry = getEntry(day, p, cls.id);
-            if (entry) {
-              if (entry.isActivity) row.push(entry.activityName || "REHAT");
-              else row.push(teacherMap.get(entry.teacherId) || "?");
-            } else row.push("");
-          });
+          
+          if (isGBreak) {
+            const breakLabel = (config.break1Active && p === config.break1Period) ? "ISTIRAHAT 1" : "ISTIRAHAT 2";
+            sorted.forEach(() => row.push(breakLabel));
+          } else {
+            sorted.forEach(cls => {
+              const entry = getEntry(day, p, cls.id);
+              if (entry) {
+                if (entry.isActivity) row.push(entry.activityName || "REHAT");
+                else row.push(teacherMap.get(entry.teacherId) || "?");
+              } else row.push("");
+            });
+          }
           tableBody.push(row);
         }
       });
@@ -431,10 +423,10 @@ export default function RosterManagementPage() {
       autoTable(doc, {
         head: tableHead,
         body: tableBody,
-        startY: 25,
+        startY: 45,
         theme: 'grid',
-        styles: { fontSize: 6, cellPadding: 1, halign: 'center', valign: 'middle' },
-        headStyles: { fillColor: [67, 97, 238], textColor: [255, 255, 255], fontSize: 7, fontStyle: 'bold' },
+        styles: { fontSize: 6, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
+        headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
         columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 15 } },
         didParseCell: (data) => {
           if (data.section === 'body') {
@@ -442,22 +434,23 @@ export default function RosterManagementPage() {
               const isFirstRowOfDay = (data.row.index % MAX_PERIODS) === 0;
               if (isFirstRowOfDay) {
                 data.cell.rowSpan = MAX_PERIODS;
-                data.cell.styles.fillColor = [240, 240, 240];
                 data.cell.styles.fontStyle = 'bold';
               }
             }
-            if (data.column.index >= 3) {
+            const period = (data.row.index % MAX_PERIODS) + 1;
+            const isG = (config.break1Active && period === config.break1Period) || (config.break2Active && period === config.break2Period);
+            
+            if (isG && data.column.index >= 3) {
+              data.cell.styles.fillColor = [240, 240, 240];
+              data.cell.styles.fontStyle = 'bold';
+            } else if (data.column.index >= 3) {
               const currentDayIdx = Math.floor(data.row.index / MAX_PERIODS);
               const day = DAYS[currentDayIdx];
-              const period = (data.row.index % MAX_PERIODS) + 1;
               const cls = sorted[data.column.index - 3];
               const entry = getEntry(day, period, cls.id);
-              if (entry) {
-                if (entry.isActivity) data.cell.styles.fillColor = [220, 220, 220];
-                else {
-                  const color = subjectColors.get(`${entry.teacherId}_${entry.subjectId}`);
-                  if (color) data.cell.styles.fillColor = color;
-                }
+              if (entry && !entry.isActivity) {
+                const color = subjectColors.get(`${entry.teacherId}_${entry.subjectId}`);
+                if (color) data.cell.styles.fillColor = color;
               }
             }
           }
@@ -466,7 +459,6 @@ export default function RosterManagementPage() {
 
       doc.addPage();
       doc.setFontSize(14).setFont("helvetica", "bold").text("LEGENDA GURU & MATA PELAJARAN", 14, 20);
-      
       const uniqueTeachers = Array.from(new Set(assignments.map(a => a.teacherId)))
         .map(id => {
           const tAsgs = assignments.filter(a => a.teacherId === id);
@@ -481,7 +473,7 @@ export default function RosterManagementPage() {
         startY: 30,
         theme: 'grid',
         styles: { fontSize: 9, cellPadding: 4, minCellHeight: 12, valign: 'middle' },
-        headStyles: { fillColor: [67, 97, 238], halign: 'center' },
+        headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], halign: 'center' },
         columnStyles: { 0: { cellWidth: 15, halign: 'center' }, 1: { cellWidth: 80 } },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 0) {
@@ -503,7 +495,7 @@ export default function RosterManagementPage() {
           }
         }
       });
-      doc.save(`Roster_Matriks_Terpadu_${(sName || "School").replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Matriks_Terpadu_${schoolName.replace(/\s+/g, '_')}.pdf`);
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
     } finally {
@@ -778,6 +770,25 @@ export default function RosterManagementPage() {
           <DialogFooter><Button onClick={handleAddEntryLocal} className="w-full">Tambahkan ke Buffer</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Penugasan?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini akan menghapus draf penugasan guru dari daftar sementara Anda.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ya, Hapus
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
