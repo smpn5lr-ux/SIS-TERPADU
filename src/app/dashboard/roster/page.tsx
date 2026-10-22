@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -150,28 +149,35 @@ export default function RosterManagementPage() {
     return [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
   }, [classes])
 
-  const config = useMemo(() => ({
-    entryTime: rosterConfig?.entryTime || "07:00",
-    dismissalTime: rosterConfig?.dismissalTime || "13:00",
-    jpDuration: Number(rosterConfig?.jpDuration) || 40,
-    maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
-    break1Active: rosterConfig?.break1Active ?? true,
-    break1Period: rosterConfig?.break1Period ?? 4,
-    break1Duration: Number(rosterConfig?.break1Duration) || 30,
-    break2Active: rosterConfig?.break2Active ?? false,
-    break2Period: rosterConfig?.break2Period ?? 6,
-    break2Duration: Number(rosterConfig?.break2Duration) || 15,
-    globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
-  }), [rosterConfig])
+  const config = useMemo(() => {
+    const dailyDismissals: Record<string, string> = {};
+    DAYS.forEach(d => {
+      dailyDismissals[d] = rosterConfig?.dailyDismissalTimes?.[d] || rosterConfig?.dismissalTime || "13:00";
+    });
 
-  // Fungsi simulasi untuk menghitung jumlah JP berdasarkan jam pulang yang diinginkan
-  const calculateNewMaxJP = (entry: string, dismissal: string, jpDur: number, currentConfig: any) => {
+    return {
+      entryTime: rosterConfig?.entryTime || "07:00",
+      dismissalTime: rosterConfig?.dismissalTime || "13:00", // Fallback
+      dailyDismissalTimes: dailyDismissals,
+      jpDuration: Number(rosterConfig?.jpDuration) || 40,
+      maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
+      break1Active: rosterConfig?.break1Active ?? true,
+      break1Period: rosterConfig?.break1Period ?? 4,
+      break1Duration: Number(rosterConfig?.break1Duration) || 30,
+      break2Active: rosterConfig?.break2Active ?? false,
+      break2Period: rosterConfig?.break2Period ?? 6,
+      break2Duration: Number(rosterConfig?.break2Duration) || 15,
+      globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
+    };
+  }, [rosterConfig])
+
+  // Fungsi simulasi untuk menghitung jumlah JP berdasarkan jam pulang yang diinginkan (per hari)
+  const calculateNewMaxJP = (entry: string, dailyDismissals: Record<string, string>, jpDur: number, currentConfig: any) => {
     const start = parse(entry, 'HH:mm', new Date());
-    const end = parse(dismissal, 'HH:mm', new Date());
-    
     let overallMax = 0;
     
     DAYS.forEach(day => {
+      const end = parse(dailyDismissals[day], 'HH:mm', new Date());
       let current = start;
       let period = 0;
       
@@ -206,11 +212,11 @@ export default function RosterManagementPage() {
     
     let finalUpdates = { ...config, ...updates };
     
-    // Jika jam masuk, jam pulang, atau durasi JP berubah, hitung ulang Max JP
-    if (updates.dismissalTime || updates.entryTime || updates.jpDuration) {
+    // Jika jam masuk, jam pulang harian, atau durasi JP berubah, hitung ulang Max JP
+    if (updates.dailyDismissalTimes || updates.entryTime || updates.jpDuration) {
       const newMax = calculateNewMaxJP(
         updates.entryTime || config.entryTime,
-        updates.dismissalTime || config.dismissalTime,
+        updates.dailyDismissalTimes || config.dailyDismissalTimes,
         updates.jpDuration || config.jpDuration,
         finalUpdates
       );
@@ -224,6 +230,7 @@ export default function RosterManagementPage() {
   const generateDayTimeline = (day: string) => {
     const timeline: any[] = [];
     let currentTime = parse(config.entryTime, 'HH:mm', new Date());
+    const dayDismissalTime = parse(config.dailyDismissalTimes[day], 'HH:mm', new Date());
 
     for (let p = 1; p <= config.maxPeriods; p++) {
       // 1. Tambahkan Kegiatan Rutin Global (jika ada di jam p)
@@ -245,51 +252,54 @@ export default function RosterManagementPage() {
         });
       }
 
-      // 2. Tambahkan Jam Pelajaran Standar
+      // 2. Tambahkan Jam Pelajaran Standar (Hanya jika belum melewati jam pulang)
       const startTime = currentTime;
-      currentTime = addMinutes(currentTime, config.jpDuration);
-      timeline.push({ 
-        type: 'lesson', 
-        label: p.toString(), 
-        period: p,
-        startTime, 
-        endTime: currentTime 
-      });
+      const lessonEnd = addMinutes(currentTime, config.jpDuration);
+      
+      if (lessonEnd <= dayDismissalTime) {
+        currentTime = lessonEnd;
+        timeline.push({ 
+          type: 'lesson', 
+          label: p.toString(), 
+          period: p,
+          startTime, 
+          endTime: currentTime 
+        });
 
-      // 3. Tambahkan Istirahat
-      if (config.break1Active && p === config.break1Period) {
-        const bStart = currentTime;
-        currentTime = addMinutes(currentTime, config.break1Duration);
-        timeline.push({ 
-          type: 'break', 
-          label: 'B', 
-          name: 'ISTIRAHAT', 
-          startTime: bStart, 
-          endTime: currentTime,
-          duration: config.break1Duration
-        });
-      }
-      if (config.break2Active && p === config.break2Period) {
-        const bStart = currentTime;
-        currentTime = addMinutes(currentTime, config.break2Duration);
-        timeline.push({ 
-          type: 'break', 
-          label: 'B', 
-          name: 'ISTIRAHAT', 
-          startTime: bStart, 
-          endTime: currentTime,
-          duration: config.break2Duration
-        });
+        // 3. Tambahkan Istirahat
+        if (config.break1Active && p === config.break1Period) {
+          const bStart = currentTime;
+          currentTime = addMinutes(currentTime, config.break1Duration);
+          timeline.push({ 
+            type: 'break', 
+            label: 'B', 
+            name: 'ISTIRAHAT', 
+            startTime: bStart, 
+            endTime: currentTime,
+            duration: config.break1Duration
+          });
+        }
+        if (config.break2Active && p === config.break2Period) {
+          const bStart = currentTime;
+          currentTime = addMinutes(currentTime, config.break2Duration);
+          timeline.push({ 
+            type: 'break', 
+            label: 'B', 
+            name: 'ISTIRAHAT', 
+            startTime: bStart, 
+            endTime: currentTime,
+            duration: config.break2Duration
+          });
+        }
       }
     }
 
-    // 4. Baris Waktu Pulang (Menggunakan Input Manual dari Config)
-    const fixedDismissalTime = parse(config.dismissalTime, 'HH:mm', new Date());
+    // 4. Baris Waktu Pulang (Menggunakan Input Manual dari Config per Hari)
     timeline.push({ 
       type: 'dismissal', 
       label: 'P', 
       name: 'WAKTU PULANG SEKOLAH', 
-      startTime: fixedDismissalTime 
+      startTime: dayDismissalTime 
     });
 
     return timeline;
@@ -332,6 +342,11 @@ export default function RosterManagementPage() {
       for (const day of shuffledDays) {
         for (const p of shuffledPeriods) {
           if (remainingJP <= 0) break;
+          // Validasi apakah jam tersebut tersedia di hari itu (berdasarkan jam pulang harian)
+          const dayTimeline = generateDayTimeline(day);
+          const isSlotExists = dayTimeline.find(row => row.type === 'lesson' && row.period === p);
+          if (!isSlotExists) continue;
+
           const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
           const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
           if (isSlotFree && isTeacherFree) {
@@ -670,7 +685,7 @@ export default function RosterManagementPage() {
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="space-y-6">
               <Card className="border-border/50">
                 <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
@@ -681,24 +696,37 @@ export default function RosterManagementPage() {
                       <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => handleUpdateConfig({ entryTime: e.target.value })} />
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-primary">Jam Pulang Sekolah</Label>
-                      <input type="time" className="flex h-11 w-full rounded-md border-2 border-primary/50 bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all font-bold" value={config.dismissalTime || "13:30"} onChange={e => handleUpdateConfig({ dismissalTime: e.target.value })} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label>
                       <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => handleUpdateConfig({ jpDuration: parseInt(e.target.value) || 0 })} />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jumlah JP per Hari</Label>
-                      <Input type="number" className="h-11" value={config.maxPeriods || 10} onChange={e => handleUpdateConfig({ maxPeriods: parseInt(e.target.value) || 0 })} />
+                  </div>
+
+                  <div className="space-y-4">
+                    <Label className="text-xs font-bold uppercase tracking-widest text-primary flex items-center gap-2 border-b pb-2">
+                      <LogOut className="w-4 h-4" /> Waktu Pulang Sekolah (Harian)
+                    </Label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {DAYS.map(day => (
+                        <div key={day} className="space-y-1.5 p-3 rounded-lg border bg-muted/5">
+                          <Label className="text-[10px] font-bold uppercase text-muted-foreground">{day}</Label>
+                          <input 
+                            type="time" 
+                            className="flex h-9 w-full rounded-md border bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
+                            value={config.dailyDismissalTimes[day]}
+                            onChange={e => {
+                              const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value };
+                              handleUpdateConfig({ dailyDismissalTimes: newDaily });
+                            }}
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
+
                   <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex gap-3">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                      <strong>Info Sinkronisasi:</strong> Mengubah "Jam Pulang" akan secara otomatis menghitung ulang "Jumlah JP per Hari" agar pas dengan durasi waktu sekolah.
+                      <strong>Info Sinkronisasi:</strong> Mengubah jam pulang akan otomatis menyesuaikan jumlah JP yang tersedia di matriks agar jadwal tidak melampaui waktu pulang.
                     </p>
                   </div>
                 </CardContent>
@@ -737,7 +765,7 @@ export default function RosterManagementPage() {
                 </Button>
               </CardHeader>
               <CardContent className="pt-6">
-                <ScrollArea className="h-[450px] pr-4">
+                <ScrollArea className="h-[550px] pr-4">
                   <div className="space-y-4">
                     {(config.globalActivities || []).length === 0 ? (
                       <div className="text-center py-20 text-muted-foreground italic text-xs">Belum ada kegiatan rutin global.</div>
@@ -764,7 +792,7 @@ export default function RosterManagementPage() {
                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
                                 <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{Array.from({length: config.maxPeriods || 10}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                  <SelectContent>{Array.from({length: 15}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
                                 </Select>
                               </div>
                               <div className="space-y-1.5">

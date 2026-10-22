@@ -1,4 +1,3 @@
-
 export type AdmissionPath = 'Zonasi' | 'Prestasi' | 'Afirmasi' | 'Perpindahan Orang Tua';
 export type VerificationStatus = 'Belum Diverifikasi' | 'Lengkap' | 'Perlu Perbaikan' | 'Ditolak';
 export type AdmissionStatus = 'accepted' | 'waitlisted' | 'rejected' | 'pending' | 'graduated';
@@ -169,6 +168,7 @@ export interface RosterEntry {
 export interface RosterConfig {
   entryTime: string; 
   dismissalTime: string;
+  dailyDismissalTimes?: Record<string, string>;
   jpDuration: number; 
   maxPeriods: number;
   break1Active: boolean;
