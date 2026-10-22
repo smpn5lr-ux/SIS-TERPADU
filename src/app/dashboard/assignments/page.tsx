@@ -125,6 +125,11 @@ export default function TeacherAssignmentsPage() {
       map.set(a.teacherId, existing)
     })
 
+    // Sort inner list by className alphabetically (numeric)
+    map.forEach(group => {
+      group.list.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true, sensitivity: 'base' }))
+    })
+
     return Array.from(map.values()).sort((a, b) => a.teacherName.localeCompare(b.teacherName))
   }, [localAssignments])
 
@@ -197,20 +202,17 @@ export default function TeacherAssignmentsPage() {
     const batch = writeBatch(db)
 
     try {
-      // 1. Delete assignments that are in server but not in local
       const toDelete = serverAssignments.filter(sa => !localAssignments.some(la => la.id === sa.id))
       toDelete.forEach(a => {
         batch.delete(doc(db, 'teacherAssignments', a.id))
       })
 
-      // 2. Add/Update
       localAssignments.forEach(la => {
         if (la.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'teacherAssignments'))
           const { id, ...data } = la
           batch.set(newRef, data)
         } else {
-          // Find if it was updated locally
           const serverVer = serverAssignments.find(sa => sa.id === la.id)
           if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
             const ref = doc(db, 'teacherAssignments', la.id)
@@ -261,7 +263,7 @@ export default function TeacherAssignmentsPage() {
           <TableHeader className="bg-primary/5">
             <TableRow>
               <TableHead className="font-bold text-primary w-[250px]">Guru Pengajar</TableHead>
-              <TableHead className="font-bold text-primary">Detail Penugasan (Mapel & Kelas)</TableHead>
+              <TableHead className="font-bold text-primary">Daftar Penugasan</TableHead>
               <TableHead className="font-bold text-primary text-center w-[120px]">Total JP</TableHead>
             </TableRow>
           </TableHeader>
@@ -278,33 +280,37 @@ export default function TeacherAssignmentsPage() {
                       {group.teacherName.charAt(0)}
                     </div>
                     <div>
-                      <span className="font-bold text-sm block">{group.teacherName}</span>
-                      <Badge variant="outline" className="text-[9px] uppercase mt-1">{group.list.length} Penugasan</Badge>
+                      <span className="font-bold text-sm block leading-tight">{group.teacherName}</span>
+                      <Badge variant="outline" className="text-[9px] uppercase mt-1.5">{group.list.length} Rombel</Badge>
                     </div>
                   </div>
                 </TableCell>
                 <TableCell className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pr-4">
-                    {group.list.map(asg => {
+                  <div className="space-y-1.5 pr-6">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[10px] font-bold text-muted-foreground uppercase tracking-wider bg-muted/20 rounded-t-lg">
+                       <div className="col-span-5 flex items-center gap-1.5"><BookMarked className="w-3 h-3" /> Mata Pelajaran</div>
+                       <div className="col-span-4 flex items-center gap-1.5"><Users className="w-3 h-3" /> Kelas</div>
+                       <div className="col-span-1 text-center">JP</div>
+                       <div className="col-span-2 text-right">Aksi</div>
+                    </div>
+                    {group.list.map((asg, idx) => {
                       const isTemp = asg.id.startsWith('temp-')
                       return (
-                        <div key={asg.id} className={`flex items-center justify-between p-2.5 rounded-xl bg-muted/30 border transition-all group/item hover:border-primary/30 ${isTemp ? 'border-dashed border-amber-500/30' : 'border-border/50'}`}>
-                          <div className="flex flex-col gap-1 overflow-hidden">
-                             <div className="flex items-center gap-2">
-                               <BookMarked className="w-3.5 h-3.5 text-primary shrink-0" />
-                               <span className="text-xs font-bold truncate">{asg.subjectName}</span>
-                               {isTemp && <RefreshCw className="w-3 h-3 text-amber-500 animate-spin" />}
-                             </div>
-                             <div className="flex items-center gap-2">
-                               <Layers className="w-3.5 h-3.5 text-accent shrink-0" />
-                               <span className="text-[10px] font-mono text-muted-foreground uppercase">Kelas {asg.className}</span>
-                               <span className="text-[9px] font-bold text-amber-600 bg-amber-500/10 px-1.5 rounded">{asg.totalJP} JP</span>
-                             </div>
-                          </div>
-                          <div className="flex gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-primary" onClick={() => handleEditLocal(asg)}><Pencil className="w-3.5 h-3.5" /></Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                          </div>
+                        <div key={asg.id} className={`grid grid-cols-12 gap-2 items-center px-3 py-2.5 rounded-lg border transition-all group/item ${idx % 2 === 1 ? 'bg-muted/10' : 'bg-transparent'} ${isTemp ? 'border-dashed border-amber-500/30' : 'border-border/40'} hover:border-primary/40`}>
+                           <div className="col-span-5 text-xs font-bold flex items-center gap-2 truncate">
+                             {asg.subjectName}
+                             {isTemp && <RefreshCw className="w-2.5 h-2.5 text-amber-500 animate-spin" />}
+                           </div>
+                           <div className="col-span-4">
+                             <Badge variant="secondary" className="text-[10px] font-mono font-bold py-0 h-5 px-2 bg-accent/10 text-accent border-accent/20">
+                               KELAS {asg.className}
+                             </Badge>
+                           </div>
+                           <div className="col-span-1 text-center text-xs font-bold text-primary">{asg.totalJP}</div>
+                           <div className="col-span-2 flex justify-end gap-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-primary hover:bg-primary/10" onClick={() => handleEditLocal(asg)}><Pencil className="w-3.5 h-3.5" /></Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => handleDeleteTrigger(asg.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                           </div>
                         </div>
                       )
                     })}
@@ -325,7 +331,7 @@ export default function TeacherAssignmentsPage() {
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
         <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
         <div className="text-[10px] text-muted-foreground leading-relaxed italic">
-          <strong>Mode Hemat Kuota Aktif:</strong> Perubahan yang Anda lakukan hanya tersimpan sementara di browser. Anda dapat menambah atau menghapus banyak penugasan tanpa biaya database. Pastikan menekan <strong>"Sinkronkan ke Cloud"</strong> untuk mengirim hasil akhir ke sistem pusat.
+          <strong>Tips Pengelolaan:</strong> Daftar kelas untuk setiap guru kini diurutkan secara alfabetis. Kolom mata pelajaran dan kelas dipisahkan agar Anda dapat dengan mudah memverifikasi distribusi jam mengajar sesuai beban kerja guru.
         </div>
       </div>
 
