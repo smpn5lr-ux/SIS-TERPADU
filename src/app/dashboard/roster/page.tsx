@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   ShieldAlert,
   Printer,
-  Sparkles,
   Zap,
   BookOpen,
   UserCheck
@@ -366,12 +365,16 @@ export default function RosterManagementPage() {
             lessonRow.push({ content: day, rowSpan: rowsPerDay, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
             dayCellAdded = true;
           }
+
+          // Cek apakah ada kegiatan manual di jam ini
+          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
+          // HANYA anggap kegiatan jika namanya bukan "ISTIRAHAT" untuk menghindari duplikasi
+          const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
+
           lessonRow.push(p);
           lessonRow.push(getTimeForDayAndPeriod(day, p));
-          
-          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
 
-          if (globalActivity) {
+          if (isRealActivity) {
             lessonRow.push({ 
               content: globalActivity.activityName || "KEGIATAN", 
               colSpan: sorted.length, 
@@ -394,6 +397,7 @@ export default function RosterManagementPage() {
             tableBody.push(lessonRow);
           }
 
+          // Injeksi Baris Istirahat Global (Hanya satu kali)
           const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
             if (active && p === breakPeriod) {
               const breakRow: any[] = ["B", getBreakTime(day, breakPeriod, duration)];
@@ -517,9 +521,12 @@ export default function RosterManagementPage() {
                      {DAYS.map((day) => {
                        const rows = [];
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                       const dayRows = 10 + breakCount + 1; // +1 for dismissal row
+                       const dayRows = 10 + breakCount + 1; 
                        for (let p = 1; p <= MAX_PERIODS; p++) {
+                         // Cek Kegiatan Manual
                          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
+                         // Sembunyikan jika namanya "Istirahat" karena sudah di-handle otomatis oleh config
+                         const isRealActivity = globalActivity && !globalActivity.activityName?.toUpperCase().includes("ISTIRAHAT");
                          
                          rows.push(
                            <TableRow key={`${day}-${p}`} className="hover:bg-transparent">
@@ -531,7 +538,7 @@ export default function RosterManagementPage() {
                              <TableCell className="border-r font-bold text-[10px] text-center p-2">{p}</TableCell>
                              <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getTimeForDayAndPeriod(day, p)}</TableCell>
                              
-                             {globalActivity ? (
+                             {isRealActivity ? (
                                <TableCell colSpan={sortedClasses.length} className="p-1 border-r h-24 relative bg-amber-50 group">
                                   <div className="h-full border border-amber-300 rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm">
                                     <div className="text-[11px] font-black uppercase text-amber-800 tracking-widest">{globalActivity.activityName}</div>
@@ -560,6 +567,8 @@ export default function RosterManagementPage() {
                              )}
                            </TableRow>
                          );
+
+                         // Injeksi Baris Istirahat (Hanya Muncul Sekali sesuai Config)
                          const checkInject = (period: number, active: boolean, label: string, duration: number) => {
                            if (active && p === period) {
                              rows.push(
@@ -577,7 +586,6 @@ export default function RosterManagementPage() {
                          checkInject(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
                        }
 
-                       // Add Dismissal Row at the end of each day
                        rows.push(
                          <TableRow key={`${day}-dismissal`} className="bg-destructive/5">
                            <TableCell className="border-r font-bold text-[10px] text-center p-2 text-destructive">P</TableCell>
@@ -675,7 +683,7 @@ export default function RosterManagementPage() {
                      placeholder="Contoh: 60" 
                    />
                  </div>
-                 <div className="bg-amber-500/10 p-3 rounded-lg flex gap-2"><Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/><p className="text-[10px] text-amber-700 italic">Jadwal pada jam pelajaran berikutnya akan secara otomatis bergeser sesuai durasi ini.</p></div>
+                 <div className="bg-amber-500/10 p-3 rounded-lg flex gap-2"><Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/><p className="text-[10px] text-amber-700 italic">Hindari menamai kegiatan 'Istirahat' di sini jika sudah ada di Konfigurasi Waktu.</p></div>
                </div>
             ) : (
                <div className="space-y-4">
