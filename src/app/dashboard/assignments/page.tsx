@@ -98,11 +98,25 @@ export default function TeacherAssignmentsPage() {
     }
   }, [serverAssignments, isDirty])
 
-  const teachers = staff?.filter(s => s.role === 'Guru') || []
+  // PENGURUTAN CERDAS UNTUK PEMILIHAN (DROPDOWN)
+  const sortedTeachers = useMemo(() => {
+    if (!staff) return []
+    return staff
+      .filter(s => s.role === 'Guru')
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+  }, [staff])
+
+  const sortedClasses = useMemo(() => {
+    if (!classes) return []
+    return [...classes].sort((a, b) => {
+      if (a.gradeLevel !== b.gradeLevel) return a.gradeLevel - b.gradeLevel
+      return (a.name || "").localeCompare(b.name || "", undefined, { numeric: true, sensitivity: 'base' })
+    })
+  }, [classes])
 
   const sortedSubjects = useMemo(() => {
     if (!subjects) return []
-    return [...subjects].sort((a, b) => a.name.localeCompare(b.name))
+    return [...subjects].sort((a, b) => (a.name || "").localeCompare(b.name || ""))
   }, [subjects])
 
   const groupedAssignments = useMemo(() => {
@@ -125,7 +139,6 @@ export default function TeacherAssignmentsPage() {
       map.set(a.teacherId, existing)
     })
 
-    // Sort inner list by className alphabetically (numeric)
     map.forEach(group => {
       group.list.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true, sensitivity: 'base' }))
     })
@@ -157,9 +170,9 @@ export default function TeacherAssignmentsPage() {
       return
     }
     
-    const teacher = teachers.find(t => t.id === selectedTeacherId)
-    const cls = classes?.find(c => c.id === selectedClassId)
-    const subject = subjects?.find(s => s.id === selectedSubjectId)
+    const teacher = sortedTeachers.find(t => t.id === selectedTeacherId)
+    const cls = sortedClasses.find(c => c.id === selectedClassId)
+    const subject = sortedSubjects.find(s => s.id === selectedSubjectId)
 
     const payload = {
       id: editingAssignment ? editingAssignment.id : `temp-${Date.now()}`,
@@ -180,7 +193,7 @@ export default function TeacherAssignmentsPage() {
     
     setIsDirty(true)
     setIsDialogOpen(false)
-    toast({ title: "Perubahan Disimpan di Buffer", description: "Klik tombol Sinkron untuk mengirim ke database." })
+    toast({ title: "Perubahan Disimpan di Buffer" })
   }
 
   const handleDeleteTrigger = (id: string) => {
@@ -203,9 +216,7 @@ export default function TeacherAssignmentsPage() {
 
     try {
       const toDelete = serverAssignments.filter(sa => !localAssignments.some(la => la.id === sa.id))
-      toDelete.forEach(a => {
-        batch.delete(doc(db, 'teacherAssignments', a.id))
-      })
+      toDelete.forEach(a => batch.delete(doc(db, 'teacherAssignments', a.id)))
 
       localAssignments.forEach(la => {
         if (la.id.startsWith('temp-')) {
@@ -215,15 +226,14 @@ export default function TeacherAssignmentsPage() {
         } else {
           const serverVer = serverAssignments.find(sa => sa.id === la.id)
           if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
-            const ref = doc(db, 'teacherAssignments', la.id)
-            batch.update(ref, la as any)
+            batch.update(doc(db, 'teacherAssignments', la.id), la as any)
           }
         }
       })
 
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil", description: "Data penugasan guru telah diperbarui di cloud." })
+      toast({ title: "Sinkronisasi Berhasil" })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -346,8 +356,14 @@ export default function TeacherAssignmentsPage() {
                 <UserCheck className="w-3 h-3" /> Pilih Guru
               </label>
               <Select value={selectedTeacherId} onValueChange={setSelectedTeacherId}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Guru Pengajar" /></SelectTrigger>
-                <SelectContent>{teachers.map(t => <SelectItem key={t.id} value={t.id}>{t.fullName}</SelectItem>)}</SelectContent>
+                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Guru Pengajar" /></SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  {sortedTeachers.map(t => (
+                    <SelectItem key={t.id} value={t.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
+                      {t.fullName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
@@ -355,8 +371,14 @@ export default function TeacherAssignmentsPage() {
                 <BookOpen className="w-3 h-3" /> Pilih Mata Pelajaran
               </label>
               <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
-                <SelectContent>{sortedSubjects.map(s => <SelectItem key={s.id} value={s.id}>{s.name} ({s.code})</SelectItem>)}</SelectContent>
+                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  {sortedSubjects.map(s => (
+                    <SelectItem key={s.id} value={s.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
+                      {s.name} ({s.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
@@ -364,13 +386,22 @@ export default function TeacherAssignmentsPage() {
                 <Users className="w-3 h-3" /> Rombongan Belajar (Kelas)
               </label>
               <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                <SelectTrigger className="h-11"><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
-                <SelectContent>{classes?.map(c => <SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>)}</SelectContent>
+                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
+                <SelectContent className="max-h-[300px]">
+                  {sortedClasses.map(c => (
+                    <SelectItem key={c.id} value={c.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
+                      <div className="flex items-center justify-between w-full gap-4">
+                        <span>Kelas {c.name}</span>
+                        <span className="text-[10px] text-muted-foreground font-bold uppercase">Tingkat {c.gradeLevel}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
               </Select>
             </div>
             <div className="space-y-2 pt-2">
               <label className="text-xs font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (JP / Minggu)</label>
-              <Input type="number" min="1" value={totalJP} onChange={e => setTotalJP(e.target.value)} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
+              <Input type="text" inputMode="numeric" value={totalJP} onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
             </div>
           </div>
           <DialogFooter>
