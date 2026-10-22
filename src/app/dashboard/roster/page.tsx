@@ -24,7 +24,9 @@ import {
   UserCheck,
   CalendarDays,
   X,
-  LogOut
+  LogOut,
+  ArrowDownToLine,
+  ArrowUpToLine
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -69,9 +71,9 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
 import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
-import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig } from '@/lib/types'
+import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
-import { addMinutes, format, parse, differenceInMinutes } from 'date-fns'
+import { addMinutes, format, parse } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 
@@ -157,7 +159,7 @@ export default function RosterManagementPage() {
 
     return {
       entryTime: rosterConfig?.entryTime || "07:00",
-      dismissalTime: rosterConfig?.dismissalTime || "13:00", // Fallback
+      dismissalTime: rosterConfig?.dismissalTime || "13:00",
       dailyDismissalTimes: dailyDismissals,
       jpDuration: Number(rosterConfig?.jpDuration) || 40,
       maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
@@ -167,39 +169,41 @@ export default function RosterManagementPage() {
       break2Active: rosterConfig?.break2Active ?? false,
       break2Period: rosterConfig?.break2Period ?? 6,
       break2Duration: Number(rosterConfig?.break2Duration) || 15,
-      globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
+      globalActivities: (rosterConfig?.globalActivities || []) as GlobalActivity[]
     };
   }, [rosterConfig])
 
-  // Fungsi simulasi untuk menghitung jumlah JP berdasarkan jam pulang yang diinginkan (per hari)
   const calculateNewMaxJP = (entry: string, dailyDismissals: Record<string, string>, jpDur: number, currentConfig: any) => {
     const start = parse(entry, 'HH:mm', new Date());
     let overallMax = 0;
     
     DAYS.forEach(day => {
       const end = parse(dailyDismissals[day], 'HH:mm', new Date());
+      
+      // Hitung total durasi kegiatan "akhir" (sebelum pulang)
+      const endActivities = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.position === 'end');
+      const totalEndDur = endActivities.reduce((sum: number, a: any) => sum + (a.duration || 0), 0);
+      
+      const effectiveEnd = addMinutes(end, -totalEndDur);
       let current = start;
       let period = 0;
       
-      while (period < 20) { // Safety limit 20 jam
+      while (period < 20) {
         const nextP = period + 1;
         
-        // Cek Kegiatan rutin untuk periode ini
-        const acts = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.period === nextP);
-        acts.forEach((a: any) => current = addMinutes(current, a.duration));
+        const startActs = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.period === nextP && a.position !== 'end');
+        startActs.forEach((a: any) => current = addMinutes(current, a.duration));
         
-        // Cek apakah sisa waktu cukup untuk 1 JP pelajaran
         const lessonEnd = addMinutes(current, jpDur);
-        if (lessonEnd > end) break;
+        if (lessonEnd > effectiveEnd) break;
         
         current = lessonEnd;
         period = nextP;
         
-        // Cek Istirahat
         if (currentConfig.break1Active && period === currentConfig.break1Period) current = addMinutes(current, currentConfig.break1Duration);
         if (currentConfig.break2Active && period === currentConfig.break2Period) current = addMinutes(current, currentConfig.break2Duration);
         
-        if (current >= end) break;
+        if (current >= effectiveEnd) break;
       }
       if (period > overallMax) overallMax = period;
     });
@@ -209,15 +213,13 @@ export default function RosterManagementPage() {
 
   const handleUpdateConfig = (updates: any) => {
     if (!configRef) return;
-    
     let finalUpdates = { ...config, ...updates };
     
-    // Jika jam masuk, jam pulang harian, atau durasi JP berubah, hitung ulang Max JP
-    if (updates.dailyDismissalTimes || updates.entryTime || updates.jpDuration) {
+    if (updates.dailyDismissalTimes || updates.entryTime || updates.jpDuration || updates.globalActivities) {
       const newMax = calculateNewMaxJP(
-        updates.entryTime || config.entryTime,
-        updates.dailyDismissalTimes || config.dailyDismissalTimes,
-        updates.jpDuration || config.jpDuration,
+        finalUpdates.entryTime,
+        finalUpdates.dailyDismissalTimes,
+        finalUpdates.jpDuration,
         finalUpdates
       );
       finalUpdates.maxPeriods = newMax;
@@ -226,82 +228,80 @@ export default function RosterManagementPage() {
     setDoc(configRef, finalUpdates, { merge: true }).catch(() => {});
   };
 
-  // Helper untuk merangkai baris-baris jadwal dalam satu hari secara kronologis
   const generateDayTimeline = (day: string) => {
     const timeline: any[] = [];
     let currentTime = parse(config.entryTime, 'HH:mm', new Date());
     const dayDismissalTime = parse(config.dailyDismissalTimes[day], 'HH:mm', new Date());
 
+    const dayActivities = config.globalActivities.filter(a => a.day === day);
+    const startActivities = dayActivities.filter(a => a.position !== 'end');
+    const endActivities = dayActivities.filter(a => a.position === 'end');
+    
+    const totalEndDur = endActivities.reduce((sum, a) => sum + a.duration, 0);
+    const effectiveDismissalLimit = addMinutes(dayDismissalTime, -totalEndDur);
+
     for (let p = 1; p <= config.maxPeriods; p++) {
-      // 1. Tambahkan Kegiatan Rutin Global (jika ada di jam p)
-      const periodActivities = config.globalActivities.filter(a => a.day === day && a.period === p);
-      if (periodActivities.length > 0) {
-        periodActivities.forEach(act => {
-          const startTime = currentTime;
+      const periodStartActs = startActivities.filter(a => a.period === p);
+      if (periodStartActs.length > 0) {
+        periodStartActs.forEach(act => {
+          const start = currentTime;
           currentTime = addMinutes(currentTime, act.duration);
           timeline.push({ 
             type: 'activity', 
             label: p.toString(), 
             name: act.name, 
             period: p,
-            startTime, 
+            startTime: start, 
             endTime: currentTime, 
-            duration: act.duration,
-            isGlobal: true 
+            duration: act.duration 
           });
         });
       }
 
-      // 2. Tambahkan Jam Pelajaran Standar (Hanya jika belum melewati jam pulang)
-      const startTime = currentTime;
+      const lessonStart = currentTime;
       const lessonEnd = addMinutes(currentTime, config.jpDuration);
       
-      if (lessonEnd <= dayDismissalTime) {
+      if (lessonEnd <= effectiveDismissalLimit) {
         currentTime = lessonEnd;
         timeline.push({ 
           type: 'lesson', 
           label: p.toString(), 
           period: p,
-          startTime, 
+          startTime: lessonStart, 
           endTime: currentTime 
         });
 
-        // 3. Tambahkan Istirahat
         if (config.break1Active && p === config.break1Period) {
           const bStart = currentTime;
           currentTime = addMinutes(currentTime, config.break1Duration);
-          timeline.push({ 
-            type: 'break', 
-            label: 'B', 
-            name: 'ISTIRAHAT', 
-            startTime: bStart, 
-            endTime: currentTime,
-            duration: config.break1Duration
-          });
+          timeline.push({ type: 'break', label: 'B', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, duration: config.break1Duration });
         }
         if (config.break2Active && p === config.break2Period) {
           const bStart = currentTime;
           currentTime = addMinutes(currentTime, config.break2Duration);
-          timeline.push({ 
-            type: 'break', 
-            label: 'B', 
-            name: 'ISTIRAHAT', 
-            startTime: bStart, 
-            endTime: currentTime,
-            duration: config.break2Duration
-          });
+          timeline.push({ type: 'break', label: 'B', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, duration: config.break2Duration });
         }
       }
     }
 
-    // 4. Baris Waktu Pulang (Menggunakan Input Manual dari Config per Hari)
-    timeline.push({ 
-      type: 'dismissal', 
-      label: 'P', 
-      name: 'WAKTU PULANG SEKOLAH', 
-      startTime: dayDismissalTime 
+    // Tambahkan kegiatan akhir (hitung mundur / backward dari jam pulang)
+    let endStartTime = effectiveDismissalLimit;
+    endActivities.forEach(act => {
+       const start = endStartTime;
+       const end = addMinutes(start, act.duration);
+       timeline.push({ 
+         type: 'activity', 
+         label: 'A', 
+         name: act.name, 
+         startTime: start, 
+         endTime: end, 
+         duration: act.duration,
+         isFinal: true 
+       });
+       endStartTime = end;
     });
 
+    timeline.push({ type: 'dismissal', label: 'P', name: 'WAKTU PULANG SEKOLAH', startTime: dayDismissalTime });
     return timeline;
   };
 
@@ -342,7 +342,6 @@ export default function RosterManagementPage() {
       for (const day of shuffledDays) {
         for (const p of shuffledPeriods) {
           if (remainingJP <= 0) break;
-          // Validasi apakah jam tersebut tersedia di hari itu (berdasarkan jam pulang harian)
           const dayTimeline = generateDayTimeline(day);
           const isSlotExists = dayTimeline.find(row => row.type === 'lesson' && row.period === p);
           if (!isSlotExists) continue;
@@ -433,7 +432,7 @@ export default function RosterManagementPage() {
   }
 
   const handleAddGlobalActivity = () => {
-    const newAct = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15 };
+    const newAct: GlobalActivity = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15, position: 'start' };
     const updated = [...(config.globalActivities || []), newAct];
     handleUpdateConfig({ globalActivities: updated });
   };
@@ -509,7 +508,7 @@ export default function RosterManagementPage() {
             tableRow.push({ 
               content: `${row.name.toUpperCase()} (${row.duration} MENIT)`, 
               colSpan: sorted.length, 
-              styles: { fillColor: [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
+              styles: { fillColor: row.isFinal ? [255, 230, 230] : [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
             });
           } else if (row.type === 'break') {
             tableRow.push({ 
@@ -668,7 +667,7 @@ export default function RosterManagementPage() {
                                );
                              })
                            ) : (
-                             <TableCell colSpan={sortedClasses.length} className={`p-0 border-r last:border-r-0 border-y ${row.type === 'activity' ? 'bg-amber-50/50' : row.type === 'break' ? 'bg-accent/5' : 'bg-destructive/5'}`}>
+                             <TableCell colSpan={sortedClasses.length} className={`p-0 border-r last:border-r-0 border-y ${row.type === 'activity' ? (row.isFinal ? 'bg-amber-200/30' : 'bg-amber-50/50') : row.type === 'break' ? 'bg-accent/5' : 'bg-destructive/5'}`}>
                                <div className={`h-12 flex items-center justify-center font-black text-[11px] tracking-[0.4em] uppercase ${row.type === 'activity' ? 'text-amber-700' : row.type === 'break' ? 'text-accent' : 'text-destructive'}`}>
                                  {row.name} {row.duration && `(${row.duration} MENIT)`}
                                </div>
@@ -726,7 +725,7 @@ export default function RosterManagementPage() {
                   <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex gap-3">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
                     <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                      <strong>Info Sinkronisasi:</strong> Mengubah jam pulang akan otomatis menyesuaikan jumlah JP yang tersedia di matriks agar jadwal tidak melampaui waktu pulang.
+                      <strong>Info Sinkronisasi:</strong> Mengubah jam pulang atau menambah kegiatan sebelum pulang akan otomatis menyesuaikan jumlah JP yang tersedia di matriks agar jadwal tidak melampaui waktu pulang.
                     </p>
                   </div>
                 </CardContent>
@@ -758,7 +757,7 @@ export default function RosterManagementPage() {
               <CardHeader className="border-b bg-muted/5 flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-amber-500" /> Kegiatan Rutin Sekolah</CardTitle>
-                  <CardDescription>Agenda global (Upacara, Literasi, dll) untuk semua kelas.</CardDescription>
+                  <CardDescription>Agenda global (Pagi/Siang atau Sebelum Pulang).</CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={handleAddGlobalActivity} className="h-8 gap-2 border-primary/30 text-primary">
                   <Plus className="w-3 h-3" /> Tambah
@@ -780,25 +779,39 @@ export default function RosterManagementPage() {
                               <Label className="text-[10px] font-bold uppercase text-muted-foreground">Nama Kegiatan</Label>
                               <Input className="h-8 font-bold" value={act.name} onChange={e => updateGlobalActivity(act.id, 'name', e.target.value)} placeholder="Contoh: UPACARA BENDERA" />
                             </div>
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Hari</Label>
-                                <Select value={act.day} onValueChange={v => updateGlobalActivity(act.id, 'day', v)}>
-                                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
-                                <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
-                                  <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{Array.from({length: 15}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-[10px] font-bold uppercase text-muted-foreground">Menit</Label>
-                                <Input type="number" className="h-8" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
-                              </div>
+                            <div className="grid grid-cols-2 gap-3">
+                               <div className="space-y-1.5">
+                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Hari</Label>
+                                 <Select value={act.day} onValueChange={v => updateGlobalActivity(act.id, 'day', v)}>
+                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                   <SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                                 </Select>
+                               </div>
+                               <div className="space-y-1.5">
+                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Penempatan</Label>
+                                 <Select value={act.position || 'start'} onValueChange={v => updateGlobalActivity(act.id, 'position', v)}>
+                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                   <SelectContent>
+                                      <SelectItem value="start"><div className="flex items-center gap-2"><ArrowUpToLine className="w-3 h-3" /> Pagi / Siang</div></SelectItem>
+                                      <SelectItem value="end"><div className="flex items-center gap-2"><ArrowDownToLine className="w-3 h-3 text-destructive" /> Sebelum Pulang</div></SelectItem>
+                                   </SelectContent>
+                                 </Select>
+                               </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                               {act.position !== 'end' && (
+                                 <div className="space-y-1.5">
+                                   <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
+                                   <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
+                                     <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                     <SelectContent>{Array.from({length: 15}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                   </Select>
+                                 </div>
+                               )}
+                               <div className="space-y-1.5">
+                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Durasi (Menit)</Label>
+                                 <Input type="number" className="h-8" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
+                               </div>
                             </div>
                           </div>
                         </div>

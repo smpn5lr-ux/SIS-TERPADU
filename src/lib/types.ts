@@ -162,7 +162,16 @@ export interface RosterEntry {
   subjectName?: string;
   isActivity?: boolean;
   activityName?: string;
-  duration?: number; // In minutes
+  duration?: number;
+}
+
+export interface GlobalActivity {
+  id: string;
+  day: string;
+  period: number;
+  name: string;
+  duration: number;
+  position: 'start' | 'end'; // 'start' = jam ke-X, 'end' = sebelum pulang
 }
 
 export interface RosterConfig {
@@ -177,7 +186,7 @@ export interface RosterConfig {
   break2Active: boolean;
   break2Period: number;
   break2Duration: number;
-  globalActivities?: { id: string; day: string; period: number; name: string; duration: number }[];
+  globalActivities?: GlobalActivity[];
 }
 
 export interface GradingConfig {
