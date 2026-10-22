@@ -18,7 +18,9 @@ import {
   Info,
   ChevronLeft,
   ShieldAlert,
-  Printer
+  Printer,
+  Sparkles,
+  Zap
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -133,11 +135,6 @@ export default function RosterManagementPage() {
     break2Duration: rosterConfig?.break2Duration ?? 15
   }), [rosterConfig])
 
-  const getClassName = (classId: string, defaultName: string) => {
-    const cls = classes?.find(c => c.id === classId)
-    return cls ? cls.name : defaultName
-  }
-
   const getTimeForPeriod = (period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     for (let i = 1; i < period; i++) {
@@ -164,7 +161,8 @@ export default function RosterManagementPage() {
   const workloadStats = useMemo(() => {
     if (!assignments || !classes) return []
     return assignments.map(a => {
-      const displayClassName = getClassName(a.classId, a.className)
+      const cls = classes.find(c => c.id === a.classId)
+      const displayClassName = cls ? cls.name : a.className
       const scheduledCount = localEntries.filter(e => 
         e.teacherId === a.teacherId && 
         e.subjectId === a.subjectId && 
@@ -179,6 +177,61 @@ export default function RosterManagementPage() {
       }
     })
   }, [assignments, localEntries, classes])
+
+  const handleAutoGenerate = () => {
+    if (!assignments || !classes) return;
+    
+    setIsDirty(true);
+    let currentRoster = [...localEntries];
+    
+    // Shuffle assignments for randomness
+    const shuffledAssignments = [...assignments].sort(() => Math.random() - 0.5);
+    
+    shuffledAssignments.forEach(asg => {
+      const scheduledCount = currentRoster.filter(e => 
+        e.teacherId === asg.teacherId && 
+        e.subjectId === asg.subjectId && 
+        e.classId === asg.classId
+      ).length;
+      
+      let remainingJP = (asg.totalJP || 0) - scheduledCount;
+      if (remainingJP <= 0) return;
+      
+      const shuffledDays = [...DAYS].sort(() => Math.random() - 0.5);
+      const shuffledPeriods = Array.from({length: MAX_PERIODS}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
+      
+      for (const day of shuffledDays) {
+        for (const p of shuffledPeriods) {
+          if (remainingJP <= 0) break;
+          
+          // Check if class slot is free
+          const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
+          // Check if teacher is free
+          const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
+          
+          if (isSlotFree && isTeacherFree) {
+            currentRoster.push({
+              id: `temp-${Date.now()}-${Math.random()}`,
+              day,
+              period: p,
+              classId: asg.classId,
+              className: asg.className,
+              teacherId: asg.teacherId,
+              teacherName: asg.teacherName,
+              subjectId: asg.subjectId,
+              subjectName: asg.subjectName,
+              isActivity: false
+            });
+            remainingJP--;
+          }
+        }
+        if (remainingJP <= 0) break;
+      }
+    });
+    
+    setLocalEntries(currentRoster);
+    toast({ title: "Penjadwalan Otomatis Selesai", description: "Slot kosong telah diisi berdasarkan beban JP guru." });
+  };
 
   const handleAddEntryLocal = () => {
     const t = staff?.find(s => s.id === newEntry.teacherId)
@@ -255,34 +308,40 @@ export default function RosterManagementPage() {
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
       
       const tableBody: any[] = [];
+      const rowsPerDay = MAX_PERIODS + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
+
       DAYS.forEach(day => {
-        let rowsAddedForDay = 0;
+        let dayCellAdded = false;
         for (let p = 1; p <= MAX_PERIODS; p++) {
-          const lessonRow: any[] = [p === 1 ? day : "", p, getTimeForPeriod(p)];
+          const lessonRow: any[] = [];
+          if (!dayCellAdded) {
+            lessonRow.push({ content: day, rowSpan: rowsPerDay, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
+            dayCellAdded = true;
+          }
+          lessonRow.push(p);
+          lessonRow.push(getTimeForPeriod(p));
+          
           sorted.forEach(cls => {
             const entry = localEntries.find(e => e.day === day && e.period === p && e.classId === cls.id);
             if (entry) {
-              if (entry.isActivity) lessonRow.push(entry.activityName || "REHAT");
-              else lessonRow.push(entry.subjectName || "");
+              lessonRow.push(entry.isActivity ? (entry.activityName || "REHAT") : (entry.subjectName || ""));
             } else {
               lessonRow.push("");
             }
           });
           tableBody.push(lessonRow);
-          rowsAddedForDay++;
 
-          const checkAndInject = (period: number, active: boolean, label: string, duration: number) => {
-            if (active && p === period) {
-              const breakRow: any[] = ["", "B", getBreakTime(period, duration)];
-              sorted.forEach(() => breakRow.push(label));
+          // Injection Logic for Breaks
+          const checkBreak = (breakPeriod: number, active: boolean, label: string, duration: number) => {
+            if (active && p === breakPeriod) {
+              const breakRow: any[] = ["B", getBreakTime(breakPeriod, duration)];
+              breakRow.push({ content: label, colSpan: sorted.length, styles: { fillColor: [240, 240, 240], fontStyle: 'bold', textColor: [100, 100, 100], halign: 'center' } });
               tableBody.push(breakRow);
-              rowsAddedForDay++;
             }
           }
-          checkAndInject(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
-          checkAndInject(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
+          checkBreak(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
+          checkBreak(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
         }
-        (day as any)._rows = rowsAddedForDay;
       });
 
       autoTable(doc, {
@@ -293,33 +352,12 @@ export default function RosterManagementPage() {
         styles: { fontSize: 6, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontSize: 7, fontStyle: 'bold', lineWidth: 0.1 },
         columnStyles: { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 15 } },
-        didParseCell: (data) => {
-          if (data.section === 'body') {
-            if (data.column.index === 0) {
-              const dayIndex = DAYS.findIndex(d => d === data.cell.text[0]);
-              if (dayIndex !== -1) {
-                let totalRowsBefore = 0;
-                for(let i=0; i<dayIndex; i++) {
-                   totalRowsBefore += (10 + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0));
-                }
-                if (data.row.index === totalRowsBefore) {
-                  data.cell.rowSpan = 10 + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                  data.cell.styles.fontStyle = 'bold';
-                }
-              }
-            }
-            if (data.row.raw[1] === 'B') {
-              data.cell.styles.fillColor = [245, 245, 245];
-              data.cell.styles.fontStyle = 'bold';
-              data.cell.styles.textColor = [100, 100, 100];
-            }
-          }
-        },
       });
 
       doc.save(`Roster_Matriks_${schoolName.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Berhasil Mengunduh PDF" });
     } catch (e) {
+      console.error("PDF Export error:", e);
       toast({ variant: "destructive", title: "Gagal unduh" });
     } finally {
       setIsExporting(false);
@@ -356,6 +394,9 @@ export default function RosterManagementPage() {
           <Button variant="outline" onClick={handleDownloadUnified} disabled={isExporting} className="gap-2 border-primary/30">
             {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
             Cetak Matriks
+          </Button>
+          <Button variant="secondary" onClick={handleAutoGenerate} className="gap-2 text-primary border-primary/20 hover:bg-primary/10">
+            <Zap className="w-4 h-4" /> Acak Jadwal
           </Button>
           <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Manual</Button>
         </div>
