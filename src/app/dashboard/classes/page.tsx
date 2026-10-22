@@ -105,7 +105,6 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
-    // Validasi Nama Kelas Unik (Case Insensitive & Trim)
     const normalizedName = values.name.toLowerCase().trim();
     const isDuplicate = localClasses.some(c => 
       c.name.toLowerCase().trim() === normalizedName && 
@@ -245,12 +244,17 @@ export default function ClassesPage() {
       })
 
       const nextClasses = localClasses.map(lc => {
-        // Gunakan Set untuk memastikan keunikan ID saat sinkronisasi
         const uniqueStudents = Array.from(new Set((lc.students || []).map(sid => idMap.get(sid) || sid)));
+        // HITUNG ULANG currentEnrollment hanya untuk murid yang TIDAK terhapus
+        const activeCount = uniqueStudents.filter(sid => {
+          const applicant = nextApplicants.find(a => a.id === sid);
+          return applicant && !applicant.isDeleted;
+        }).length;
+
         const updatedClass = { 
           ...lc, 
           students: uniqueStudents, 
-          currentEnrollment: uniqueStudents.length 
+          currentEnrollment: activeCount 
         };
 
         if (lc.id.startsWith('temp-')) {
@@ -299,10 +303,9 @@ export default function ClassesPage() {
 
   const currentClassStudents = useMemo(() => {
     if (!selectedClassForStudents || !localApplicants) return []
-    // Selalu gunakan Set untuk deduplikasi di level UI
-    const studentIds = Array.from(new Set(selectedClassForStudents.students || []))
+    const studentIds = new Set(selectedClassForStudents.students || [])
     return localApplicants
-      .filter(a => studentIds.includes(a.id))
+      .filter(a => studentIds.has(a.id) && !a.isDeleted)
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
   }, [selectedClassForStudents, localApplicants])
 
@@ -403,7 +406,6 @@ export default function ClassesPage() {
 
           if (!rawName && !nisn && !nis) return;
 
-          // Pencocokan data siswa yang sudah ada secara lebih teliti
           let student = currentApplicantsInDb.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbNis = (a.NIS || "").trim();
@@ -428,10 +430,10 @@ export default function ClassesPage() {
              currentApplicantsInDb.push(student)
              createdCount++
           } else {
-            // Update data dasar jika ada perubahan di Excel
             student.gender = gender;
             if (nis && nis !== '-') student.NIS = nis;
             if (nisn && nisn !== '-') student.NISN = nisn;
+            student.isDeleted = false; // RE-AKTIVASI JIKA PERNAH DIHAPUS
           }
 
           if (!currentStudentsInClass.has(student.id)) {
@@ -881,8 +883,13 @@ export default function ClassesPage() {
               {groupedClasses[level].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
                 const isGrade9 = cls.gradeLevel >= 9
-                // Pastikan menggunakan Set untuk deduplikasi jumlah murid yang tampil di kartu
-                const currentCount = Array.from(new Set(cls.students || [])).length;
+                
+                // PERBAIKAN: Hitung jumlah murid yang TIDAK terhapus (isDeleted: false)
+                const uniqueIds = Array.from(new Set(cls.students || []));
+                const currentCount = uniqueIds.filter(sid => {
+                  const applicant = localApplicants.find(a => a.id === sid);
+                  return applicant && !applicant.isDeleted;
+                }).length;
 
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
