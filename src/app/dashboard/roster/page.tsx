@@ -26,7 +26,9 @@ import {
   X,
   LogOut,
   ArrowDownToLine,
-  ArrowUpToLine
+  ArrowUpToLine,
+  ChevronDown,
+  Trash
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -69,6 +71,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
 import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
 import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity } from '@/lib/types'
@@ -180,7 +188,6 @@ export default function RosterManagementPage() {
     DAYS.forEach(day => {
       const end = parse(dailyDismissals[day], 'HH:mm', new Date());
       
-      // Hitung total durasi kegiatan "akhir" (sebelum pulang)
       const endActivities = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.position === 'end');
       const totalEndDur = endActivities.reduce((sum: number, a: any) => sum + (a.duration || 0), 0);
       
@@ -284,7 +291,6 @@ export default function RosterManagementPage() {
       }
     }
 
-    // Tambahkan kegiatan akhir (hitung mundur / backward dari jam pulang)
     let endStartTime = effectiveDismissalLimit;
     endActivities.forEach(act => {
        const start = endStartTime;
@@ -431,8 +437,15 @@ export default function RosterManagementPage() {
     setEntryToDeleteId(null)
   }
 
-  const handleAddGlobalActivity = () => {
-    const newAct: GlobalActivity = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15, position: 'start' };
+  const handleAddGlobalActivity = (day: string, position: 'start' | 'end') => {
+    const newAct: GlobalActivity = { 
+      id: `act-${Date.now()}`, 
+      name: position === 'start' ? "KEGIATAN PAGI" : "KEGIATAN AKHIR", 
+      day, 
+      period: 1, 
+      duration: 15, 
+      position 
+    };
     const updated = [...(config.globalActivities || []), newAct];
     handleUpdateConfig({ globalActivities: updated });
   };
@@ -684,12 +697,11 @@ export default function RosterManagementPage() {
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-1 space-y-6">
               <Card className="border-border/50">
-                <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
+                <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Aturan Dasar</CardTitle></CardHeader>
                 <CardContent className="pt-6 space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jam Masuk Sekolah</Label>
                       <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => handleUpdateConfig({ entryTime: e.target.value })} />
@@ -698,129 +710,175 @@ export default function RosterManagementPage() {
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label>
                       <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => handleUpdateConfig({ jpDuration: parseInt(e.target.value) || 0 })} />
                     </div>
-                  </div>
-
-                  <div className="space-y-4">
-                    <Label className="text-xs font-bold uppercase tracking-widest text-primary flex items-center gap-2 border-b pb-2">
-                      <LogOut className="w-4 h-4" /> Waktu Pulang Sekolah (Harian)
-                    </Label>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {DAYS.map(day => (
-                        <div key={day} className="space-y-1.5 p-3 rounded-lg border bg-muted/5">
-                          <Label className="text-[10px] font-bold uppercase text-muted-foreground">{day}</Label>
-                          <input 
-                            type="time" 
-                            className="flex h-9 w-full rounded-md border bg-background px-2 py-1 text-xs outline-none focus:ring-1 focus:ring-primary"
-                            value={config.dailyDismissalTimes[day]}
-                            onChange={e => {
-                              const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value };
-                              handleUpdateConfig({ dailyDismissalTimes: newDaily });
-                            }}
-                          />
+                    
+                    <Separator />
+                    
+                    <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
+                      <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Sekolah</Label><Switch checked={config.break1Active} onCheckedChange={v => handleUpdateConfig({ break1Active: v })} /></div>
+                      {config.break1Active && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
+                            <Select value={config.break1Period?.toString() || "4"} onValueChange={v => handleUpdateConfig({ break1Period: parseInt(v) })}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="5">Jam Ke-5</SelectItem></SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => handleUpdateConfig({ break1Duration: parseInt(e.target.value) || 0 })} /></div>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  </div>
-
-                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex gap-3">
-                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                      <strong>Info Sinkronisasi:</strong> Mengubah jam pulang atau menambah kegiatan sebelum pulang akan otomatis menyesuaikan jumlah JP yang tersedia di matriks agar jadwal tidak melampaui waktu pulang.
-                    </p>
-                  </div>
                 </CardContent>
               </Card>
-
-              <Card className="border-border/50">
-                <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Coffee className="w-5 h-5 text-accent" /> Istirahat Global</CardTitle></CardHeader>
-                <CardContent className="pt-6 space-y-8">
-                  <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                    <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Sekolah</Label><Switch checked={config.break1Active} onCheckedChange={v => handleUpdateConfig({ break1Active: v })} /></div>
-                    {config.break1Active && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                          <Select value={config.break1Period?.toString() || "4"} onValueChange={v => handleUpdateConfig({ break1Period: parseInt(v) })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="5">Jam Ke-5</SelectItem></SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => handleUpdateConfig({ break1Duration: parseInt(e.target.value) || 0 })} /></div>
-                      </div>
-                    )}
-                  </div>
+              
+              <Card className="bg-primary/5 border-primary/20">
+                <CardContent className="p-4 flex gap-3">
+                   <Info className="w-5 h-5 text-primary shrink-0" />
+                   <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+                     Pengaturan Jam Pulang dan Agenda di sisi kanan akan dihitung secara cerdas untuk membatasi jumlah Jam Pelajaran (JP) yang bisa dimuat.
+                   </p>
                 </CardContent>
               </Card>
             </div>
 
-            <Card className="border-border/50">
-              <CardHeader className="border-b bg-muted/5 flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-amber-500" /> Kegiatan Rutin Sekolah</CardTitle>
-                  <CardDescription>Agenda global (Pagi/Siang atau Sebelum Pulang).</CardDescription>
-                </div>
-                <Button variant="outline" size="sm" onClick={handleAddGlobalActivity} className="h-8 gap-2 border-primary/30 text-primary">
-                  <Plus className="w-3 h-3" /> Tambah
-                </Button>
-              </CardHeader>
-              <CardContent className="pt-6">
-                <ScrollArea className="h-[550px] pr-4">
-                  <div className="space-y-4">
-                    {(config.globalActivities || []).length === 0 ? (
-                      <div className="text-center py-20 text-muted-foreground italic text-xs">Belum ada kegiatan rutin global.</div>
-                    ) : (
-                      config.globalActivities.map((act) => (
-                        <div key={act.id} className="p-4 rounded-xl border bg-muted/10 space-y-4 relative group">
-                          <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute top-2 right-2 h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
-                            <X className="w-4 h-4" />
-                          </Button>
-                          <div className="grid grid-cols-1 gap-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-[10px] font-bold uppercase text-muted-foreground">Nama Kegiatan</Label>
-                              <Input className="h-8 font-bold" value={act.name} onChange={e => updateGlobalActivity(act.id, 'name', e.target.value)} placeholder="Contoh: UPACARA BENDERA" />
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                               <div className="space-y-1.5">
-                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Hari</Label>
-                                 <Select value={act.day} onValueChange={v => updateGlobalActivity(act.id, 'day', v)}>
-                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                   <SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-                                 </Select>
-                               </div>
-                               <div className="space-y-1.5">
-                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Penempatan</Label>
-                                 <Select value={act.position || 'start'} onValueChange={v => updateGlobalActivity(act.id, 'position', v)}>
-                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                   <SelectContent>
-                                      <SelectItem value="start"><div className="flex items-center gap-2"><ArrowUpToLine className="w-3 h-3" /> Pagi / Siang</div></SelectItem>
-                                      <SelectItem value="end"><div className="flex items-center gap-2"><ArrowDownToLine className="w-3 h-3 text-destructive" /> Sebelum Pulang</div></SelectItem>
-                                   </SelectContent>
-                                 </Select>
-                               </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-3">
-                               {act.position !== 'end' && (
-                                 <div className="space-y-1.5">
-                                   <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
-                                   <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
-                                     <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                     <SelectContent>{Array.from({length: 15}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
-                                   </Select>
-                                 </div>
-                               )}
-                               <div className="space-y-1.5">
-                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Durasi (Menit)</Label>
-                                 <Input type="number" className="h-8" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
-                               </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-            </Card>
+            <div className="lg:col-span-2">
+               <Card className="border-border/50 shadow-md">
+                 <CardHeader className="bg-muted/5 border-b">
+                   <CardTitle className="text-lg flex items-center gap-2">
+                     <CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Jam Pulang
+                   </CardTitle>
+                   <CardDescription>Atur jam pulang dan daftar kegiatan kustom untuk setiap hari.</CardDescription>
+                 </CardHeader>
+                 <CardContent className="p-0">
+                    <Accordion type="single" collapsible className="w-full">
+                       {DAYS.map((day) => {
+                          const dayActsPagi = config.globalActivities.filter(a => a.day === day && a.position !== 'end');
+                          const dayActsAkhir = config.globalActivities.filter(a => a.day === day && a.position === 'end');
+                          
+                          return (
+                            <AccordionItem key={day} value={day} className="border-b last:border-b-0 px-6 overflow-hidden transition-all data-[state=open]:bg-primary/5">
+                               <AccordionTrigger className="hover:no-underline group py-4">
+                                  <div className="flex items-center gap-4 w-full">
+                                     <div className="w-2.5 h-10 bg-primary/20 rounded-full group-data-[state=open]:bg-primary transition-colors"></div>
+                                     <div className="flex flex-col items-start text-left">
+                                        <span className="font-bold text-lg">{day}</span>
+                                        <div className="flex items-center gap-3 mt-0.5">
+                                           <Badge variant="outline" className="text-[9px] font-bold tracking-widest gap-1 bg-background">
+                                              <LogOut className="w-2.5 h-2.5" /> PULANG: {config.dailyDismissalTimes[day]}
+                                           </Badge>
+                                           <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">
+                                              {dayActsPagi.length + dayActsAkhir.length} KEGIATAN
+                                           </span>
+                                        </div>
+                                     </div>
+                                  </div>
+                               </AccordionTrigger>
+                               <AccordionContent className="pb-8 pt-2 space-y-8 animate-in slide-in-from-top-2 duration-300">
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                     {/* Jam Pulang */}
+                                     <div className="space-y-4">
+                                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                           <Clock className="w-3.5 h-3.5" /> Jam Pulang Hari {day}
+                                        </Label>
+                                        <input 
+                                           type="time" 
+                                           className="flex h-12 w-full rounded-xl border-2 border-border bg-background px-4 py-2 text-lg font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
+                                           value={config.dailyDismissalTimes[day]}
+                                           onChange={e => {
+                                             const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value };
+                                             handleUpdateConfig({ dailyDismissalTimes: newDaily });
+                                           }}
+                                        />
+                                     </div>
+                                     
+                                     <div className="flex flex-col justify-end">
+                                        <div className="p-4 bg-primary/5 rounded-xl border border-primary/20 flex gap-3">
+                                           <Zap className="w-4 h-4 text-primary shrink-0" />
+                                           <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                              Sistem akan secara otomatis menyisipkan kegiatan rutin Anda ke dalam matriks mingguan untuk seluruh rombel.
+                                           </p>
+                                        </div>
+                                     </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                     {/* Kegiatan Pagi */}
+                                     <div className="space-y-4">
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                           <Label className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-2">
+                                              <ArrowUpToLine className="w-3.5 h-3.5" /> Agenda Pagi / Siang
+                                           </Label>
+                                           <Button variant="ghost" size="sm" onClick={() => handleAddGlobalActivity(day, 'start')} className="h-6 text-[9px] font-bold text-primary px-2 hover:bg-primary/10">
+                                              + TAMBAH
+                                           </Button>
+                                        </div>
+                                        <div className="space-y-3">
+                                           {dayActsPagi.length === 0 ? (
+                                              <div className="text-center py-6 border border-dashed rounded-xl text-[10px] text-muted-foreground opacity-50 uppercase font-bold tracking-widest">
+                                                 Belum ada agenda pagi
+                                              </div>
+                                           ) : dayActsPagi.map(act => (
+                                              <div key={act.id} className="p-3 bg-muted/20 border rounded-xl space-y-3 group/act relative">
+                                                 <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute -top-1.5 -right-1.5 h-6 w-6 bg-background border shadow-sm text-destructive rounded-full opacity-0 group-hover/act:opacity-100 transition-opacity">
+                                                    <X className="w-3 h-3" />
+                                                 </Button>
+                                                 <Input className="h-7 text-xs font-bold bg-background border-none shadow-none focus-visible:ring-0 p-0" value={act.name} onChange={e => updateGlobalActivity(act.id, 'name', e.target.value.toUpperCase())} placeholder="NAMA AGENDA" />
+                                                 <div className="grid grid-cols-2 gap-2">
+                                                    <div className="space-y-1">
+                                                       <Label className="text-[8px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
+                                                       <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
+                                                          <SelectTrigger className="h-7 text-[10px]"><SelectValue /></SelectTrigger>
+                                                          <SelectContent>{Array.from({length: 12}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                                       </Select>
+                                                    </div>
+                                                    <div className="space-y-1">
+                                                       <Label className="text-[8px] font-bold uppercase text-muted-foreground">Durasi (Mnt)</Label>
+                                                       <Input type="number" className="h-7 text-[10px]" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
+                                                    </div>
+                                                 </div>
+                                              </div>
+                                           ))}
+                                        </div>
+                                     </div>
+
+                                     {/* Kegiatan Akhir */}
+                                     <div className="space-y-4">
+                                        <div className="flex items-center justify-between border-b pb-2">
+                                           <Label className="text-[10px] font-black uppercase tracking-widest text-destructive flex items-center gap-2">
+                                              <ArrowDownToLine className="w-3.5 h-3.5" /> Agenda Sebelum Pulang
+                                           </Label>
+                                           <Button variant="ghost" size="sm" onClick={() => handleAddGlobalActivity(day, 'end')} className="h-6 text-[9px] font-bold text-primary px-2 hover:bg-primary/10">
+                                              + TAMBAH
+                                           </Button>
+                                        </div>
+                                        <div className="space-y-3">
+                                           {dayActsAkhir.length === 0 ? (
+                                              <div className="text-center py-6 border border-dashed rounded-xl text-[10px] text-muted-foreground opacity-50 uppercase font-bold tracking-widest">
+                                                 Belum ada agenda akhir
+                                              </div>
+                                           ) : dayActsAkhir.map(act => (
+                                              <div key={act.id} className="p-3 bg-muted/20 border rounded-xl space-y-3 group/act relative">
+                                                 <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute -top-1.5 -right-1.5 h-6 w-6 bg-background border shadow-sm text-destructive rounded-full opacity-0 group-hover/act:opacity-100 transition-opacity">
+                                                    <X className="w-3 h-3" />
+                                                 </Button>
+                                                 <Input className="h-7 text-xs font-bold bg-background border-none shadow-none focus-visible:ring-0 p-0" value={act.name} onChange={e => updateGlobalActivity(act.id, 'name', e.target.value.toUpperCase())} placeholder="NAMA AGENDA" />
+                                                 <div className="space-y-1">
+                                                    <Label className="text-[8px] font-bold uppercase text-muted-foreground">Durasi Sebelum Pulang (Menit)</Label>
+                                                    <Input type="number" className="h-7 text-[10px]" value={act.duration} onChange={e => updateGlobalActivity(act.id, 'duration', parseInt(e.target.value) || 0)} />
+                                                 </div>
+                                              </div>
+                                           ))}
+                                        </div>
+                                     </div>
+                                  </div>
+                               </AccordionContent>
+                            </AccordionItem>
+                          )
+                       })}
+                    </Accordion>
+                 </CardContent>
+               </Card>
+            </div>
           </div>
         </TabsContent>
       </Tabs>
