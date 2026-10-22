@@ -100,7 +100,7 @@ export default function SubjectsPage() {
   }, [serverSubjects, isDirty])
 
   const sortedSubjects = useMemo(() => {
-    return [...localSubjects].sort((a, b) => a.name.localeCompare(b.name))
+    return [...localSubjects].sort((a, b) => (a.name || "").localeCompare(b.name || ""))
   }, [localSubjects])
 
   const form = useForm<z.infer<typeof subjectSchema>>({
@@ -144,9 +144,9 @@ export default function SubjectsPage() {
   const handleEditLocal = (sub: Subject) => {
     setEditingSubject(sub)
     form.reset({ 
-      name: sub.name, 
-      code: sub.code, 
-      grades: sub.grades.map(String) 
+      name: sub.name || "", 
+      code: sub.code || "", 
+      grades: (sub.grades || []).map(String) 
     })
     setIsDialogOpen(true)
   }
@@ -242,7 +242,7 @@ export default function SubjectsPage() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {sub.grades?.sort((a,b) => a-b).map(g => (
+                      {(sub.grades || []).slice().sort((a,b) => a-b).map(g => (
                         <Badge key={g} variant="outline" className="bg-primary/5 border-primary/20 text-[10px] font-bold">KELAS {g}</Badge>
                       ))}
                     </div>
