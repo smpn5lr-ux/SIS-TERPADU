@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react'
@@ -232,7 +231,9 @@ function GradingPageContent() {
   }
 
   const handleGradeChange = (studentId: string, field: keyof Assessment, value: string) => {
-    const numValue = Math.min(100, Math.max(0, parseInt(value) || 0))
+    const rawNum = parseInt(value);
+    const numValue = isNaN(rawNum) ? 0 : Math.min(100, Math.max(0, rawNum));
+    
     setGrades(prev => {
       const current = prev[studentId] || { studentId, assignmentId: assignmentId as string, semester: activeSemester }
       const updated = { ...current, [field]: numValue }
@@ -292,7 +293,6 @@ function GradingPageContent() {
       const headmasterNIP = config?.headmasterNIP || "-";
       const teacherName = user?.displayName || "-";
       
-      // Kop Surat
       doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(0);
       doc.text(govName, 148, 12, { align: "center" });
       doc.text(dinasName, 148, 17, { align: "center" });
@@ -329,7 +329,6 @@ function GradingPageContent() {
         margin: { bottom: 40 }
       })
 
-      // Tanda Tangan
       const finalY = (doc as any).lastAutoTable.finalY + 15;
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       const location = schoolAddress.split(',')[1]?.trim() || "Mando";
@@ -407,9 +406,10 @@ function GradingPageContent() {
                          {localConfig.visibility[f.id] && (
                            <div className="flex items-center gap-3">
                              <Input 
-                               type="number" 
+                               type="text"
+                               inputMode="numeric"
                                className="w-24 h-10 text-center font-bold text-lg bg-background border-primary/20 focus:border-primary transition-all" 
-                               value={localConfig.weights[f.id] || 0}
+                               value={localConfig.weights[f.id] ?? 0}
                                onChange={(e) => {
                                  const val = parseInt(e.target.value) || 0;
                                  const updated = balanceWeights(localConfig.weights, f.id, val, localConfig.visibility);
@@ -534,8 +534,9 @@ function GradingPageContent() {
                       {GRADE_FIELDS.map(f => localConfig.visibility[f.id] && (
                         <TableCell key={f.id}>
                           <Input 
-                            type="number" 
-                            value={(sGrade as any)[f.id] || ""} 
+                            type="text"
+                            inputMode="numeric"
+                            value={(sGrade as any)[f.id] ?? ""} 
                             onChange={e => handleGradeChange(s.id, f.id as any, e.target.value)} 
                             className="h-8 text-center text-[10px] bg-background" 
                           />
