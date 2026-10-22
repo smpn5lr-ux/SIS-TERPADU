@@ -24,7 +24,8 @@ import {
   BookOpen,
   UserCheck,
   CalendarDays,
-  X
+  X,
+  LogOut
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -151,8 +152,9 @@ export default function RosterManagementPage() {
 
   const config = useMemo(() => ({
     entryTime: rosterConfig?.entryTime || "07:00",
+    dismissalTime: rosterConfig?.dismissalTime || "13:00",
     jpDuration: Number(rosterConfig?.jpDuration) || 40,
-    maxPeriods: Number(rosterConfig?.maxPeriods) || 10,
+    maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
     break1Active: rosterConfig?.break1Active ?? true,
     break1Period: rosterConfig?.break1Period ?? 4,
     break1Duration: Number(rosterConfig?.break1Duration) || 30,
@@ -185,52 +187,53 @@ export default function RosterManagementPage() {
             isGlobal: true 
           });
         });
-      } else {
-        // 2. Tambahkan Jam Pelajaran Standar
-        const startTime = currentTime;
-        currentTime = addMinutes(currentTime, config.jpDuration);
-        timeline.push({ 
-          type: 'lesson', 
-          label: p.toString(), 
-          period: p,
-          startTime, 
-          endTime: currentTime 
-        });
       }
+
+      // 2. Tambahkan Jam Pelajaran Standar (pindah ke baris baru)
+      const startTime = currentTime;
+      currentTime = addMinutes(currentTime, config.jpDuration);
+      timeline.push({ 
+        type: 'lesson', 
+        label: p.toString(), 
+        period: p,
+        startTime, 
+        endTime: currentTime 
+      });
 
       // 3. Tambahkan Istirahat (jika dikonfigurasi setelah jam p)
       if (config.break1Active && p === config.break1Period) {
-        const startTime = currentTime;
+        const bStart = currentTime;
         currentTime = addMinutes(currentTime, config.break1Duration);
         timeline.push({ 
           type: 'break', 
           label: 'B', 
           name: 'ISTIRAHAT', 
-          startTime, 
+          startTime: bStart, 
           endTime: currentTime,
           duration: config.break1Duration
         });
       }
       if (config.break2Active && p === config.break2Period) {
-        const startTime = currentTime;
+        const bStart = currentTime;
         currentTime = addMinutes(currentTime, config.break2Duration);
         timeline.push({ 
           type: 'break', 
           label: 'B', 
           name: 'ISTIRAHAT', 
-          startTime, 
+          startTime: bStart, 
           endTime: currentTime,
           duration: config.break2Duration
         });
       }
     }
 
-    // 4. Baris Waktu Pulang (Penutup)
+    // 4. Baris Waktu Pulang (Menggunakan Input Manual dari Config)
+    const fixedDismissalTime = parse(config.dismissalTime, 'HH:mm', new Date());
     timeline.push({ 
       type: 'dismissal', 
       label: 'P', 
-      name: 'WAKTU PULANG', 
-      startTime: currentTime 
+      name: 'WAKTU PULANG SEKOLAH', 
+      startTime: fixedDismissalTime 
     });
 
     return timeline;
@@ -360,7 +363,7 @@ export default function RosterManagementPage() {
 
   const handleAddGlobalActivity = () => {
     const newAct = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15 };
-    const updated = [...config.globalActivities, newAct];
+    const updated = [...(config.globalActivities || []), newAct];
     if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
   };
 
@@ -415,10 +418,7 @@ export default function RosterManagementPage() {
           }
           tableRow.push(row.label);
           
-          const timeStr = row.type === 'dismissal' 
-            ? format(row.startTime, 'HH:mm')
-            : `${format(row.startTime, 'HH:mm')} - ${format(row.endTime, 'HH:mm')}`;
-          
+          const timeStr = format(row.startTime, 'HH:mm') + (row.type !== 'dismissal' ? ` - ${format(row.endTime, 'HH:mm')}` : '');
           tableRow.push(timeStr);
 
           if (row.type === 'lesson') {
@@ -574,9 +574,8 @@ export default function RosterManagementPage() {
                            </TableCell>
                            
                            <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
-                             {row.type === 'dismissal' 
-                               ? format(row.startTime, 'HH:mm')
-                               : `${format(row.startTime, 'HH:mm')} - ${format(row.endTime, 'HH:mm')}`}
+                             {format(row.startTime, 'HH:mm')} 
+                             {row.type !== 'dismissal' && ` - ${format(row.endTime, 'HH:mm')}`}
                            </TableCell>
 
                            {row.type === 'lesson' ? (
@@ -619,28 +618,40 @@ export default function RosterManagementPage() {
             <div className="space-y-6">
               <Card className="border-border/50">
                 <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Dasar Waktu Pelajaran</CardTitle></CardHeader>
-                <CardContent className="pt-6 space-y-4">
-                  <div className="space-y-2">
-                    <Label>Jam Masuk Sekolah</Label>
-                    <input type="time" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={config.entryTime || "07:15"} onChange={e => {
-                      if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
-                    }} />
+                <CardContent className="pt-6 space-y-6">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jam Masuk Sekolah</Label>
+                      <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => {
+                        if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
+                      }} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold uppercase tracking-wider text-primary">Jam Pulang Sekolah</Label>
+                      <input type="time" className="flex h-11 w-full rounded-md border-2 border-primary/50 bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all font-bold" value={config.dismissalTime || "13:30"} onChange={e => {
+                        if (configRef) setDoc(configRef, { ...config, dismissalTime: e.target.value }, { merge: true }).catch(() => {})
+                      }} />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Durasi 1 JP (Menit)</Label>
-                      <Input type="number" value={config.jpDuration || 40} onChange={e => {
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label>
+                      <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => {
                         const val = parseInt(e.target.value) || 0;
                         if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
                       }} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Jumlah JP per Hari</Label>
-                      <Input type="number" value={config.maxPeriods || 10} onChange={e => {
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jumlah JP per Hari</Label>
+                      <Input type="number" className="h-11" value={config.maxPeriods || 10} onChange={e => {
                         const val = parseInt(e.target.value) || 0;
                         if (configRef) setDoc(configRef, { ...config, maxPeriods: val }, { merge: true }).catch(() => {})
                       }} />
                     </div>
+                  </div>
+                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex gap-3">
+                    <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">Waktu pulang akan muncul sebagai baris penanda (P) di matriks roster menggunakan jam yang Anda input di atas.</p>
                   </div>
                 </CardContent>
               </Card>
@@ -687,7 +698,7 @@ export default function RosterManagementPage() {
               <CardContent className="pt-6">
                 <ScrollArea className="h-[450px] pr-4">
                   <div className="space-y-4">
-                    {config.globalActivities.length === 0 ? (
+                    {(config.globalActivities || []).length === 0 ? (
                       <div className="text-center py-20 text-muted-foreground italic text-xs">Belum ada kegiatan rutin global.</div>
                     ) : (
                       config.globalActivities.map((act) => (

@@ -168,6 +168,7 @@ export interface RosterEntry {
 
 export interface RosterConfig {
   entryTime: string; 
+  dismissalTime: string;
   jpDuration: number; 
   maxPeriods: number;
   break1Active: boolean;
