@@ -76,7 +76,6 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 const MAX_PERIODS = 10 
 
-// Palet warna pastel untuk Auto-Coloring Mata Pelajaran
 const COLOR_PALETTE = [
   { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800', rgb: [219, 234, 254] },
   { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', rgb: [220, 252, 231] },
@@ -163,18 +162,13 @@ export default function RosterManagementPage() {
     break2Duration: rosterConfig?.break2Duration ?? 15
   }), [rosterConfig])
 
-  // KALKULASI WAKTU DINAMIS: Menghitung waktu mulai berdasarkan durasi kegiatan kustom pada hari tertentu
   const getTimeForDayAndPeriod = (day: string, period: number) => {
     let current = parse(config.entryTime, 'HH:mm', new Date())
     
     for (let i = 1; i < period; i++) {
-      // 1. Cek apakah ada kegiatan global pada jam ini
       const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
       const duration = activity?.duration || config.jpDuration;
-      
       current = addMinutes(current, duration)
-      
-      // 2. Tambahkan istirahat
       if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
       if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
     }
@@ -184,6 +178,17 @@ export default function RosterManagementPage() {
     const end = addMinutes(current, currentDuration)
     
     return `${format(current, 'HH:mm')} - ${format(end, 'HH:mm')}`
+  }
+
+  const getDismissalTime = (day: string) => {
+    let current = parse(config.entryTime, 'HH:mm', new Date())
+    for (let i = 1; i <= MAX_PERIODS; i++) {
+      const activity = localEntries.find(e => e.day === day && e.period === i && e.isActivity);
+      current = addMinutes(current, activity?.duration || config.jpDuration)
+      if (config.break1Active && i === config.break1Period) current = addMinutes(current, config.break1Duration)
+      if (config.break2Active && i === config.break2Period) current = addMinutes(current, config.break2Duration)
+    }
+    return format(current, 'HH:mm');
   }
 
   const getBreakTime = (day: string, afterPeriod: number, duration: number) => {
@@ -222,7 +227,7 @@ export default function RosterManagementPage() {
   const handleAutoGenerate = () => {
     if (!assignments || !classes) return;
     setIsDirty(true);
-    let currentRoster = [...localEntries];
+    let currentRoster = [...localEntries].filter(e => e.isActivity);
     const shuffledAssignments = [...assignments].sort(() => Math.random() - 0.5);
     
     shuffledAssignments.forEach(asg => {
@@ -272,7 +277,7 @@ export default function RosterManagementPage() {
       subjectName: newEntry.isActivity ? "" : s?.name || "",
       isActivity: !!newEntry.isActivity,
       activityName: newEntry.isActivity ? newEntry.activityName : "",
-      duration: newEntry.isActivity ? (newEntry.duration || 40) : 40
+      duration: newEntry.isActivity ? (newEntry.duration || 0) : 40
     }
 
     setLocalEntries([...localEntries, entry])
@@ -288,11 +293,17 @@ export default function RosterManagementPage() {
     try {
       const toDelete = serverEntries.filter(se => !localEntries.some(le => le.id === se.id))
       toDelete.forEach(e => { batch.delete(doc(db, 'rosterEntries', e.id)) })
-      const toAdd = localEntries.filter(le => le.id.startsWith('temp-'))
-      toAdd.forEach(e => {
-        const newRef = doc(collection(db, 'rosterEntries'))
-        const { id, ...data } = e
-        batch.set(newRef, { ...data, createdAt: new Date().toISOString() })
+      localEntries.forEach(le => {
+        if (le.id.startsWith('temp-')) {
+          const newRef = doc(collection(db, 'rosterEntries'))
+          const { id, ...data } = le
+          batch.set(newRef, { ...data, createdAt: new Date().toISOString() })
+        } else {
+          const serverVer = serverEntries.find(ss => ss.id === le.id)
+          if (JSON.stringify(serverVer) !== JSON.stringify(le)) {
+            batch.update(doc(db, 'rosterEntries', le.id), le as any)
+          }
+        }
       })
       await batch.commit()
       setIsDirty(false)
@@ -345,7 +356,7 @@ export default function RosterManagementPage() {
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
       
       const tableBody: any[] = [];
-      const rowsPerDay = MAX_PERIODS + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
+      const rowsPerDay = MAX_PERIODS + (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0) + 1;
 
       DAYS.forEach(day => {
         let dayCellAdded = false;
@@ -397,6 +408,14 @@ export default function RosterManagementPage() {
           checkBreak(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
           checkBreak(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
         }
+        
+        const dismissalRow: any[] = ["P", getDismissalTime(day)];
+        dismissalRow.push({
+          content: "WAKTU PULANG",
+          colSpan: sorted.length,
+          styles: { fillColor: [255, 235, 235], fontStyle: 'bold', textColor: [200, 0, 0], halign: 'center' }
+        });
+        tableBody.push(dismissalRow);
       });
 
       autoTable(doc, {
@@ -498,7 +517,7 @@ export default function RosterManagementPage() {
                      {DAYS.map((day) => {
                        const rows = [];
                        const breakCount = (config.break1Active ? 1 : 0) + (config.break2Active ? 1 : 0);
-                       const dayRows = 10 + breakCount;
+                       const dayRows = 10 + breakCount + 1; // +1 for dismissal row
                        for (let p = 1; p <= MAX_PERIODS; p++) {
                          const globalActivity = localEntries.find(e => e.day === day && e.period === p && e.isActivity);
                          
@@ -557,6 +576,18 @@ export default function RosterManagementPage() {
                          checkInject(config.break1Period, config.break1Active, "ISTIRAHAT 1", config.break1Duration);
                          checkInject(config.break2Period, config.break2Active, "ISTIRAHAT 2", config.break2Duration);
                        }
+
+                       // Add Dismissal Row at the end of each day
+                       rows.push(
+                         <TableRow key={`${day}-dismissal`} className="bg-destructive/5">
+                           <TableCell className="border-r font-bold text-[10px] text-center p-2 text-destructive">P</TableCell>
+                           <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">{getDismissalTime(day)}</TableCell>
+                           <TableCell colSpan={sortedClasses.length} className="p-0 border-r last:border-r-0 border-y border-destructive/10">
+                             <div className="h-10 flex items-center justify-center text-destructive font-black text-[11px] tracking-[0.8em] uppercase bg-muted/20">WAKTU PULANG</div>
+                           </TableCell>
+                         </TableRow>
+                       );
+
                        return rows;
                      })}
                    </TableBody>
@@ -631,7 +662,19 @@ export default function RosterManagementPage() {
             {newEntry.isActivity ? (
                <div className="space-y-4">
                  <div className="space-y-2"><Label>Nama Kegiatan</Label><Input value={newEntry.activityName || ""} onChange={e => setNewEntry({...newEntry, activityName: e.target.value})} placeholder="Contoh: PAGI CERIA" /></div>
-                 <div className="space-y-2"><Label className="text-primary font-bold">Durasi (Menit)</Label><Input type="number" value={newEntry.duration || 45} onChange={e => setNewEntry({...newEntry, duration: parseInt(e.target.value) || 0})} placeholder="Contoh: 60" /></div>
+                 <div className="space-y-2">
+                   <Label className="text-primary font-bold">Durasi (Menit)</Label>
+                   <Input 
+                     type="text" 
+                     inputMode="numeric"
+                     value={newEntry.duration === 0 ? "" : newEntry.duration} 
+                     onChange={e => {
+                       const val = e.target.value.replace(/[^0-9]/g, '');
+                       setNewEntry({...newEntry, duration: val === "" ? 0 : parseInt(val)});
+                     }} 
+                     placeholder="Contoh: 60" 
+                   />
+                 </div>
                  <div className="bg-amber-500/10 p-3 rounded-lg flex gap-2"><Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5"/><p className="text-[10px] text-amber-700 italic">Jadwal pada jam pelajaran berikutnya akan secara otomatis bergeser sesuai durasi ini.</p></div>
                </div>
             ) : (
