@@ -125,8 +125,8 @@ export default function ClassesPage() {
       gradeLevel: parseInt(values.gradeLevel),
       homeroomTeacher: values.homeroomTeacher || "",
       capacity: parseInt(values.capacity),
-      students: editingClass?.students || [],
-      currentEnrollment: editingClass?.currentEnrollment || 0
+      students: Array.from(new Set(editingClass?.students || [])),
+      currentEnrollment: (new Set(editingClass?.students || [])).size
     } as Classroom
 
     if (editingClass) {
@@ -242,8 +242,8 @@ export default function ClassesPage() {
       })
 
       const nextClasses = localClasses.map(lc => {
-        const updatedStudents = (lc.students || []).map(sid => idMap.get(sid) || sid);
-        const updatedClass = { ...lc, students: updatedStudents, currentEnrollment: updatedStudents.length };
+        const uniqueStudents = Array.from(new Set((lc.students || []).map(sid => idMap.get(sid) || sid)));
+        const updatedClass = { ...lc, students: uniqueStudents, currentEnrollment: uniqueStudents.length };
 
         if (lc.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'classes'))
@@ -289,8 +289,9 @@ export default function ClassesPage() {
 
   const currentClassStudents = useMemo(() => {
     if (!selectedClassForStudents || !localApplicants) return []
+    const studentIds = Array.from(new Set(selectedClassForStudents.students || []))
     return localApplicants
-      .filter(a => selectedClassForStudents.students?.includes(a.id))
+      .filter(a => studentIds.includes(a.id))
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
   }, [selectedClassForStudents, localApplicants])
 
@@ -303,10 +304,16 @@ export default function ClassesPage() {
 
   const handleAddStudentToClass = (studentId: string) => {
     if (!selectedClassForStudents) return
+    const currentStudents = selectedClassForStudents.students || []
+    if (currentStudents.includes(studentId)) {
+      toast({ title: "Murid sudah ada di kelas ini" })
+      return
+    }
+    const updatedStudents = Array.from(new Set([...currentStudents, studentId]))
     const updatedClass = {
       ...selectedClassForStudents,
-      students: [...(selectedClassForStudents.students || []), studentId],
-      currentEnrollment: (selectedClassForStudents.students?.length || 0) + 1
+      students: updatedStudents,
+      currentEnrollment: updatedStudents.length
     }
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setSelectedClassForStudents(updatedClass)
@@ -316,10 +323,11 @@ export default function ClassesPage() {
 
   const handleRemoveStudentFromClass = (studentId: string) => {
     if (!selectedClassForStudents) return
+    const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
     const updatedClass = {
       ...selectedClassForStudents,
-      students: (selectedClassForStudents.students || []).filter(id => id !== studentId),
-      currentEnrollment: Math.max(0, (selectedClassForStudents.students?.length || 0) - 1)
+      students: updatedStudents,
+      currentEnrollment: updatedStudents.length
     }
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setSelectedClassForStudents(updatedClass)
@@ -329,9 +337,9 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const data = [
-      { "NO": 1, "NISN": "3149664895", "NIS": "12345", "NAMA SISWA": "Abel Artasasta Sutono", "LP": "L" },
-      { "NO": 2, "NISN": "3133865046", "NIS": "12346", "NAMA SISWA": "Adrianus Nggaro", "LP": "L" },
-      { "NO": 3, "NISN": "3143191449", "NIS": "12347", "NAMA SISWA": "Afila Hana", "LP": "P" }
+      { "NO": 1, "NIS": "12345", "NISN": "3149664895", "NAMA LENGKAP": "Abel Artasasta Sutono", "JK": "L" },
+      { "NO": 2, "NIS": "12346", "NISN": "3133865046", "NAMA LENGKAP": "Adrianus Nggaro", "JK": "L" },
+      { "NO": 3, "NIS": "12347", "NISN": "3143191449", "NAMA LENGKAP": "Afila Hana", "JK": "P" }
     ]
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -360,14 +368,14 @@ export default function ClassesPage() {
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
         
-        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA SISWA";
+        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA LENGKAP";
         const nisnKey = keys.find(k => k.toLowerCase().includes("nisn")) || "NISN";
         const nisKey = keys.find(k => k.toLowerCase() === "nis") || "NIS";
-        const genderKey = keys.find(k => k.toLowerCase() === "lp" || k.toLowerCase().includes("jk") || k.toLowerCase().includes("kelamin")) || "LP";
+        const genderKey = keys.find(k => k.toLowerCase() === "jk" || k.toLowerCase() === "lp" || k.toLowerCase().includes("kelamin")) || "JK";
 
         let addedCount = 0
         let createdCount = 0
-        const currentStudentsInClass = [...(selectedClassForStudents.students || [])]
+        const currentStudentsInClass = new Set(selectedClassForStudents.students || [])
         const currentApplicantsInDb = [...localApplicants]
         
         data.forEach(row => {
@@ -411,15 +419,20 @@ export default function ClassesPage() {
             if (nisn && nisn !== '-') student.NISN = nisn;
           }
 
-          if (!currentStudentsInClass.includes(student.id)) {
-            currentStudentsInClass.push(student.id)
+          if (!currentStudentsInClass.has(student.id)) {
+            currentStudentsInClass.add(student.id)
             addedCount++
           }
         })
 
         if (addedCount > 0 || createdCount > 0) {
           setLocalApplicants(currentApplicantsInDb)
-          const updatedClass = { ...selectedClassForStudents, students: currentStudentsInClass, currentEnrollment: currentStudentsInClass.length }
+          const updatedStudents = Array.from(currentStudentsInClass)
+          const updatedClass = { 
+            ...selectedClassForStudents, 
+            students: updatedStudents, 
+            currentEnrollment: updatedStudents.length 
+          }
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
@@ -476,11 +489,11 @@ export default function ClassesPage() {
       doc.text(`Total Siswa: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 61);
 
       const tableHead = [
-        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA SISWA', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'LP', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KETERANGAN', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
-        ['URUT', 'NISN', 'NIS']
+        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA LENGKAP', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'JK', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KETERANGAN', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
+        ['URUT', 'NIS', 'NISN']
       ];
 
-      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.NISN || "-", s.NIS || "-", s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ""]);
+      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.NIS || "-", s.NISN || "-", s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ""]);
 
       autoTable(doc, {
         head: tableHead,
@@ -489,7 +502,7 @@ export default function ClassesPage() {
         theme: 'grid',
         styles: { fontSize: 8, cellPadding: 1.2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
-        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
+        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 18, halign: 'center' }, 2: { cellWidth: 22, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
         margin: { bottom: 40 }
       });
 
@@ -556,7 +569,7 @@ export default function ClassesPage() {
       doc.setFont("helvetica", "normal").text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 52);
 
       const daysHeader = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
-      const tableHead = [['NO', 'NAMA SISWA', 'LP', ...daysHeader, 'S', 'I', 'A']];
+      const tableHead = [['NO', 'NAMA SISWA', 'JK', ...daysHeader, 'S', 'I', 'A']];
       const tableBody = currentClassStudents.map((s, i) => [i + 1, s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ...Array(31).fill(""), "", "", ""]);
 
       autoTable(doc, {
@@ -676,10 +689,10 @@ export default function ClassesPage() {
                   <TableHeader className="bg-muted/50 border-b">
                     <TableRow>
                       <TableHead className="w-16 text-center font-bold">No</TableHead>
-                      <TableHead className="font-bold w-[140px]">NISN</TableHead>
                       <TableHead className="font-bold w-[120px]">NIS</TableHead>
+                      <TableHead className="font-bold w-[140px]">NISN</TableHead>
                       <TableHead className="font-bold">Nama Murid</TableHead>
-                      <TableHead className="font-bold text-center">LP</TableHead>
+                      <TableHead className="font-bold text-center">JK</TableHead>
                       <TableHead className="font-bold">Status</TableHead>
                       <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
                     </TableRow>
@@ -693,8 +706,8 @@ export default function ClassesPage() {
                     ) : currentClassStudents.map((s, idx) => (
                       <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
                         <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
+                        <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
                         <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className="text-[9px] font-bold">
@@ -855,6 +868,7 @@ export default function ClassesPage() {
               {groupedClasses[level].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
                 const isGrade9 = cls.gradeLevel >= 9
+                const currentCount = cls.students?.length || 0;
 
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
@@ -864,9 +878,9 @@ export default function ClassesPage() {
                       <CardDescription className="flex items-center justify-between mt-1">
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5" />
-                          <span className="font-bold text-foreground">{cls.currentEnrollment || 0}</span> / {cls.capacity} Murid
+                          <span className="font-bold text-foreground">{currentCount}</span> / {cls.capacity} Murid
                         </div>
-                        {cls.currentEnrollment > 0 && (
+                        {currentCount > 0 && (
                           <Button 
                             variant="outline" 
                             size="sm" 
@@ -951,7 +965,7 @@ export default function ClassesPage() {
             </AlertDialogTitle>
             <AlertDialogDescription>
               {classToPromote?.gradeLevel && classToPromote.gradeLevel >= 9 
-                ? `Apakah Anda yakin ingin meluluskan seluruh murid (${classToPromote.currentEnrollment}) dari Kelas ${classToPromote.name}? Status mereka akan diubah menjadi LULUS.`
+                ? `Apakah Anda yakin ingin meluluskan seluruh murid (${classToPromote.students?.length}) dari Kelas ${classToPromote.name}? Status mereka akan diubah menjadi LULUS.`
                 : `Murid dari Kelas ${classToPromote?.name} akan dikeluarkan dari rombel ini agar Anda dapat memasukkan mereka ke kelas tingkat berikutnya. Lanjutkan?`
               }
             </AlertDialogDescription>
