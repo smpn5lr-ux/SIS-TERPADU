@@ -105,8 +105,10 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
+    // Validasi Nama Kelas Unik (Case Insensitive & Trim)
+    const normalizedName = values.name.toLowerCase().trim();
     const isDuplicate = localClasses.some(c => 
-      c.name.toLowerCase().trim() === values.name.toLowerCase().trim() && 
+      c.name.toLowerCase().trim() === normalizedName && 
       (!editingClass || c.id !== editingClass.id)
     );
 
@@ -114,19 +116,20 @@ export default function ClassesPage() {
       toast({ 
         variant: "destructive", 
         title: "Gagal Menyimpan", 
-        description: `Kelas ${values.name} sudah terdaftar.` 
+        description: `Kelas "${values.name}" sudah terdaftar dalam sistem.` 
       });
       return;
     }
 
+    const uniqueStudents = Array.from(new Set(editingClass?.students || []));
     const classData = {
       id: editingClass ? editingClass.id : `temp-${Date.now()}`,
-      name: values.name,
+      name: values.name.trim(),
       gradeLevel: parseInt(values.gradeLevel),
-      homeroomTeacher: values.homeroomTeacher || "",
+      homeroomTeacher: values.homeroomTeacher?.trim() || "",
       capacity: parseInt(values.capacity),
-      students: Array.from(new Set(editingClass?.students || [])),
-      currentEnrollment: (new Set(editingClass?.students || [])).size
+      students: uniqueStudents,
+      currentEnrollment: uniqueStudents.length
     } as Classroom
 
     if (editingClass) {
@@ -190,7 +193,7 @@ export default function ClassesPage() {
   const handlePromoteClassLocal = () => {
     if (!classToPromote) return
     const isGrade9 = classToPromote.gradeLevel >= 9
-    const studentIds = classToPromote.students || []
+    const studentIds = Array.from(new Set(classToPromote.students || []))
 
     if (studentIds.length === 0) {
       toast({ variant: "destructive", title: "Gagal", description: "Kelas ini tidak memiliki murid." })
@@ -242,8 +245,13 @@ export default function ClassesPage() {
       })
 
       const nextClasses = localClasses.map(lc => {
+        // Gunakan Set untuk memastikan keunikan ID saat sinkronisasi
         const uniqueStudents = Array.from(new Set((lc.students || []).map(sid => idMap.get(sid) || sid)));
-        const updatedClass = { ...lc, students: uniqueStudents, currentEnrollment: uniqueStudents.length };
+        const updatedClass = { 
+          ...lc, 
+          students: uniqueStudents, 
+          currentEnrollment: uniqueStudents.length 
+        };
 
         if (lc.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'classes'))
@@ -265,6 +273,7 @@ export default function ClassesPage() {
       await batch.commit()
       setLocalApplicants(nextApplicants)
       setLocalClasses(nextClasses)
+      
       if (selectedClassForStudents) {
          const updatedSelected = nextClasses.find(c => 
            c.name === selectedClassForStudents.name && 
@@ -272,6 +281,7 @@ export default function ClassesPage() {
          )
          if (updatedSelected) setSelectedClassForStudents(updatedSelected)
       }
+      
       setIsDirty(false)
       toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data telah aman di Cloud." })
     } catch (e) {
@@ -289,6 +299,7 @@ export default function ClassesPage() {
 
   const currentClassStudents = useMemo(() => {
     if (!selectedClassForStudents || !localApplicants) return []
+    // Selalu gunakan Set untuk deduplikasi di level UI
     const studentIds = Array.from(new Set(selectedClassForStudents.students || []))
     return localApplicants
       .filter(a => studentIds.includes(a.id))
@@ -337,9 +348,9 @@ export default function ClassesPage() {
 
   const handleDownloadTemplate = () => {
     const data = [
-      { "NO": 1, "NIS": "12345", "NISN": "3149664895", "NAMA LENGKAP": "Abel Artasasta Sutono", "JK": "L" },
-      { "NO": 2, "NIS": "12346", "NISN": "3133865046", "NAMA LENGKAP": "Adrianus Nggaro", "JK": "L" },
-      { "NO": 3, "NIS": "12347", "NISN": "3143191449", "NAMA LENGKAP": "Afila Hana", "JK": "P" }
+      { "NO": 1, "NISN": "3149664895", "NIS": "12345", "NAMA SISWA": "Abel Artasasta Sutono", "LP": "L" },
+      { "NO": 2, "NISN": "3133865046", "NIS": "12346", "NAMA SISWA": "Adrianus Nggaro", "LP": "L" },
+      { "NO": 3, "NISN": "3143191449", "NIS": "12347", "NAMA SISWA": "Afila Hana", "LP": "P" }
     ]
     const ws = XLSX.utils.json_to_sheet(data)
     const wb = XLSX.utils.book_new()
@@ -368,10 +379,10 @@ export default function ClassesPage() {
         const firstRow = data[0];
         const keys = Object.keys(firstRow);
         
-        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA LENGKAP";
+        const nameKey = keys.find(k => k.toLowerCase().includes("nama")) || "NAMA SISWA";
         const nisnKey = keys.find(k => k.toLowerCase().includes("nisn")) || "NISN";
         const nisKey = keys.find(k => k.toLowerCase() === "nis") || "NIS";
-        const genderKey = keys.find(k => k.toLowerCase() === "jk" || k.toLowerCase() === "lp" || k.toLowerCase().includes("kelamin")) || "JK";
+        const genderKey = keys.find(k => k.toLowerCase() === "lp" || k.toLowerCase() === "jk" || k.toLowerCase() === "gender") || "LP";
 
         let addedCount = 0
         let createdCount = 0
@@ -392,11 +403,14 @@ export default function ClassesPage() {
 
           if (!rawName && !nisn && !nis) return;
 
+          // Pencocokan data siswa yang sudah ada secara lebih teliti
           let student = currentApplicantsInDb.find(a => {
             const dbNisn = (a.NISN || "").trim();
             const dbNis = (a.NIS || "").trim();
             const dbName = (a.fullName || "").trim().toLowerCase();
-            return (nisn !== "" && dbNisn === nisn) || (nis !== "" && dbNis === nis) || (nameLower !== "" && dbName === nameLower);
+            return (nisn !== "" && dbNisn === nisn) || 
+                   (nis !== "" && dbNis === nis) || 
+                   (nameLower !== "" && dbName === nameLower);
           });
 
           if (!student) {
@@ -414,6 +428,7 @@ export default function ClassesPage() {
              currentApplicantsInDb.push(student)
              createdCount++
           } else {
+            // Update data dasar jika ada perubahan di Excel
             student.gender = gender;
             if (nis && nis !== '-') student.NIS = nis;
             if (nisn && nisn !== '-') student.NISN = nisn;
@@ -489,11 +504,11 @@ export default function ClassesPage() {
       doc.text(`Total Siswa: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 61);
 
       const tableHead = [
-        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA LENGKAP', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'JK', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KETERANGAN', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
-        ['URUT', 'NIS', 'NISN']
+        [{ content: 'NOMOR', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } }, { content: 'NAMA SISWA', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }, { content: 'LP', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }, { content: 'KETERANGAN', rowSpan: 2, styles: { valign: 'middle', halign: 'center', fontStyle: 'bold' } }],
+        ['URUT', 'NISN', 'NIS']
       ];
 
-      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.NIS || "-", s.NISN || "-", s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ""]);
+      const tableBody = currentClassStudents.map((s, i) => [i + 1, s.NISN || "-", s.NIS || "-", s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ""]);
 
       autoTable(doc, {
         head: tableHead,
@@ -502,11 +517,10 @@ export default function ClassesPage() {
         theme: 'grid',
         styles: { fontSize: 8, cellPadding: 1.2, textColor: [0, 0, 0], lineColor: [0, 0, 0] },
         headStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], lineWidth: 0.2 },
-        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 18, halign: 'center' }, 2: { cellWidth: 22, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
+        columnStyles: { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: 22, halign: 'center' }, 2: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 10, halign: 'center' }, 5: { cellWidth: 22 } },
         margin: { bottom: 40 }
       });
 
-      // Tanda Tangan
       const finalY = (doc as any).lastAutoTable.finalY + 15;
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       const location = schoolAddress.split(',')[1]?.trim() || "Mando";
@@ -569,7 +583,7 @@ export default function ClassesPage() {
       doc.setFont("helvetica", "normal").text(`Total: ${classGenderStats.total} (L: ${classGenderStats.male}, P: ${classGenderStats.female})`, 14, 52);
 
       const daysHeader = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
-      const tableHead = [['NO', 'NAMA SISWA', 'JK', ...daysHeader, 'S', 'I', 'A']];
+      const tableHead = [['NO', 'NAMA SISWA', 'LP', ...daysHeader, 'S', 'I', 'A']];
       const tableBody = currentClassStudents.map((s, i) => [i + 1, s.fullName, s.gender === 'Laki-laki' ? 'L' : 'P', ...Array(31).fill(""), "", "", ""]);
 
       autoTable(doc, {
@@ -583,7 +597,6 @@ export default function ClassesPage() {
         margin: { left: 14, right: 14, bottom: 35 }
       });
 
-      // Tanda Tangan (Landscape)
       const finalY = (doc as any).lastAutoTable.finalY + 10;
       const today = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
       const location = schoolAddress.split(',')[1]?.trim() || "Mando";
@@ -689,8 +702,8 @@ export default function ClassesPage() {
                   <TableHeader className="bg-muted/50 border-b">
                     <TableRow>
                       <TableHead className="w-16 text-center font-bold">No</TableHead>
+                      <TableHead className="font-bold w-[120px]">NISN</TableHead>
                       <TableHead className="font-bold w-[120px]">NIS</TableHead>
-                      <TableHead className="font-bold w-[140px]">NISN</TableHead>
                       <TableHead className="font-bold">Nama Murid</TableHead>
                       <TableHead className="font-bold text-center">JK</TableHead>
                       <TableHead className="font-bold">Status</TableHead>
@@ -706,8 +719,8 @@ export default function ClassesPage() {
                     ) : currentClassStudents.map((s, idx) => (
                       <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
                         <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                        <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
                         <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                        <TableCell className="font-mono text-xs font-bold text-primary">{s.NIS || "-"}</TableCell>
                         <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant="outline" className="text-[9px] font-bold">
@@ -786,11 +799,11 @@ export default function ClassesPage() {
                   <FormItem><FormLabel>Nama Lengkap</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                 )} />
                 <div className="grid grid-cols-2 gap-4">
-                  <FormField control={studentEditForm.control} name="NIS" render={({ field }) => (
-                    <FormItem><FormLabel>NIS</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
-                  )} />
                   <FormField control={studentEditForm.control} name="NISN" render={({ field }) => (
                     <FormItem><FormLabel>NISN</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
+                  )} />
+                  <FormField control={studentEditForm.control} name="NIS" render={({ field }) => (
+                    <FormItem><FormLabel>NIS</FormLabel><FormControl><Input {...field} /></FormControl></FormItem>
                   )} />
                 </div>
                 <FormField control={studentEditForm.control} name="gender" render={({ field }) => (
@@ -868,7 +881,8 @@ export default function ClassesPage() {
               {groupedClasses[level].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
                 const isGrade9 = cls.gradeLevel >= 9
-                const currentCount = cls.students?.length || 0;
+                // Pastikan menggunakan Set untuk deduplikasi jumlah murid yang tampil di kartu
+                const currentCount = Array.from(new Set(cls.students || [])).length;
 
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
