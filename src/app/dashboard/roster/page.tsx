@@ -72,7 +72,7 @@ import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase
 import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
 import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
-import { addMinutes, format, parse } from 'date-fns'
+import { addMinutes, format, parse, differenceInMinutes } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 
@@ -164,6 +164,62 @@ export default function RosterManagementPage() {
     globalActivities: (rosterConfig?.globalActivities || []) as { id: string, name: string, day: string, period: number, duration: number }[]
   }), [rosterConfig])
 
+  // Fungsi simulasi untuk menghitung jumlah JP berdasarkan jam pulang yang diinginkan
+  const calculateNewMaxJP = (entry: string, dismissal: string, jpDur: number, currentConfig: any) => {
+    const start = parse(entry, 'HH:mm', new Date());
+    const end = parse(dismissal, 'HH:mm', new Date());
+    
+    let overallMax = 0;
+    
+    DAYS.forEach(day => {
+      let current = start;
+      let period = 0;
+      
+      while (period < 20) { // Safety limit 20 jam
+        const nextP = period + 1;
+        
+        // Cek Kegiatan rutin untuk periode ini
+        const acts = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.period === nextP);
+        acts.forEach((a: any) => current = addMinutes(current, a.duration));
+        
+        // Cek apakah sisa waktu cukup untuk 1 JP pelajaran
+        const lessonEnd = addMinutes(current, jpDur);
+        if (lessonEnd > end) break;
+        
+        current = lessonEnd;
+        period = nextP;
+        
+        // Cek Istirahat
+        if (currentConfig.break1Active && period === currentConfig.break1Period) current = addMinutes(current, currentConfig.break1Duration);
+        if (currentConfig.break2Active && period === currentConfig.break2Period) current = addMinutes(current, currentConfig.break2Duration);
+        
+        if (current >= end) break;
+      }
+      if (period > overallMax) overallMax = period;
+    });
+    
+    return overallMax || 1;
+  };
+
+  const handleUpdateConfig = (updates: any) => {
+    if (!configRef) return;
+    
+    let finalUpdates = { ...config, ...updates };
+    
+    // Jika jam masuk, jam pulang, atau durasi JP berubah, hitung ulang Max JP
+    if (updates.dismissalTime || updates.entryTime || updates.jpDuration) {
+      const newMax = calculateNewMaxJP(
+        updates.entryTime || config.entryTime,
+        updates.dismissalTime || config.dismissalTime,
+        updates.jpDuration || config.jpDuration,
+        finalUpdates
+      );
+      finalUpdates.maxPeriods = newMax;
+    }
+
+    setDoc(configRef, finalUpdates, { merge: true }).catch(() => {});
+  };
+
   // Helper untuk merangkai baris-baris jadwal dalam satu hari secara kronologis
   const generateDayTimeline = (day: string) => {
     const timeline: any[] = [];
@@ -189,7 +245,7 @@ export default function RosterManagementPage() {
         });
       }
 
-      // 2. Tambahkan Jam Pelajaran Standar (pindah ke baris baru)
+      // 2. Tambahkan Jam Pelajaran Standar
       const startTime = currentTime;
       currentTime = addMinutes(currentTime, config.jpDuration);
       timeline.push({ 
@@ -200,7 +256,7 @@ export default function RosterManagementPage() {
         endTime: currentTime 
       });
 
-      // 3. Tambahkan Istirahat (jika dikonfigurasi setelah jam p)
+      // 3. Tambahkan Istirahat
       if (config.break1Active && p === config.break1Period) {
         const bStart = currentTime;
         currentTime = addMinutes(currentTime, config.break1Duration);
@@ -364,17 +420,17 @@ export default function RosterManagementPage() {
   const handleAddGlobalActivity = () => {
     const newAct = { id: `act-${Date.now()}`, name: "KEGIATAN BARU", day: "Senin", period: 1, duration: 15 };
     const updated = [...(config.globalActivities || []), newAct];
-    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+    handleUpdateConfig({ globalActivities: updated });
   };
 
   const updateGlobalActivity = (id: string, field: string, val: any) => {
     const updated = config.globalActivities.map(a => a.id === id ? { ...a, [field]: val } : a);
-    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+    handleUpdateConfig({ globalActivities: updated });
   };
 
   const removeGlobalActivity = (id: string) => {
     const updated = config.globalActivities.filter(a => a.id !== id);
-    if (configRef) setDoc(configRef, { ...config, globalActivities: updated }, { merge: true });
+    handleUpdateConfig({ globalActivities: updated });
   };
 
   const handleDownloadUnified = async () => {
@@ -622,36 +678,28 @@ export default function RosterManagementPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jam Masuk Sekolah</Label>
-                      <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => {
-                        if (configRef) setDoc(configRef, { ...config, entryTime: e.target.value }, { merge: true }).catch(() => {})
-                      }} />
+                      <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => handleUpdateConfig({ entryTime: e.target.value })} />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-primary">Jam Pulang Sekolah</Label>
-                      <input type="time" className="flex h-11 w-full rounded-md border-2 border-primary/50 bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all font-bold" value={config.dismissalTime || "13:30"} onChange={e => {
-                        if (configRef) setDoc(configRef, { ...config, dismissalTime: e.target.value }, { merge: true }).catch(() => {})
-                      }} />
+                      <input type="time" className="flex h-11 w-full rounded-md border-2 border-primary/50 bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all font-bold" value={config.dismissalTime || "13:30"} onChange={e => handleUpdateConfig({ dismissalTime: e.target.value })} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label>
-                      <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => {
-                        const val = parseInt(e.target.value) || 0;
-                        if (configRef) setDoc(configRef, { ...config, jpDuration: val }, { merge: true }).catch(() => {})
-                      }} />
+                      <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => handleUpdateConfig({ jpDuration: parseInt(e.target.value) || 0 })} />
                     </div>
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jumlah JP per Hari</Label>
-                      <Input type="number" className="h-11" value={config.maxPeriods || 10} onChange={e => {
-                        const val = parseInt(e.target.value) || 0;
-                        if (configRef) setDoc(configRef, { ...config, maxPeriods: val }, { merge: true }).catch(() => {})
-                      }} />
+                      <Input type="number" className="h-11" value={config.maxPeriods || 10} onChange={e => handleUpdateConfig({ maxPeriods: parseInt(e.target.value) || 0 })} />
                     </div>
                   </div>
                   <div className="p-3 bg-primary/5 border border-primary/20 rounded-xl flex gap-3">
                     <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">Waktu pulang akan muncul sebagai baris penanda (P) di matriks roster menggunakan jam yang Anda input di atas.</p>
+                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+                      <strong>Info Sinkronisasi:</strong> Mengubah "Jam Pulang" akan secara otomatis menghitung ulang "Jumlah JP per Hari" agar pas dengan durasi waktu sekolah.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -660,24 +708,17 @@ export default function RosterManagementPage() {
                 <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Coffee className="w-5 h-5 text-accent" /> Istirahat Global</CardTitle></CardHeader>
                 <CardContent className="pt-6 space-y-8">
                   <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                    <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Sekolah</Label><Switch checked={config.break1Active} onCheckedChange={v => {
-                      if (configRef) setDoc(configRef, { ...config, break1Active: v }, { merge: true }).catch(() => {})
-                    }} /></div>
+                    <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Sekolah</Label><Switch checked={config.break1Active} onCheckedChange={v => handleUpdateConfig({ break1Active: v })} /></div>
                     {config.break1Active && (
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                          <Select value={config.break1Period?.toString() || "4"} onValueChange={v => {
-                            if (configRef) setDoc(configRef, { ...config, break1Period: parseInt(v) }, { merge: true }).catch(() => {})
-                          }}>
+                          <Select value={config.break1Period?.toString() || "4"} onValueChange={v => handleUpdateConfig({ break1Period: parseInt(v) })}>
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="5">Jam Ke-5</SelectItem></SelectContent>
                           </Select>
                         </div>
-                        <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => {
-                          const val = parseInt(e.target.value) || 0;
-                          if (configRef) setDoc(configRef, { ...config, break1Duration: val }, { merge: true }).catch(() => {})
-                        }} /></div>
+                        <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => handleUpdateConfig({ break1Duration: parseInt(e.target.value) || 0 })} /></div>
                       </div>
                     )}
                   </div>
@@ -723,7 +764,7 @@ export default function RosterManagementPage() {
                                 <Label className="text-[10px] font-bold uppercase text-muted-foreground">Jam Ke-</Label>
                                 <Select value={act.period.toString()} onValueChange={v => updateGlobalActivity(act.id, 'period', parseInt(v))}>
                                   <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
-                                  <SelectContent>{Array.from({length: config.maxPeriods}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                                  <SelectContent>{Array.from({length: config.maxPeriods || 10}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
                                 </Select>
                               </div>
                               <div className="space-y-1.5">
