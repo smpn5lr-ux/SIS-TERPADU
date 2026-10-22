@@ -29,7 +29,8 @@ import {
   CloudUpload,
   CloudOff,
   AlertCircle,
-  ChevronLeft
+  ChevronLeft,
+  ShieldAlert
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -45,6 +46,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Select,
   SelectContent,
@@ -106,6 +117,9 @@ export default function RosterManagementPage() {
     isActivity: false,
     activityName: ""
   })
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [entryToDeleteId, setEntryToDeleteId] = useState<string | null>(null)
 
   const rosterQuery = useMemoFirebase(() => db ? collection(db, 'rosterEntries') : null, [db])
   const assignmentsQuery = useMemoFirebase(() => db ? collection(db, 'teacherAssignments') : null, [db])
@@ -238,8 +252,16 @@ export default function RosterManagementPage() {
   }
 
   const handleDeleteEntryLocal = (id: string) => {
-    setLocalEntries(localEntries.filter(e => e.id !== id))
+    setEntryToDeleteId(id)
+    setIsDeleteDialogOpen(true)
+  }
+
+  const confirmDeleteLocal = () => {
+    if (!entryToDeleteId) return
+    setLocalEntries(localEntries.filter(e => e.id !== entryToDeleteId))
     setIsDirty(true)
+    setIsDeleteDialogOpen(false)
+    setEntryToDeleteId(null)
   }
 
   const handleSyncGlobalBlocksLocal = () => {
@@ -783,7 +805,7 @@ export default function RosterManagementPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction onClick={confirmDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Ya, Hapus
             </AlertDialogAction>
           </AlertDialogFooter>
