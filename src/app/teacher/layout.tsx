@@ -74,7 +74,8 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
 
   const { data: staffData, loading: staffLoading } = useCollection<Staff>(staffQuery)
 
-  const selectedSemester = searchParams.get('semester') || config?.activeSemester?.toString() || "1"
+  const semesterParam = searchParams.get('semester')
+  const selectedSemester = semesterParam || config?.activeSemester?.toString() || "1"
   const teacherId = staffData?.[0]?.id
 
   const assignmentsQuery = useMemoFirebase(() => {
@@ -143,7 +144,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     const journalData = data.journals.map(j => {
       const asg = data.assignments.find(a => a.id === j.assignmentId)
       
-      // Format Tanggal dari YYYY-MM-DD ke DD-MM-YYYY
       let formattedDate = j.date
       if (j.date && j.date.includes('-')) {
         const parts = j.date.split('-')
@@ -215,48 +215,33 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       docPdf.text(`${schoolName}`, 105, 20, { align: "center" })
       docPdf.setDrawColor(200).setLineWidth(0.1).line(14, 25, 196, 25)
 
-      // KONFIGURASI JARAK DAN UKURAN (Fokus pada Spasi Potong)
       let x = 12;
       let y = 35;
-      const cardWidth = 60;   // Lebar kartu
-      const cardHeight = 80;  // Tinggi kartu ditingkatkan agar lebih lega
-      const marginX = 6;      // Jarak antar kartu horizontal
-      const marginY = 8;      // Jarak antar kartu vertikal (Penting untuk spasi potong)
+      const cardWidth = 60;
+      const cardHeight = 80;
+      const marginX = 6;
+      const marginY = 8;
 
       students.forEach((s, idx) => {
-        // Garis Tepi Kartu (Sangat halus untuk panduan potong)
         docPdf.setDrawColor(230).setLineWidth(0.1).rect(x, y, cardWidth, cardHeight)
-        
-        // Header Biru Kartu
         docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 6, 'F')
-        
-        // Nama Siswa
         docPdf.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
         const truncatedName = s.fullName.length > 28 ? s.fullName.substring(0, 25) + "..." : s.fullName
         docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 14, { align: "center" })
-        
-        // NISN
         docPdf.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
         docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 19, { align: "center" })
-
-        // Info Kelas
         docPdf.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
         docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 24, { align: "center" })
-
-        // QR Code
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
         docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 40) / 2, y + 28, 40, 40)
-        
-        // Footer Kartu
         docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + cardHeight - 4, { align: "center" })
 
-        // Logika Pindah Kolom / Baris / Halaman
         x += cardWidth + marginX;
-        if (x + cardWidth > 205) { // Cek apakah baris sudah penuh (max 3 kolom)
+        if (x + cardWidth > 205) {
           x = 12;
           y += cardHeight + marginY;
         }
-        if (y + cardHeight > 285) { // Cek apakah halaman sudah penuh
+        if (y + cardHeight > 285) {
           docPdf.addPage()
           y = 15;
           x = 12;
@@ -294,10 +279,13 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
           <SidebarContent className="px-2 py-4">
             <div className="space-y-6">
               <div>
-                <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase">Utama</p>
+                <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Utama</p>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={pathname === '/teacher'}>
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={pathname === '/teacher' && !semesterParam}
+                    >
                       <Link href="/teacher" className="gap-3">
                         <LayoutDashboard className="w-5 h-5" />
                         <span>Dasbor</span>
@@ -307,10 +295,13 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
                 </SidebarMenu>
               </div>
               <div>
-                <p className="px-3 mb-2 text-[10px] font-bold text-primary uppercase">Buku Nilai</p>
+                <p className="px-3 mb-2 text-[10px] font-bold text-primary uppercase tracking-widest">Buku Nilai</p>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={selectedSemester === "1"}>
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={semesterParam === "1"}
+                    >
                       <Link href="/teacher?semester=1" className="gap-3">
                         <CalendarDays className="w-5 h-5" />
                         <span>Semester 1</span>
@@ -318,7 +309,10 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild isActive={selectedSemester === "2"}>
+                    <SidebarMenuButton 
+                      asChild 
+                      isActive={semesterParam === "2"}
+                    >
                       <Link href="/teacher?semester=2" className="gap-3">
                         <CalendarDays className="w-5 h-5" />
                         <span>Semester 2</span>
@@ -328,7 +322,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
                 </SidebarMenu>
               </div>
               <div>
-                <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase">Unduh Laporan</p>
+                <p className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Unduh Laporan</p>
                 <SidebarMenu>
                   <SidebarMenuItem>
                     <SidebarMenuButton onClick={() => setIsQRDialogOpen(true)} className="gap-3">
