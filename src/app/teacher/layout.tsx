@@ -77,7 +77,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
   const selectedSemester = searchParams.get('semester') || config?.activeSemester?.toString() || "1"
   const teacherId = staffData?.[0]?.id
 
-  // Ambil assignments secara reaktif untuk populate dialog pilihan kelas
   const assignmentsQuery = useMemoFirebase(() => {
     if (!db || !teacherId) return null
     return query(collection(db, 'teacherAssignments'), where('teacherId', '==', teacherId))
@@ -176,7 +175,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       const brandBlue = [67, 97, 238] as [number, number, number]
       const schoolName = config?.schoolName || "SIS TERPADU"
 
-      // Ambil data rombel untuk tau daftar murid ID
       const classSnap = await getDocs(query(collection(db, 'classes'), where('__name__', '==', classId)))
       const targetClass = classSnap.docs[0]?.data() as Classroom
       
@@ -186,7 +184,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // Ambil data murid lengkap
       const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')))
       const students = studentsSnap.docs
         .map(d => ({ id: d.id, ...d.data() } as Applicant))
@@ -199,47 +196,58 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       docPdf.text(`KARTU QR ABSENSI - KELAS ${className}`, 105, 15, { align: "center" })
       docPdf.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
       docPdf.text(`${schoolName}`, 105, 20, { align: "center" })
-      docPdf.line(14, 25, 196, 25)
+      docPdf.setDrawColor(200).setLineWidth(0.1).line(14, 25, 196, 25)
 
-      let x = 10;
+      // KONFIGURASI JARAK DAN UKURAN (Fokus pada Spasi Potong)
+      let x = 12;
       let y = 35;
-      const cardWidth = 62;
-      const cardHeight = 68;
-      const margin = 2;
+      const cardWidth = 60;   // Lebar kartu
+      const cardHeight = 80;  // Tinggi kartu ditingkatkan agar lebih lega
+      const marginX = 6;      // Jarak antar kartu horizontal
+      const marginY = 8;      // Jarak antar kartu vertikal (Penting untuk spasi potong)
 
       students.forEach((s, idx) => {
-        docPdf.setDrawColor(230).setLineWidth(0.2).rect(x, y, cardWidth, cardHeight)
-        docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 5, 'F')
+        // Garis Tepi Kartu (Sangat halus untuk panduan potong)
+        docPdf.setDrawColor(230).setLineWidth(0.1).rect(x, y, cardWidth, cardHeight)
         
+        // Header Biru Kartu
+        docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 6, 'F')
+        
+        // Nama Siswa
         docPdf.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
-        const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 23) + "..." : s.fullName
-        docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 12, { align: "center" })
+        const truncatedName = s.fullName.length > 28 ? s.fullName.substring(0, 25) + "..." : s.fullName
+        docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 14, { align: "center" })
         
+        // NISN
         docPdf.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
-        docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 17, { align: "center" })
+        docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 19, { align: "center" })
 
+        // Info Kelas
         docPdf.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
-        docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 22, { align: "center" })
+        docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 24, { align: "center" })
 
+        // QR Code
         const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
-        docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 35) / 2, y + 26, 35, 35)
+        docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 40) / 2, y + 28, 40, 40)
         
-        docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + 65, { align: "center" })
+        // Footer Kartu
+        docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + cardHeight - 4, { align: "center" })
 
-        x += cardWidth + margin;
-        if (x + cardWidth > 200) {
-          x = 10;
-          y += cardHeight + margin;
+        // Logika Pindah Kolom / Baris / Halaman
+        x += cardWidth + marginX;
+        if (x + cardWidth > 205) { // Cek apakah baris sudah penuh (max 3 kolom)
+          x = 12;
+          y += cardHeight + marginY;
         }
-        if (y + cardHeight > 280) {
+        if (y + cardHeight > 285) { // Cek apakah halaman sudah penuh
           docPdf.addPage()
           y = 15;
-          x = 10;
+          x = 12;
         }
       })
       
       docPdf.save(`Kartu_QR_Absensi_${className.replace(/\s+/g, '_')}.pdf`)
-      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan.` })
+      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan dengan spasi potong yang aman.` })
       setIsQRDialogOpen(false)
     } catch (e) {
       toast({ variant: "destructive", title: "Kesalahan", description: "Gagal membuat dokumen PDF." })
