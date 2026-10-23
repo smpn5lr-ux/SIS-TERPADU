@@ -1,3 +1,4 @@
+
 export type AdmissionPath = 'Zonasi' | 'Prestasi' | 'Afirmasi' | 'Perpindahan Orang Tua';
 export type VerificationStatus = 'Belum Diverifikasi' | 'Lengkap' | 'Perlu Perbaikan' | 'Ditolak';
 export type AdmissionStatus = 'accepted' | 'waitlisted' | 'rejected' | 'pending' | 'graduated';
@@ -88,6 +89,7 @@ export interface Staff {
   email: string;
   role: UserRole;
   phone?: string;
+  staffNumber?: number;
   createdAt: string;
 }
 

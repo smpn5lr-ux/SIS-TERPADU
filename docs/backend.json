@@ -93,6 +93,7 @@
         "email": { "type": "string" },
         "role": { "type": "string", "enum": ["Admin", "Pegawai", "Guru", "Kurikulum"] },
         "phone": { "type": "string" },
+        "staffNumber": { "type": "number", "description": "Custom sequence number used as roster code." },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["fullName", "email", "role"]

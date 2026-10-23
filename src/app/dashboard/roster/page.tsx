@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -69,7 +70,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import {
@@ -532,7 +533,7 @@ export default function RosterManagementPage() {
   };
 
   const handleDownloadCoded = async () => {
-    if (!localEntries || !classes) return;
+    if (!localEntries || !classes || !staff) return;
     setIsExportingCoded(true);
     try {
       const { default: jsPDF } = await import('jspdf');
@@ -552,7 +553,6 @@ export default function RosterManagementPage() {
       doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
       doc.line(14, 28, 283, 28);
 
-      // Grouping assignmentPairs by Teacher & Subject for consistent indexing
       const assignmentPairs: { teacherId: string, teacherName: string, subjectName: string, key: string }[] = [];
       localEntries.forEach(e => {
         if (e.teacherId && e.subjectName && !e.isActivity) {
@@ -564,15 +564,17 @@ export default function RosterManagementPage() {
       });
       
       assignmentPairs.sort((a, b) => {
-        const nameComp = a.teacherName.localeCompare(b.teacherName);
-        if (nameComp !== 0) return nameComp;
-        return a.subjectName.localeCompare(b.subjectName);
+        const staffA = staff.find(s => s.id === a.teacherId);
+        const staffB = staff.find(s => s.id === b.teacherId);
+        return (staffA?.staffNumber || 999) - (staffB?.staffNumber || 999);
       });
 
-      const assignmentMap = new Map<string, { code: number, rgb: number[] }>();
+      const assignmentMap = new Map<string, { code: string, rgb: number[] }>();
       assignmentPairs.forEach((p, i) => {
+        const staffMember = staff.find(s => s.id === p.teacherId);
+        const code = staffMember?.staffNumber?.toString() || (i + 1).toString();
         assignmentMap.set(p.key, { 
-          code: i + 1, 
+          code: code, 
           rgb: COLOR_PALETTE[i % COLOR_PALETTE.length] 
         });
       });
@@ -602,7 +604,7 @@ export default function RosterManagementPage() {
                 const mapping = assignmentMap.get(`${entry.teacherId}|${entry.subjectName}`);
                 if (mapping) {
                   tableRow.push({ 
-                    content: mapping.code.toString(), 
+                    content: mapping.code, 
                     styles: { fillColor: mapping.rgb, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
                   });
                 } else {
@@ -651,7 +653,11 @@ export default function RosterManagementPage() {
         teacherGroups.set(p.teacherId, group);
       });
 
-      const sortedTeachers = Array.from(teacherGroups.values()).sort((a,b) => a.name.localeCompare(b.name));
+      const sortedTeachers = Array.from(teacherGroups.values()).sort((a,b) => {
+        const staffA = staff.find(s => s.fullName === a.name);
+        const staffB = staff.find(s => s.fullName === b.name);
+        return (staffA?.staffNumber || 999) - (staffB?.staffNumber || 999);
+      });
 
       sortedTeachers.forEach((group) => {
         const rowHeight = 7.5;
@@ -665,7 +671,7 @@ export default function RosterManagementPage() {
           const mapping = assignmentMap.get(group.assignments[0].key)!;
           doc.setDrawColor(0).setLineWidth(0.05).setFillColor(mapping.rgb[0], mapping.rgb[1], mapping.rgb[2]).rect(startX, startY, boxSize, boxSize, 'F');
           doc.rect(startX, startY, boxSize, boxSize);
-          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code.toString(), startX + boxSize/2, startY + 4.2, { align: "center" });
+          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code, startX + boxSize/2, startY + 4.2, { align: "center" });
         } else {
           // DIAGONAL SPLIT
           const m1 = assignmentMap.get(group.assignments[0].key)!;

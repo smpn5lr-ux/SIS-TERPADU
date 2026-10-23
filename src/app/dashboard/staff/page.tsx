@@ -18,7 +18,8 @@ import {
   EyeOff,
   Pencil,
   KeyRound,
-  CheckCircle2
+  CheckCircle2,
+  Hash
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -86,6 +87,7 @@ const staffFormSchema = z.object({
   password: z.string().optional(),
   role: z.enum(['Admin', 'Pegawai', 'Guru', 'Kurikulum']),
   phone: z.string().optional(),
+  staffNumber: z.coerce.number().min(1, "Nomor minimal 1"),
 })
 
 export default function StaffManagementPage() {
@@ -104,7 +106,7 @@ export default function StaffManagementPage() {
 
   const staffQuery = useMemoFirebase(() => {
     if (!db) return null
-    return query(collection(db, 'staff'), orderBy('createdAt', 'asc'))
+    return query(collection(db, 'staff'))
   }, [db])
 
   const { data: staffList, loading } = useCollection<Staff>(staffQuery)
@@ -117,16 +119,42 @@ export default function StaffManagementPage() {
       password: "",
       role: "Pegawai",
       phone: "",
+      staffNumber: 1
     },
   })
 
   const filteredStaff = useMemo(() => {
     if (!staffList) return []
-    return staffList.filter(s => 
-      (s.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (s.email || "").toLowerCase().includes(searchTerm.toLowerCase())
-    )
+    return [...staffList]
+      .filter(s => 
+        (s.fullName || "").toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (s.email || "").toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => (a.staffNumber || 999) - (b.staffNumber || 999))
   }, [staffList, searchTerm])
+
+  const handleUpdateNumber = async (staff: Staff, newNumStr: string) => {
+    const newNum = parseInt(newNumStr)
+    if (isNaN(newNum) || newNum === staff.staffNumber) return;
+    
+    // Validasi Duplikasi
+    const isDuplicate = staffList?.some(s => s.id !== staff.id && s.staffNumber === newNum);
+    if (isDuplicate) {
+      toast({ 
+        variant: "destructive", 
+        title: "Nomor Ganda", 
+        description: `Nomor ${newNum} sudah digunakan oleh pegawai lain.` 
+      });
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, 'staff', staff.id), { staffNumber: newNum });
+      toast({ title: "Nomor Berhasil Diperbarui" });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal Memperbarui Nomor" });
+    }
+  }
 
   const handleEdit = (staff: Staff) => {
     setEditingStaff(staff)
@@ -136,18 +164,21 @@ export default function StaffManagementPage() {
       role: staff.role,
       phone: staff.phone || "",
       password: "",
+      staffNumber: staff.staffNumber || 1
     })
     setIsDialogOpen(true)
   }
 
   const handleAddNew = () => {
     setEditingStaff(null)
+    const nextNum = Math.max(0, ...(staffList?.map(s => s.staffNumber || 0) || [])) + 1;
     form.reset({
       fullName: "",
       email: "",
       password: "",
       role: "Pegawai",
       phone: "",
+      staffNumber: nextNum
     })
     setIsDialogOpen(true)
   }
@@ -176,6 +207,14 @@ export default function StaffManagementPage() {
     if (!db || submitting) return
     setSubmitting(true)
 
+    // Validasi Nomor Ganda sebelum Simpan
+    const isDuplicateNum = staffList?.some(s => (!editingStaff || s.id !== editingStaff.id) && s.staffNumber === values.staffNumber);
+    if (isDuplicateNum) {
+      toast({ variant: "destructive", title: "Nomor Ganda", description: "Nomor ini sudah digunakan pegawai lain." })
+      setSubmitting(false)
+      return
+    }
+
     if (editingStaff) {
       try {
         const staffRef = doc(db, 'staff', editingStaff.id)
@@ -183,6 +222,7 @@ export default function StaffManagementPage() {
           fullName: values.fullName,
           role: values.role,
           phone: values.phone || "",
+          staffNumber: values.staffNumber,
           updatedAt: new Date().toISOString(),
         })
         toast({ title: "Data Diperbarui", description: `Profil ${values.fullName} berhasil disimpan.` })
@@ -219,6 +259,7 @@ export default function StaffManagementPage() {
         email: values.email,
         role: values.role,
         phone: values.phone || "",
+        staffNumber: values.staffNumber,
         createdAt: new Date().toISOString(),
       }
       
@@ -288,7 +329,7 @@ export default function StaffManagementPage() {
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
-              <TableHead className="font-bold text-primary w-[60px]">No</TableHead>
+              <TableHead className="font-bold text-primary w-[80px]">No (Kode)</TableHead>
               <TableHead className="font-bold text-primary">Pegawai</TableHead>
               <TableHead className="font-bold text-primary">Email & Kontak</TableHead>
               <TableHead className="font-bold text-primary">Hak Akses</TableHead>
@@ -301,10 +342,16 @@ export default function StaffManagementPage() {
               <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredStaff.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground italic">Tidak ada pegawai ditemukan.</TableCell></TableRow>
-            ) : filteredStaff.map((staff, idx) => (
+            ) : filteredStaff.map((staff) => (
               <TableRow key={staff.id} className="hover:bg-muted/10 transition-colors">
-                <TableCell className="font-mono text-xs font-bold text-muted-foreground/60">
-                  {idx + 1}
+                <TableCell>
+                   <Input 
+                     type="text" 
+                     inputMode="numeric"
+                     className="w-16 h-9 text-center font-bold text-primary border-primary/20 focus:border-primary transition-all"
+                     defaultValue={staff.staffNumber || ""}
+                     onBlur={(e) => handleUpdateNumber(staff, e.target.value)}
+                   />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3">
@@ -388,13 +435,23 @@ export default function StaffManagementPage() {
           <ScrollArea className="max-h-[70vh] px-6 py-2">
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pb-6">
-                <FormField control={form.control} name="fullName" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nama Lengkap</FormLabel>
-                    <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} value={field.value || ""} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
+                <div className="grid grid-cols-3 gap-4 items-end">
+                   <FormField control={form.control} name="staffNumber" render={({ field }) => (
+                    <FormItem className="col-span-1">
+                      <FormLabel className="flex items-center gap-1"><Hash className="w-3 h-3" /> No. Urut</FormLabel>
+                      <FormControl><Input type="number" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="fullName" render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>Nama Lengkap</FormLabel>
+                      <FormControl><Input placeholder="Contoh: Ahmad Sulaiman" {...field} value={field.value || ""} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+
                 <FormField control={form.control} name="email" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Email Login</FormLabel>
