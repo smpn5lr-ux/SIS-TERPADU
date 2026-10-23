@@ -245,7 +245,7 @@ export default function RosterManagementPage() {
         timeline.push({ 
           type: 'lesson', 
           label: p.toString(), 
-          period: p,
+          period: p, 
           startTime: lessonStart, 
           endTime: currentTime 
         });
@@ -302,10 +302,7 @@ export default function RosterManagementPage() {
     if (!assignments || !classes) return;
     setIsDirty(true);
     
-    // Reset hanya plotting pelajaran, pertahankan activity jika ada yang manual (isActivity)
     let currentRoster = [...localEntries].filter(e => e.isActivity);
-    
-    // Urutkan penugasan agar mapel dengan beban JP besar diproses lebih dulu (Prioritas Mapel Utama)
     const sortedAssignments = [...assignments].sort((a, b) => (b.totalJP || 0) - (a.totalJP || 0));
 
     sortedAssignments.forEach(asg => {
@@ -318,14 +315,12 @@ export default function RosterManagementPage() {
       
       const shuffledDays = [...DAYS].sort(() => Math.random() - 0.5);
       
-      // TAHAP 1: Coba pasang BLOK 2 JP agar mata pelajaran "disambung" tidak terputus
       for (const day of shuffledDays) {
         if (remainingJP < 2) break;
         
         const dayTimeline = generateDayTimeline(day);
         const lessonPeriods = dayTimeline.filter(row => row.type === 'lesson').map(row => row.period);
         
-        // Cari 2 jam pelajaran berurutan yang kosong untuk kelas dan juga gurunya
         for (let i = 0; i < lessonPeriods.length - 1; i++) {
           const p1 = lessonPeriods[i];
           const p2 = lessonPeriods[i+1];
@@ -349,12 +344,11 @@ export default function RosterManagementPage() {
               subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
             });
             remainingJP -= 2;
-            break; // Setelah pasang 1 blok, pindah ke hari berikutnya untuk mapel yang sama (distribusi hari)
+            break;
           }
         }
       }
 
-      // TAHAP 2: Jika masih ada sisa (misal ganjil 3 JP atau blok 2 JP penuh), isi slot tunggal
       if (remainingJP > 0) {
         const shuffledDaysForSingle = [...DAYS].sort(() => Math.random() - 0.5);
         for (const day of shuffledDaysForSingle) {
@@ -374,7 +368,7 @@ export default function RosterManagementPage() {
                 subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
               });
               remainingJP--;
-              break; // Sebar ke hari yang berbeda
+              break;
             }
           }
         }
@@ -620,9 +614,11 @@ export default function RosterManagementPage() {
       assignmentPairs.forEach((p, i) => {
         const staffMember = staff.find(s => s.id === p.teacherId);
         const code = staffMember?.staffNumber?.toString() || (i + 1).toString();
+        // Deterministic color based on subjectName to match Unified Print
+        const colorInfo = getEntryColor(p.subjectName);
         assignmentMap.set(p.key, { 
           code: code, 
-          rgb: COLOR_PALETTE[i % COLOR_PALETTE.length] 
+          rgb: colorInfo.rgb
         });
       });
 
@@ -688,7 +684,7 @@ export default function RosterManagementPage() {
         margin: { right: 65 }
       });
 
-      // Legenda Mencolok di Samping
+      // Legend for teachers and codes
       const startX = 238;
       let startY = 32;
       doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(0).text("INDEKS GURU & MAPEL", startX, startY - 2);
@@ -818,7 +814,7 @@ export default function RosterManagementPage() {
 
           <div className="lg:col-span-3">
              <Card className="border-border/50 shadow-md bg-card/30 overflow-hidden">
-               <div className="w-full overflow-x-auto scrollbar-thin">
+               <div className="w-full overflow-x-auto">
                  <div className="min-w-[1000px]">
                    <Table className="border-collapse w-full">
                      <TableHeader>
@@ -962,7 +958,6 @@ export default function RosterManagementPage() {
                                </AccordionTrigger>
                                <AccordionContent className="pb-8 pt-2 space-y-8 animate-in slide-in-from-top-2 duration-300">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                     {/* Jam Masuk & Pulang */}
                                      <div className="space-y-6">
                                         <div className="space-y-4">
                                            <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
@@ -994,7 +989,6 @@ export default function RosterManagementPage() {
                                         </div>
                                      </div>
                                      
-                                     {/* Pengaturan Istirahat Harian */}
                                      <div className="space-y-6">
                                         <div className="p-5 rounded-2xl border-2 border-accent/20 bg-accent/5 space-y-5">
                                            <div className="flex items-center justify-between">
@@ -1047,7 +1041,6 @@ export default function RosterManagementPage() {
                                   </div>
 
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                     {/* Kegiatan Pagi */}
                                      <div className="space-y-4">
                                         <div className="flex items-center justify-between border-b pb-2">
                                            <Label className="text-[10px] font-black uppercase tracking-widest text-amber-500 flex items-center gap-2">
@@ -1086,7 +1079,6 @@ export default function RosterManagementPage() {
                                         </div>
                                      </div>
 
-                                     {/* Kegiatan Akhir */}
                                      <div className="space-y-4">
                                         <div className="flex items-center justify-between border-b pb-2">
                                            <Label className="text-[10px] font-black uppercase tracking-widest text-destructive flex items-center gap-2">
