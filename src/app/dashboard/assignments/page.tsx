@@ -18,7 +18,8 @@ import {
   CheckCircle2,
   RefreshCw,
   Info,
-  ShieldAlert
+  ShieldAlert,
+  Eye
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -57,7 +58,6 @@ import {
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
 import { collection, addDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { TeacherAssignment, Staff, Classroom, Subject } from '@/lib/types'
@@ -197,7 +197,6 @@ export default function TeacherAssignmentsPage() {
     const jpNum = parseInt(totalJP) || 0
 
     if (editingAssignment) {
-      // Logic for single edit
       const cls = sortedClasses.find(c => c.id === selectedClassIds[0])
       const payload = {
         ...editingAssignment,
@@ -212,7 +211,6 @@ export default function TeacherAssignmentsPage() {
 
       setLocalAssignments(prev => prev.map(a => a.id === editingAssignment.id ? payload : a))
     } else {
-      // Logic for bulk add
       const newAssignments: TeacherAssignment[] = selectedClassIds.map(cid => {
         const cls = sortedClasses.find(c => c.id === cid)
         return {
@@ -400,13 +398,13 @@ export default function TeacherAssignmentsPage() {
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="p-6 pb-2">
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-2xl">
+          <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
             <DialogTitle>{editingAssignment ? 'Edit Penugasan' : 'Plotting Guru & Beban JP'}</DialogTitle>
           </DialogHeader>
           
-          <ScrollArea className="flex-1 p-6 pt-2">
-            <div className="space-y-6">
+          <div className="flex-1 p-6 pt-4 overflow-y-auto scrollbar-thin">
+            <div className="space-y-6 pb-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
                   <UserCheck className="w-3 h-3" /> Pilih Guru
@@ -451,20 +449,19 @@ export default function TeacherAssignmentsPage() {
                          <Badge variant="outline" className="text-[9px] font-bold">TINGKAT {level}</Badge>
                          <div className="h-px bg-border flex-1"></div>
                       </div>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {clsList.map(c => (
                           <div 
                             key={c.id} 
-                            className={`flex items-center space-x-2 p-2 rounded-lg border transition-all cursor-pointer hover:bg-background ${selectedClassIds.includes(c.id) ? 'bg-primary/10 border-primary/40 ring-1 ring-primary/20' : 'bg-background/50 border-transparent'}`}
+                            className={`flex items-center space-x-2 p-2.5 rounded-lg border transition-all cursor-pointer hover:bg-background ${selectedClassIds.includes(c.id) ? 'bg-primary/10 border-primary/40 ring-1 ring-primary/20' : 'bg-background/50 border-transparent'}`}
                             onClick={() => toggleClassSelection(c.id)}
                           >
                             <Checkbox 
                               id={`class-${c.id}`} 
                               checked={selectedClassIds.includes(c.id)}
-                              onCheckedChange={() => toggleClassSelection(c.id)}
-                              className="h-4 w-4"
+                              className="h-4 w-4 pointer-events-none"
                             />
-                            <Label htmlFor={`class-${c.id}`} className="text-xs font-bold cursor-pointer select-none">
+                            <Label className="text-xs font-bold cursor-pointer select-none pointer-events-none">
                               {c.name}
                             </Label>
                           </div>
@@ -483,10 +480,10 @@ export default function TeacherAssignmentsPage() {
                 <Input type="text" inputMode="numeric" value={totalJP} onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
               </div>
             </div>
-          </ScrollArea>
+          </div>
           
-          <DialogFooter className="p-6 border-t bg-muted/5">
-            <Button onClick={handleSaveLocal} className="w-full h-11 shadow-lg shadow-primary/20 font-bold">
+          <DialogFooter className="p-6 border-t bg-muted/5 shrink-0">
+            <Button onClick={handleSaveLocal} className="w-full h-12 shadow-xl shadow-primary/20 font-bold text-md">
               {editingAssignment ? 'Simpan Perubahan' : `Simpan ${selectedClassIds.length > 0 ? selectedClassIds.length : ''} Penugasan ke Draf`}
             </Button>
           </DialogFooter>
