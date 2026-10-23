@@ -142,7 +142,24 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     if (!data) return
     const journalData = data.journals.map(j => {
       const asg = data.assignments.find(a => a.id === j.assignmentId)
-      return { "Mapel": asg?.subjectName, "Kelas": asg?.className, "Pertemuan": j.meetingNumber, "Tgl": j.date, "Materi": j.material }
+      
+      // Format Tanggal dari YYYY-MM-DD ke DD-MM-YYYY
+      let formattedDate = j.date
+      if (j.date && j.date.includes('-')) {
+        const parts = j.date.split('-')
+        if (parts.length === 3) {
+          formattedDate = `${parts[2]}-${parts[1]}-${parts[0]}`
+        }
+      }
+
+      return { 
+        "Mapel": asg?.subjectName, 
+        "Kelas": asg?.className, 
+        "Pertemuan": j.meetingNumber, 
+        "Tgl": formattedDate, 
+        "Metode": j.teachingMethod || "-",
+        "Materi": j.material 
+      }
     })
     const ws = XLSX.utils.json_to_sheet(journalData)
     const wb = XLSX.utils.book_new()
