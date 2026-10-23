@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -70,7 +69,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import {
@@ -124,7 +123,7 @@ const getEntryColor = (subjectName: string) => {
   return {
     bg: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`,
     border: 'border-white/20',
-    text: 'text-white', // Selalu putih untuk warna mencolok
+    text: 'text-white', 
     rgb: rgb
   };
 };
