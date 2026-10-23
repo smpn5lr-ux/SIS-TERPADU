@@ -152,7 +152,8 @@ function TeacherDashboardContent() {
   if (loadingA || loadingR) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
+    <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
+      {/* Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Halo, Guru {user?.displayName}</h1>
@@ -172,147 +173,178 @@ function TeacherDashboardContent() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1 space-y-6">
-          <Card className="border-border/50 bg-primary/5 relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
-             <CardHeader>
-                <div className="flex items-center justify-between">
-                   <CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Jadwal Hari Ini</CardTitle>
-                   <Badge className="bg-primary text-primary-foreground">{today}</Badge>
-                </div>
-                <CardDescription>Urutan mengajar Anda hari ini.</CardDescription>
-             </CardHeader>
-             <CardContent className="space-y-4">
-                {todaySchedule.length === 0 ? (
-                  <div className="py-8 text-center flex flex-col items-center gap-3 bg-card/40 rounded-xl border border-dashed">
-                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
-                       <Star className="w-5 h-5 text-muted-foreground opacity-20" />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground italic">Tidak ada jadwal mengajar hari ini.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {todaySchedule.map((s, idx) => (
-                      <div key={s.id} className="relative pl-6 border-l-2 border-primary/20 group hover:border-primary transition-all">
-                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-primary group-hover:scale-125 transition-transform"></div>
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] font-bold text-primary uppercase tracking-tighter">JAM KE-{s.period} • {getTimeForPeriod(s.period)}</span>
-                              <Badge variant="outline" className="text-[8px] h-4">KELAS {s.className}</Badge>
-                            </div>
-                            <span className="font-bold text-sm">{s.subjectName}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-             </CardContent>
-             
-             <Separator className="opacity-30" />
-             
-             <CardHeader className="pt-6">
-                <div className="flex items-center justify-between">
-                   <CardTitle className="text-sm font-bold flex items-center gap-2 text-muted-foreground"><History className="w-4 h-4" /> Jadwal Sebelumnya</CardTitle>
-                   <Badge variant="outline" className="text-[10px] text-muted-foreground">{yesterday}</Badge>
-                </div>
-             </CardHeader>
-             <CardContent className="space-y-4 pb-8">
-                {prevSchedule.length === 0 ? (
-                  <p className="text-[10px] text-muted-foreground italic text-center py-4">Tidak ada data jadwal kemarin.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {prevSchedule.map((s) => (
-                      <div key={s.id} className="relative pl-6 border-l-2 border-border/50 opacity-60">
-                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-border"></div>
-                        <div className="flex flex-col gap-1">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[9px] font-bold uppercase text-muted-foreground">JAM KE-{s.period} • {getTimeForPeriod(s.period)}</span>
-                              <span className="text-[8px] font-bold text-muted-foreground">KELAS {s.className}</span>
-                            </div>
-                            <span className="font-medium text-xs text-muted-foreground">{s.subjectName}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <Button asChild variant="outline" className="w-full mt-4 text-[10px] h-9 gap-2 border-border/50 hover:bg-background">
-                  <Link href="/teacher">Refresh Dasbor <ArrowRight className="w-3 h-3" /></Link>
-                </Button>
-             </CardContent>
-          </Card>
+      {/* JADWAL ROSTER - PALING ATAS */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2 text-muted-foreground">
+           <Clock className="w-4 h-4" />
+           <h2 className="text-sm font-bold uppercase tracking-widest">Agenda Roster Anda</h2>
         </div>
-
-        <div className="lg:col-span-2 space-y-8">
-           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
-             <BookOpen className="w-4 h-4" /> Mata Pelajaran Anda
-           </h2>
+        
+        <Card className="border-border/50 bg-card/40 backdrop-blur-sm relative overflow-hidden shadow-xl">
+           <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
            
-           {displayAssignments?.length === 0 ? (
-              <div className="py-20 text-center border-2 border-dashed rounded-2xl bg-muted/20">
-                <Backpack className="w-12 h-12 mx-auto text-muted-foreground opacity-20 mb-4" />
-                <h3 className="text-xl font-bold">Belum Ada Penugasan</h3>
-                <p className="text-muted-foreground">Hubungi Admin/Kurikulum untuk plotting jadwal mengajar Anda.</p>
-              </div>
-           ) : (
-             <div className="space-y-10">
-               {sortedGradeLevels.map(level => (
-                 <div key={level} className="space-y-4">
-                   <div className="flex items-center gap-4">
-                      <Badge className="bg-primary/10 text-primary border-primary/30 px-3 py-1 text-xs font-bold gap-2">
-                        <Layers className="w-3 h-3" /> TINGKAT {level}
-                      </Badge>
-                      <div className="h-px bg-border flex-1 opacity-50"></div>
+           <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x border-b">
+              {/* KOLOM HARI INI */}
+              <div className="p-6 md:p-8 space-y-6 bg-primary/[0.02]">
+                 <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                       <div className="bg-primary/20 p-2.5 rounded-2xl">
+                          <CalendarDays className="w-6 h-6 text-primary" />
+                       </div>
+                       <div>
+                          <CardTitle className="text-xl font-bold">Jadwal Hari Ini</CardTitle>
+                          <CardDescription>Urutan mengajar Anda hari ini.</CardDescription>
+                       </div>
+                    </div>
+                    <Badge className="bg-primary text-primary-foreground px-4 py-1 text-sm font-bold shadow-lg shadow-primary/20">{today}</Badge>
+                 </div>
+
+                 {todaySchedule.length === 0 ? (
+                   <div className="py-12 text-center flex flex-col items-center gap-4 bg-muted/5 rounded-3xl border border-dashed">
+                     <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                        <Star className="w-6 h-6 text-muted-foreground opacity-20" />
+                     </div>
+                     <p className="text-xs text-muted-foreground italic max-w-[200px]">Anda tidak memiliki jadwal mengajar pada hari ini.</p>
                    </div>
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {groupedAssignments[level].map((a) => (
-                        <Card key={a.id} className="border-border/50 transition-all shadow-sm hover:shadow-md bg-card/40 backdrop-blur-sm relative group h-full">
-                          <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
-                              <Badge className="bg-primary/20 text-primary border-none text-[10px] font-bold uppercase">KELAS {a.className}</Badge>
-                              <div className="bg-muted p-2 rounded-lg">
-                                <Star className="w-4 h-4 text-muted-foreground fill-current" />
-                              </div>
+                 ) : (
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                     {todaySchedule.map((s) => (
+                       <div key={s.id} className="p-4 rounded-2xl bg-background/50 border border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
+                         <div className="absolute top-0 left-0 w-1 h-full bg-primary/20 group-hover:bg-primary transition-colors"></div>
+                         <div className="flex flex-col gap-2">
+                           <div className="flex items-center justify-between">
+                             <span className="text-[10px] font-black text-primary uppercase tracking-tighter">{getTimeForPeriod(s.period)}</span>
+                             <Badge variant="outline" className="text-[9px] font-bold h-5 bg-background">KELAS {s.className}</Badge>
+                           </div>
+                           <h4 className="font-bold text-sm leading-tight line-clamp-1">{s.subjectName}</h4>
+                           <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">JAM KE-{s.period}</span>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+              </div>
+
+              {/* KOLOM SEBELUMNYA */}
+              <div className="p-6 md:p-8 space-y-6">
+                 <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                       <div className="bg-muted p-2.5 rounded-2xl">
+                          <History className="w-6 h-6 text-muted-foreground" />
+                       </div>
+                       <div>
+                          <CardTitle className="text-xl font-bold text-muted-foreground">Jadwal Sebelumnya</CardTitle>
+                          <CardDescription>Riwayat mengajar di hari sekolah lalu.</CardDescription>
+                       </div>
+                    </div>
+                    <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30 px-4 py-1 text-sm font-bold">{yesterday}</Badge>
+                 </div>
+
+                 {prevSchedule.length === 0 ? (
+                   <div className="py-12 text-center flex flex-col items-center gap-4">
+                     <p className="text-xs text-muted-foreground italic">Tidak ada data jadwal kemarin.</p>
+                   </div>
+                 ) : (
+                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 opacity-60">
+                     {prevSchedule.map((s) => (
+                       <div key={s.id} className="p-4 rounded-2xl bg-muted/10 border border-border/50 flex flex-col gap-2">
+                           <div className="flex items-center justify-between">
+                             <span className="text-[10px] font-bold text-muted-foreground uppercase">{getTimeForPeriod(s.period)}</span>
+                             <span className="text-[9px] font-bold text-muted-foreground">KLS {s.className}</span>
+                           </div>
+                           <h4 className="font-medium text-xs text-muted-foreground line-clamp-1">{s.subjectName}</h4>
+                       </div>
+                     ))}
+                   </div>
+                 )}
+
+                 <div className="pt-4">
+                    <Button asChild variant="outline" className="w-full text-xs gap-2 border-border/50 hover:bg-muted/50 rounded-xl h-11">
+                      <Link href="/teacher">Perbarui Dasbor <RefreshCw className="w-4 h-4" /></Link>
+                    </Button>
+                 </div>
+              </div>
+           </div>
+        </Card>
+      </section>
+
+      {/* MATA PELAJARAN ANDA */}
+      <section className="space-y-6">
+         <div className="flex items-center justify-between">
+           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+             <BookOpen className="w-4 h-4 text-accent" /> Mata Pelajaran Pengampu
+           </h2>
+           <Badge variant="secondary" className="font-bold text-[10px] tracking-widest">{assignments?.length || 0} TOTAL UNIT</Badge>
+         </div>
+         
+         {displayAssignments?.length === 0 ? (
+            <div className="py-24 text-center border-2 border-dashed rounded-3xl bg-muted/10">
+              <Backpack className="w-16 h-16 mx-auto text-muted-foreground opacity-10 mb-6" />
+              <h3 className="text-xl font-bold">Data Kelas Kosong</h3>
+              <p className="text-muted-foreground text-sm max-w-xs mx-auto mt-2">Belum ada penugasan guru yang tercatat. Silakan hubungi bagian Kurikulum.</p>
+            </div>
+         ) : (
+           <div className="space-y-12">
+             {sortedGradeLevels.map(level => (
+               <div key={level} className="space-y-6">
+                 <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent font-black text-lg shadow-sm">
+                      {level}
+                    </div>
+                    <div className="flex flex-col">
+                       <span className="text-lg font-headline font-bold">TINGKAT {level}</span>
+                       <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Siswa Menengah Pertama</span>
+                    </div>
+                    <div className="h-px bg-gradient-to-r from-border to-transparent flex-1"></div>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {groupedAssignments[level].map((a) => (
+                      <Card key={a.id} className="border-border/50 transition-all shadow-md hover:shadow-xl bg-card/60 backdrop-blur-sm relative group overflow-hidden h-full flex flex-col rounded-3xl">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-primary/20 group-hover:h-2 transition-all"></div>
+                        <CardHeader className="pb-4">
+                          <div className="flex items-center justify-between">
+                            <Badge className="bg-primary/10 text-primary border-primary/20 text-[10px] font-bold px-3 py-1">KELAS {a.className}</Badge>
+                            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                              <Star className="w-3.5 h-3.5 text-muted-foreground" />
                             </div>
-                            <CardTitle className="text-xl font-headline mt-4">{a.subjectName}</CardTitle>
-                            <CardDescription className="text-xs uppercase tracking-widest font-bold text-muted-foreground/60">Tingkat Menengah Pertama</CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-3">
-                            <div className="grid grid-cols-2 gap-2">
-                              <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-primary/20 hover:bg-primary/5">
-                                <Link href={`/teacher/grading/${a.id}?semester=${selectedSemester}`}>
-                                  <ClipboardCheck className="w-4 h-4 text-primary" /> Buku Nilai
-                                </Link>
-                              </Button>
-                              <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-accent/20 hover:bg-accent/5">
-                                <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}`}>
-                                  <FileText className="w-4 h-4 text-accent" /> Jurnal
-                                </Link>
-                              </Button>
-                            </div>
-                            <Button asChild className="w-full gap-2 h-11 bg-primary hover:bg-primary/90 shadow-md shadow-primary/10">
-                              <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}&scan=1`}>
-                                <QrCode className="w-5 h-5" /> Mulai Absen QR
+                          </div>
+                          <CardTitle className="text-xl font-headline mt-4 leading-tight group-hover:text-primary transition-colors">{a.subjectName}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4 mt-auto">
+                          <div className="grid grid-cols-2 gap-3">
+                            <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-primary/10 hover:bg-primary/5 rounded-xl text-xs font-bold shadow-sm">
+                              <Link href={`/teacher/grading/${a.id}?semester=${selectedSemester}`}>
+                                <ClipboardCheck className="w-3.5 h-3.5 text-primary" /> Buku Nilai
                               </Link>
                             </Button>
-                          </CardContent>
-                        </Card>
-                      ))}
-                   </div>
+                            <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-accent/10 hover:bg-accent/5 rounded-xl text-xs font-bold shadow-sm">
+                              <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}`}>
+                                <FileText className="w-3.5 h-3.5 text-accent" /> Jurnal
+                              </Link>
+                            </Button>
+                          </div>
+                          <Button asChild className="w-full gap-2 h-11 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 rounded-xl font-bold">
+                            <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}&scan=1`}>
+                              <QrCode className="w-4 h-4" /> Mulai Absen QR
+                            </Link>
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
                  </div>
-               ))}
-             </div>
-           )}
-        </div>
-      </div>
+               </div>
+             ))}
+           </div>
+         )}
+      </section>
     </div>
   )
 }
 
 export default function TeacherDashboard() {
   return (
-    <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>}>
+    <Suspense fallback={<div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary w-10 h-10" /></div>}>
       <TeacherDashboardContent />
     </Suspense>
   )
