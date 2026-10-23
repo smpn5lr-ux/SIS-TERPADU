@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { 
   Plus, 
   Settings2, 
@@ -89,8 +89,14 @@ import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
-// Palet warna yang mencolok dan kontras (Vivid Colors) - Sesuai style gambar user
+// Palet warna yang lebih kontras dan cerah
 const COLOR_PALETTE = [
+  [67, 97, 238],   // Royal Blue
+  [76, 201, 240],  // Cyan
+  [247, 37, 133],  // Hot Pink
+  [114, 9, 183],   // Purple
+  [58, 12, 163],   // Deep Indigo
+  [67, 97, 238],   // Bright Blue
   [236, 72, 153],  // Pink
   [132, 204, 22],  // Lime
   [20, 184, 166],  // Teal
@@ -99,7 +105,6 @@ const COLOR_PALETTE = [
   [34, 197, 94],   // Bright Green
   [190, 24, 93],   // Rose/Dark Pink
   [69, 10, 10],    // Dark Brown/Maroon
-  [67, 97, 238],   // Royal Blue
   [245, 158, 11],  // Amber
   [168, 85, 247],  // Purple
   [6, 182, 212],   // Cyan
@@ -117,17 +122,13 @@ const COLOR_PALETTE = [
   [217, 70, 239],  // Fuchsia
   [234, 179, 8],   // Yellow
   [239, 68, 68],   // Red
-  [79, 70, 229],   // Indigo
-  [147, 197, 253], // Sky Blue Light
-  [252, 211, 77],  // Amber Light
-  [110, 231, 183], // Teal Light
 ];
 
-// Hash function based on teacher name + subject name for unique color per assignment
-const getEntryColor = (teacherName: string, subjectName: string = "") => {
-  if (!teacherName || teacherName === "-") return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
+// Hash function based on teacher ID + subject ID for unique color per assignment
+const getEntryColor = (teacherId: string, subjectId: string = "") => {
+  if (!teacherId || teacherId === "-") return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
   
-  const seed = teacherName + subjectName;
+  const seed = teacherId + subjectId;
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = seed.charCodeAt(i) + ((hash << 5) - hash);
@@ -317,7 +318,10 @@ export default function RosterManagementPage() {
     if (!assignments || !classes) return;
     setIsDirty(true);
     
-    let currentRoster = [...localEntries].filter(e => e.isActivity);
+    // Gunakan daftar draf lokal saat ini sebagai dasar (filter hanya yang bukan aktivitas manual jika ada)
+    let currentRoster = [...localEntries];
+    
+    // Urutkan penugasan berdasarkan beban JP terbanyak dulu (Largo First)
     const sortedAssignments = [...assignments].sort((a, b) => (b.totalJP || 0) - (a.totalJP || 0));
 
     sortedAssignments.forEach(asg => {
@@ -330,6 +334,7 @@ export default function RosterManagementPage() {
       
       const shuffledDays = [...DAYS].sort(() => Math.random() - 0.5);
       
+      // Langkah 1: Coba isi dalam Blok 2 JP (Disambung)
       for (const day of shuffledDays) {
         if (remainingJP < 2) break;
         
@@ -337,9 +342,14 @@ export default function RosterManagementPage() {
         const lessonPeriods = dayTimeline.filter(row => row.type === 'lesson').map(row => row.period);
         
         for (let i = 0; i < lessonPeriods.length - 1; i++) {
+          if (remainingJP < 2) break;
+
           const p1 = lessonPeriods[i];
           const p2 = lessonPeriods[i+1];
           
+          // Cek apakah slot waktu berurutan
+          if (p2 !== p1 + 1) continue;
+
           const isClassFree1 = !currentRoster.find(e => e.day === day && e.period === p1 && e.classId === asg.classId);
           const isTeacherFree1 = !currentRoster.find(e => e.day === day && e.period === p1 && e.teacherId === asg.teacherId);
           const isClassFree2 = !currentRoster.find(e => e.day === day && e.period === p2 && e.classId === asg.classId);
@@ -359,14 +369,14 @@ export default function RosterManagementPage() {
               subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
             });
             remainingJP -= 2;
-            break;
+            // Lanjutkan mencari blok di hari lain atau jam lain untuk mapel ini
           }
         }
       }
 
+      // Langkah 2: Jika masih ada sisa (ganjil atau blok penuh), isi slot tunggal
       if (remainingJP > 0) {
-        const shuffledDaysForSingle = [...DAYS].sort(() => Math.random() - 0.5);
-        for (const day of shuffledDaysForSingle) {
+        for (const day of shuffledDays) {
           if (remainingJP <= 0) break;
           const dayTimeline = generateDayTimeline(day);
           const lessonPeriods = dayTimeline.filter(row => row.type === 'lesson').map(row => row.period);
@@ -383,7 +393,6 @@ export default function RosterManagementPage() {
                 subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
               });
               remainingJP--;
-              break;
             }
           }
         }
@@ -391,7 +400,7 @@ export default function RosterManagementPage() {
     });
 
     setLocalEntries(currentRoster);
-    toast({ title: "Penjadwalan Otomatis Selesai", description: "Mata pelajaran kini dikelompokkan secara berurutan (Blok 2 JP)." });
+    toast({ title: "Penjadwalan Otomatis Selesai", description: "Mapel didistribusikan berdasarkan beban JP dan ketersediaan waktu." });
   };
 
   const handleAddEntryLocal = () => {
@@ -536,7 +545,7 @@ export default function RosterManagementPage() {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
               if (entry) {
-                const colorInfo = getEntryColor(entry.teacherName || "", entry.subjectName || "");
+                const colorInfo = getEntryColor(entry.teacherId || "", entry.subjectId || "");
                 tableRow.push({ 
                   content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
                   styles: { fillColor: colorInfo.rgb, textColor: [255, 255, 255], fontSize: 6, fontStyle: 'bold' } 
@@ -599,13 +608,12 @@ export default function RosterManagementPage() {
       doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
       doc.line(14, 28, 283, 28);
 
-      // Create a map of Teacher-Subject assignments to unique colors
-      const assignmentPairs: { teacherId: string, teacherName: string, subjectName: string, key: string }[] = [];
+      const assignmentPairs: { teacherId: string, teacherName: string, subjectId: string, subjectName: string, key: string }[] = [];
       localEntries.forEach(e => {
-        if (e.teacherId && e.subjectName && !e.isActivity) {
-          const key = `${e.teacherId}|${e.subjectName}`;
+        if (e.teacherId && e.subjectId && !e.isActivity) {
+          const key = `${e.teacherId}|${e.subjectId}`;
           if (!assignmentPairs.find(p => p.key === key)) {
-            assignmentPairs.push({ teacherId: e.teacherId, teacherName: e.teacherName || "-", subjectName: e.subjectName, key });
+            assignmentPairs.push({ teacherId: e.teacherId, teacherName: e.teacherName || "-", subjectId: e.subjectId, subjectName: e.subjectName || "-", key });
           }
         }
       });
@@ -617,10 +625,10 @@ export default function RosterManagementPage() {
       });
 
       const assignmentMap = new Map<string, { code: string, rgb: number[] }>();
-      assignmentPairs.forEach((p, i) => {
+      assignmentPairs.forEach((p) => {
         const staffMember = staff.find(s => s.id === p.teacherId);
-        const code = staffMember?.staffNumber?.toString() || (i + 1).toString();
-        const colorInfo = getEntryColor(p.teacherName, p.subjectName);
+        const code = staffMember?.staffNumber?.toString() || "?";
+        const colorInfo = getEntryColor(p.teacherId, p.subjectId);
         assignmentMap.set(p.key, { code, rgb: colorInfo.rgb });
       });
 
@@ -645,8 +653,8 @@ export default function RosterManagementPage() {
           if (row.type === 'lesson') {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-              if (entry && entry.teacherId && entry.subjectName) {
-                const mapping = assignmentMap.get(`${entry.teacherId}|${entry.subjectName}`);
+              if (entry && entry.teacherId && entry.subjectId) {
+                const mapping = assignmentMap.get(`${entry.teacherId}|${entry.subjectId}`);
                 if (mapping) {
                   tableRow.push({ 
                     content: mapping.code, 
@@ -686,7 +694,6 @@ export default function RosterManagementPage() {
         margin: { right: 65 }
       });
 
-      // Legend logic with DIAGONAL SPLIT for teachers with multiple subjects
       const startX = 238;
       let startY = 32;
       doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(0).text("INDEKS GURU & MAPEL", startX, startY - 2);
@@ -718,27 +725,21 @@ export default function RosterManagementPage() {
           doc.rect(startX, startY, boxSize, boxSize);
           doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code, startX + boxSize/2, startY + 4.2, { align: "center" });
         } else {
-          // DIAGONAL SPLIT for multiple subjects (max 2 supported for split visual)
           const m1 = assignmentMap.get(group.assignments[0].key)!;
           const m2 = assignmentMap.get(group.assignments[1].key)!;
           
-          // Draw bottom-right triangle
           doc.setFillColor(m1.rgb[0], m1.rgb[1], m1.rgb[2]);
           doc.triangle(startX, startY + boxSize, startX + boxSize, startY + boxSize, startX + boxSize, startY, 'F');
-          // Draw top-left triangle
           doc.setFillColor(m2.rgb[0], m2.rgb[1], m2.rgb[2]);
           doc.triangle(startX, startY, startX + boxSize, startY, startX, startY + boxSize, 'F');
           
-          // Border and line
           doc.setDrawColor(0).setLineWidth(0.05).rect(startX, startY, boxSize, boxSize);
           doc.line(startX, startY + boxSize, startX + boxSize, startY);
           
-          // Draw numbers in each triangle
           doc.setFontSize(5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(`${m2.code}`, startX + 1.5, startY + 2.5, { align: "center" });
           doc.text(`${m1.code}`, startX + boxSize - 1.5, startY + boxSize - 1, { align: "center" });
         }
 
-        // Text info
         doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(50).text(group.name.toUpperCase(), startX + boxSize + 2, startY + 2.5);
         const subjectsText = group.assignments.map(a => a.subjectName).join(", ");
         doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100).text(subjectsText, startX + boxSize + 2, startY + 5.5);
@@ -756,6 +757,9 @@ export default function RosterManagementPage() {
   };
 
   if (loadingR || loadingConfigDoc || loadingClasses) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
+
+  const totalNeededJP = workloadStats.reduce((sum, w) => sum + (w.totalJP || 0), 0);
+  const totalScheduledJP = workloadStats.reduce((sum, w) => sum + w.scheduled, 0);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -787,7 +791,7 @@ export default function RosterManagementPage() {
             Cetak Model Kode
           </Button>
           <Button variant="secondary" onClick={handleAutoGenerate} className="gap-2 text-primary border-primary/20 hover:bg-primary/10">
-            <Zap className="w-4 h-4" /> Acak Jadwal
+            <Zap className="w-4 h-4" /> Distribusi Otomatis JP
           </Button>
           <Button onClick={() => setIsAddOpen(true)} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Plot Mapel</Button>
         </div>
@@ -802,18 +806,27 @@ export default function RosterManagementPage() {
         <TabsContent value="builder" className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           <div className="lg:col-span-1 space-y-6">
             <Card className="border-border/50 bg-primary/5">
-              <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Beban JP</CardTitle></CardHeader>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Beban JP ({totalScheduledJP}/{totalNeededJP})</CardTitle>
+                <CardDescription className="text-[10px]">Total JP terjadwal dari kebutuhan.</CardDescription>
+              </CardHeader>
               <CardContent className="space-y-4 pt-2">
                 <ScrollArea className="h-[500px] pr-2">
                   {workloadStats.map((w, idx) => (
                     <div key={idx} className="mb-4 space-y-1.5">
                       <div className="flex justify-between items-end">
-                        <div className="flex flex-col"><span className="text-[10px] font-bold text-primary truncate max-w-[120px]">{w.teacherName || "-"}</span><span className="text-[9px] text-muted-foreground">{(w.subjectName || "-")} ({w.className})</span></div>
-                        <span className="text-[10px] font-bold">{w.scheduled} / {w.totalJP || 0} JP</span>
+                        <div className="flex flex-col">
+                           <span className="text-[10px] font-bold text-primary truncate max-w-[120px]">{w.teacherName || "-"}</span>
+                           <span className="text-[9px] text-muted-foreground">{(w.subjectName || "-")} ({w.className})</span>
+                        </div>
+                        <span className={`text-[10px] font-bold ${w.isMet ? 'text-green-500' : 'text-foreground'}`}>{w.scheduled} / {w.totalJP || 0} JP</span>
                       </div>
                       <Progress value={w.percent} className={`h-1.5 ${w.isMet ? 'bg-green-500/20' : 'bg-amber-500/20'}`} />
                     </div>
                   ))}
+                  {workloadStats.length === 0 && (
+                    <p className="text-xs text-muted-foreground italic text-center py-8">Belum ada penugasan guru.</p>
+                  )}
                 </ScrollArea>
               </CardContent>
             </Card>
@@ -864,7 +877,7 @@ export default function RosterManagementPage() {
                              {row.type === 'lesson' ? (
                                sortedClasses.map(cls => {
                                  const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-                                 const colorInfo = getEntryColor(entry?.teacherName || "", entry?.subjectName || "");
+                                 const colorInfo = getEntryColor(entry?.teacherId || "", entry?.subjectId || "");
                                  return (
                                    <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                      {entry ? (
