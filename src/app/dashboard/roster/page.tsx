@@ -89,35 +89,36 @@ import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
-// Palet warna yang mencolok dan kontras (Vivid Colors)
+// Palet warna yang mencolok dan kontras (Vivid Colors) - Sesuai style gambar user
 const COLOR_PALETTE = [
+  [236, 72, 153],  // Pink (Khas Kode 5)
+  [132, 204, 22],  // Lime (Khas Kode 24)
+  [20, 184, 166],  // Teal (Khas Kode 3)
+  [153, 27, 27],   // Dark Red (Khas Kode 2)
+  [120, 53, 15],   // Brown/Amber (Khas Kode 4)
+  [34, 197, 94],   // Bright Green (Khas Kode 7)
+  [190, 24, 93],   // Rose/Dark Pink (Khas Kode 1)
+  [69, 10, 10],    // Dark Brown/Maroon (Khas Kode 6)
   [67, 97, 238],   // Royal Blue
-  [239, 68, 68],   // Bright Red
-  [34, 197, 94],   // Success Green
-  [245, 158, 11],  // Amber/Orange
+  [245, 158, 11],  // Amber
   [168, 85, 247],  // Purple
   [6, 182, 212],   // Cyan
-  [236, 72, 153],  // Pink
-  [132, 204, 22],  // Lime
   [249, 115, 22],  // Vivid Orange
   [99, 102, 241],  // Indigo
-  [20, 184, 166],  // Teal
   [244, 63, 94],   // Rose
   [14, 165, 233],  // Sky Blue
   [16, 185, 129],  // Emerald
   [139, 92, 246],  // Violet
-  [190, 24, 93],   // Dark Pink
-  [153, 27, 27],   // Dark Red
   [30, 64, 175],   // Dark Blue
-  [21, 128, 61],   // Dark Green
-  [120, 53, 15]    // Brown/Amber
+  [21, 128, 61]    // Dark Green
 ];
 
-const getEntryColor = (subjectName: string) => {
-  if (!subjectName) return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
+// Hash function based on teacher name to ensure consistent unique colors per teacher/code
+const getEntryColor = (teacherName: string) => {
+  if (!teacherName || teacherName === "-") return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
   let hash = 0;
-  for (let i = 0; i < subjectName.length; i++) {
-    hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < teacherName.length; i++) {
+    hash = teacherName.charCodeAt(i) + ((hash << 5) - hash);
   }
   const index = Math.abs(hash) % COLOR_PALETTE.length;
   const rgb = COLOR_PALETTE[index];
@@ -521,7 +522,7 @@ export default function RosterManagementPage() {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
               if (entry) {
-                const colorInfo = getEntryColor(entry.subjectName || "");
+                const colorInfo = getEntryColor(entry.teacherName || "");
                 tableRow.push({ 
                   content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
                   styles: { fillColor: colorInfo.rgb, textColor: [255, 255, 255], fontSize: 6, fontStyle: 'bold' } 
@@ -530,23 +531,13 @@ export default function RosterManagementPage() {
                 tableRow.push("");
               }
             });
-          } else if (row.type === 'activity') {
+          } else if (row.type === 'activity' || row.type === 'break' || row.type === 'dismissal') {
+            const label = row.type === 'break' ? `ISTIRAHAT (${row.duration} MENIT)` : row.type === 'dismissal' ? "WAKTU PULANG SEKOLAH" : `${row.name.toUpperCase()} (${row.duration} MENIT)`;
+            const bg = row.type === 'break' ? [230, 230, 230] : row.type === 'dismissal' ? [255, 220, 220] : (row.isFinal ? [255, 230, 230] : [255, 248, 230]);
             tableRow.push({ 
-              content: `${row.name.toUpperCase()} (${row.duration} MENIT)`, 
+              content: label, 
               colSpan: sorted.length, 
-              styles: { fillColor: row.isFinal ? [255, 230, 230] : [255, 248, 230], fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
-            });
-          } else if (row.type === 'break') {
-            tableRow.push({ 
-              content: `ISTIRAHAT (${row.duration} MENIT)`, 
-              colSpan: sorted.length, 
-              styles: { fillColor: [230, 230, 230], fontStyle: 'bold', textColor: [80, 80, 80], halign: 'center' } 
-            });
-          } else if (row.type === 'dismissal') {
-            tableRow.push({
-              content: "WAKTU PULANG SEKOLAH",
-              colSpan: sorted.length,
-              styles: { fillColor: [255, 220, 220], fontStyle: 'bold', textColor: [200, 0, 0], halign: 'center' }
+              styles: { fillColor: bg, fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0] } 
             });
           }
           
@@ -614,8 +605,8 @@ export default function RosterManagementPage() {
       assignmentPairs.forEach((p, i) => {
         const staffMember = staff.find(s => s.id === p.teacherId);
         const code = staffMember?.staffNumber?.toString() || (i + 1).toString();
-        // Deterministic color based on subjectName to match Unified Print
-        const colorInfo = getEntryColor(p.subjectName);
+        // Consistency: use getEntryColor based on teacherName to match Unified Print colors
+        const colorInfo = getEntryColor(p.teacherName); 
         assignmentMap.set(p.key, { 
           code: code, 
           rgb: colorInfo.rgb
@@ -696,13 +687,13 @@ export default function RosterManagementPage() {
         teacherGroups.set(p.teacherId, group);
       });
 
-      const sortedTeachers = Array.from(teacherGroups.values()).sort((a,b) => {
+      const sortedTeachersLegend = Array.from(teacherGroups.values()).sort((a,b) => {
         const staffA = staff.find(s => s.fullName === a.name);
         const staffB = staff.find(s => s.fullName === b.name);
         return (staffA?.staffNumber || 999) - (staffB?.staffNumber || 999);
       });
 
-      sortedTeachers.forEach((group) => {
+      sortedTeachersLegend.forEach((group) => {
         const rowHeight = 7.5;
         if (startY + rowHeight > 195) {
            doc.addPage();
@@ -716,7 +707,7 @@ export default function RosterManagementPage() {
           doc.rect(startX, startY, boxSize, boxSize);
           doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code, startX + boxSize/2, startY + 4.2, { align: "center" });
         } else {
-          // DIAGONAL SPLIT
+          // DIAGONAL SPLIT for teachers with multiple subjects
           const m1 = assignmentMap.get(group.assignments[0].key)!;
           const m2 = assignmentMap.get(group.assignments[1].key)!;
           
@@ -857,7 +848,7 @@ export default function RosterManagementPage() {
                              {row.type === 'lesson' ? (
                                sortedClasses.map(cls => {
                                  const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-                                 const colorInfo = getEntryColor(entry?.subjectName || "");
+                                 const colorInfo = getEntryColor(entry?.teacherName || "");
                                  return (
                                    <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                      {entry ? (
