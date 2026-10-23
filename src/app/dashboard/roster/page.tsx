@@ -144,6 +144,7 @@ export default function RosterManagementPage() {
   const { data: assignments } = useCollection<TeacherAssignment>(assignmentsQuery)
   const { data: staff } = useCollection<Staff>(staffQuery)
   const { data: classes, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
+  const { data: subjects } = useCollection<Subject>(subjectsQuery)
   const { data: rosterConfig, loading: loadingConfigDoc } = useDoc<any>(configRef)
   const { data: systemSettings } = useDoc<any>(systemSettingsRef)
 
@@ -228,6 +229,49 @@ export default function RosterManagementPage() {
       return { ...a, className: cls ? cls.name : (a.className || "-"), scheduled: scheduledCount, isMet: scheduledCount >= (a.totalJP || 0), percent: Math.min(100, Math.round((scheduledCount / (a.totalJP || 1)) * 100)) }
     })
   }, [assignments, localEntries, classes])
+
+  const handleAddEntryLocal = () => {
+    const { day, period, classId, teacherId, subjectId } = newEntry;
+    if (!day || !period || !classId || !teacherId || !subjectId) {
+      toast({ variant: "destructive", title: "Data tidak lengkap", description: "Pilih Hari, Jam, Kelas, dan Guru/Mapel." });
+      return;
+    }
+
+    const cls = classes?.find(c => c.id === classId);
+    const teacher = staff?.find(s => s.id === teacherId);
+    const subject = subjects?.find(s => s.id === subjectId);
+
+    // Conflict Check
+    const classConflict = localEntries.find(e => e.day === day && e.period === period && e.classId === classId);
+    if (classConflict) {
+      toast({ variant: "destructive", title: "Bentrok Kelas", description: `Kelas ${cls?.name} sudah terisi ${classConflict.subjectName} pada jam ini.` });
+      return;
+    }
+
+    const teacherConflict = localEntries.find(e => e.day === day && e.period === period && e.teacherId === teacherId);
+    if (teacherConflict) {
+      toast({ variant: "destructive", title: "Bentrok Guru", description: `Guru ${teacher?.fullName} sudah mengajar di kelas ${teacherConflict.className} pada jam ini.` });
+      return;
+    }
+
+    const entry: RosterEntry = {
+      id: `temp-${Date.now()}`,
+      day,
+      period,
+      classId,
+      className: cls?.name || "",
+      teacherId,
+      teacherName: teacher?.fullName || "",
+      subjectId,
+      subjectName: subject?.name || "",
+      isActivity: false
+    };
+
+    setLocalEntries(prev => [...prev, entry]);
+    setIsDirty(true);
+    setIsAddOpen(false);
+    toast({ title: "Penugasan Ditambahkan ke Draf" });
+  };
 
   const handleAutoGenerate = () => {
     if (!assignments || !classes) return;
@@ -325,22 +369,6 @@ export default function RosterManagementPage() {
   const handleUpdateConfig = (updates: any) => {
     if (!configRef) return;
     setDoc(configRef, { ...config, ...updates }, { merge: true }).catch(() => {});
-  };
-
-  const handleAddGlobalActivity = (day: string, position: 'start' | 'end') => {
-    const newAct: GlobalActivity = { id: `act-${Date.now()}`, name: position === 'start' ? "KEGIATAN PAGI" : "KEGIATAN AKHIR", day, period: 1, duration: 15, position };
-    const updated = [...(config.globalActivities || []), newAct];
-    handleUpdateConfig({ globalActivities: updated });
-  };
-
-  const updateGlobalActivity = (id: string, field: string, val: any) => {
-    const updated = config.globalActivities.map(a => a.id === id ? { ...a, [field]: val } : a);
-    handleUpdateConfig({ globalActivities: updated });
-  };
-
-  const removeGlobalActivity = (id: string) => {
-    const updated = config.globalActivities.filter(a => a.id !== id);
-    handleUpdateConfig({ globalActivities: updated });
   };
 
   const handleDownloadUnified = async () => {
@@ -597,14 +625,55 @@ export default function RosterManagementPage() {
               <Card className="border-border/50"><CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Aturan Dasar</CardTitle></CardHeader><CardContent className="pt-6 space-y-6"><div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jam Masuk Default</Label><input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" value={config.entryTime || "07:15"} onChange={e => handleUpdateConfig({ entryTime: e.target.value })} /></div><div className="space-y-2"><Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label><Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => handleUpdateConfig({ jpDuration: parseInt(e.target.value) || 0 })} /></div></CardContent></Card>
             </div>
             <div className="lg:col-span-2">
-               <Card className="border-border/50 shadow-md"><CardHeader className="bg-muted/5 border-b"><CardTitle className="text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Durasi Belajar</CardTitle></CardHeader><CardContent className="p-0"><Accordion type="single" collapsible className="w-full">{DAYS.map((day) => { const dayActsPagi = config.globalActivities.filter((a: GlobalActivity) => a.day === day && a.position !== 'end'); const dayActsAkhir = config.globalActivities.filter((a: GlobalActivity) => a.day === day && a.position === 'end'); const dayBreak = config.dailyBreaks[day]; return (<AccordionItem key={day} value={day} className="border-b last:border-b-0 px-6 data-[state=open]:bg-primary/5"><AccordionTrigger className="hover:no-underline py-4"><div className="flex items-center gap-4 w-full"><div className="w-2.5 h-10 bg-primary/20 rounded-full group-data-[state=open]:bg-primary"></div><div className="flex flex-col items-start text-left"><span className="font-bold text-lg">{day}</span><div className="flex items-center gap-3 mt-0.5"><Badge variant="outline" className="text-[9px] font-bold bg-background text-primary">MASUK: {config.dailyEntryTimes[day]}</Badge><Badge variant="outline" className="text-[9px] font-bold bg-background text-destructive">PULANG: {config.dailyDismissalTimes[day]}</Badge></div></div></div></AccordionTrigger><AccordionContent className="pb-8 pt-2 space-y-8"><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-6"><div className="space-y-4"><Label className="text-[10px] font-black uppercase text-primary">Jam Masuk</Label><input type="time" className="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-2 text-lg font-bold" value={config.dailyEntryTimes[day]} onChange={e => { const newDaily = { ...config.dailyEntryTimes, [day]: e.target.value }; handleUpdateConfig({ dailyEntryTimes: newDaily }); }} /></div><div className="space-y-4"><Label className="text-[10px] font-black uppercase text-destructive">Jam Pulang</Label><input type="time" className="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-2 text-lg font-bold" value={config.dailyDismissalTimes[day]} onChange={e => { const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value }; handleUpdateConfig({ dailyDismissalTimes: newDaily }); }} /></div></div><div className="space-y-6"><div className="p-5 rounded-2xl border-2 border-accent/20 bg-accent/5 space-y-5"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><Coffee className="w-4 h-4 text-accent" /><Label className="font-bold text-sm">Istirahat</Label></div><Switch checked={dayBreak.active} onCheckedChange={v => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, active: v } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }} /></div>{dayBreak.active && (<div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Setelah Jam Ke-</Label><Select value={dayBreak.period.toString()} onValueChange={v => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, period: parseInt(v) } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }}><SelectTrigger className="h-10"><SelectValue /></SelectTrigger><SelectContent>{[2,3,4,5,6].map(p => <SelectItem key={p} value={p.toString()}>Jam Ke-{p}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Durasi (Menit)</Label><Input type="number" className="h-10" value={dayBreak.duration} onChange={e => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, duration: parseInt(e.target.value) || 0 } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }} /></div></div>)}</div></div></div></AccordionContent></AccordionItem>) })}</Accordion></CardContent></Card>
+               <Card className="border-border/50 shadow-md"><CardHeader className="bg-muted/5 border-b"><CardTitle className="text-lg flex items-center gap-2"><CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Durasi Belajar</CardTitle></CardHeader><CardContent className="p-0"><Accordion type="single" collapsible className="w-full">{DAYS.map((day) => { const dayBreak = config.dailyBreaks[day]; return (<AccordionItem key={day} value={day} className="border-b last:border-b-0 px-6 data-[state=open]:bg-primary/5"><AccordionTrigger className="hover:no-underline py-4"><div className="flex items-center gap-4 w-full"><div className="w-2.5 h-10 bg-primary/20 rounded-full group-data-[state=open]:bg-primary"></div><div className="flex flex-col items-start text-left"><span className="font-bold text-lg">{day}</span><div className="flex items-center gap-3 mt-0.5"><Badge variant="outline" className="text-[9px] font-bold bg-background text-primary">MASUK: {config.dailyEntryTimes[day]}</Badge><Badge variant="outline" className="text-[9px] font-bold bg-background text-destructive">PULANG: {config.dailyDismissalTimes[day]}</Badge></div></div></div></AccordionTrigger><AccordionContent className="pb-8 pt-2 space-y-8"><div className="grid grid-cols-1 md:grid-cols-2 gap-8"><div className="space-y-6"><div className="space-y-4"><Label className="text-[10px] font-black uppercase text-primary">Jam Masuk</Label><input type="time" className="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-2 text-lg font-bold" value={config.dailyEntryTimes[day]} onChange={e => { const newDaily = { ...config.dailyEntryTimes, [day]: e.target.value }; handleUpdateConfig({ dailyEntryTimes: newDaily }); }} /></div><div className="space-y-4"><Label className="text-[10px] font-black uppercase text-destructive">Jam Pulang</Label><input type="time" className="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-2 text-lg font-bold" value={config.dailyDismissalTimes[day]} onChange={e => { const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value }; handleUpdateConfig({ dailyDismissalTimes: newDaily }); }} /></div></div><div className="space-y-6"><div className="p-5 rounded-2xl border-2 border-accent/20 bg-accent/5 space-y-5"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><Coffee className="w-4 h-4 text-accent" /><Label className="font-bold text-sm">Istirahat</Label></div><Switch checked={dayBreak.active} onCheckedChange={v => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, active: v } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }} /></div>{dayBreak.active && (<div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Setelah Jam Ke-</Label><Select value={dayBreak.period.toString()} onValueChange={v => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, period: parseInt(v) } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }}><SelectTrigger className="h-10"><SelectValue /></SelectTrigger><SelectContent>{[2,3,4,5,6].map(p => <SelectItem key={p} value={p.toString()}>Jam Ke-{p}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Durasi (Menit)</Label><Input type="number" className="h-10" value={dayBreak.duration} onChange={e => { const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, duration: parseInt(e.target.value) || 0 } }; handleUpdateConfig({ dailyBreaks: newBreaks }); }} /></div></div>)}</div></div></div></AccordionContent></AccordionItem>) })}</Accordion></CardContent></Card>
             </div>
           </div>
         </TabsContent>
       </Tabs>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-[450px]"><DialogHeader><DialogTitle>Plot Mata Pelajaran</DialogTitle></DialogHeader><div className="space-y-6 py-4"><div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Hari</Label><Select value={newEntry.day || "Senin"} onValueChange={v => setNewEntry({...newEntry, day: v})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Jam Ke-</Label><Select value={newEntry.period?.toString() || "1"} onValueChange={v => setNewEntry({...newEntry, period: parseInt(v)})}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({length: config.maxPeriods}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent></Select></div></div><div className="space-y-4"><div className="space-y-2"><Label>Pilih Kelas</Label><Select value={newEntry.classId} onValueChange={v => setNewEntry({...newEntry, classId: v})}><SelectTrigger><SelectValue placeholder="Pilih Kelas" /></SelectTrigger><SelectContent>{sortedClasses.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Pilih Penugasan Guru</Label><Select value={newEntry.teacherId && newEntry.subjectId ? `${newEntry.teacherId}|${newEntry.subjectId}` : ""} onValueChange={v => { const [tId, sId] = v.split('|'); setNewEntry({...newEntry, teacherId: tId, subjectId: sId}); }}><SelectTrigger><SelectValue placeholder="Pilih Guru & Mapel" /></SelectTrigger><SelectContent>{assignments?.filter(a => a.classId === newEntry.classId).map(a => (<SelectItem key={a.id} value={`${a.teacherId}|${a.subjectId}`}>{a.teacherName} - {a.subjectName}</SelectItem>))}</SelectContent></Select></div></div></div><DialogFooter><Button onClick={handleAddEntryLocal} className="w-full h-11 font-bold shadow-lg shadow-primary/20">Tambahkan ke Buffer</Button></DialogFooter></DialogContent>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>Plot Mata Pelajaran</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Hari</Label>
+                <Select value={newEntry.day || "Senin"} onValueChange={v => setNewEntry({...newEntry, day: v})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{DAYS.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Jam Ke-</Label>
+                <Select value={newEntry.period?.toString() || "1"} onValueChange={v => setNewEntry({...newEntry, period: parseInt(v)})}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{Array.from({length: config.maxPeriods}).map((_, i) => <SelectItem key={i+1} value={(i+1).toString()}>{i+1}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Pilih Kelas</Label>
+                <Select value={newEntry.classId} onValueChange={v => setNewEntry({...newEntry, classId: v})}>
+                  <SelectTrigger><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
+                  <SelectContent>{sortedClasses.map(c => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Pilih Penugasan Guru</Label>
+                <Select value={newEntry.teacherId && newEntry.subjectId ? `${newEntry.teacherId}|${newEntry.subjectId}` : ""} onValueChange={v => { const [tId, sId] = v.split('|'); setNewEntry({...newEntry, teacherId: tId, subjectId: sId}); }}>
+                  <SelectTrigger><SelectValue placeholder="Pilih Guru & Mapel" /></SelectTrigger>
+                  <SelectContent>{assignments?.filter(a => a.classId === newEntry.classId).map(a => (<SelectItem key={a.id} value={`${a.teacherId}|${a.subjectId}`}>{a.teacherName} - {a.subjectName}</SelectItem>))}</SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleAddEntryLocal} className="w-full h-11 font-bold shadow-lg shadow-primary/20">Tambahkan ke Buffer</Button>
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
