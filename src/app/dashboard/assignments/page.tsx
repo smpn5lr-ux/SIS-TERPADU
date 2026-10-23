@@ -55,6 +55,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
 import { collection, addDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { TeacherAssignment, Staff, Classroom, Subject } from '@/lib/types'
@@ -64,7 +67,6 @@ import { Separator } from '@/components/ui/separator'
 
 export default function TeacherAssignmentsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingAssignment, setEditingAssignment] = useState<TeacherAssignment | null>(null)
   
@@ -78,7 +80,7 @@ export default function TeacherAssignmentsPage() {
   const [isDirty, setIsDirty] = useState(false)
 
   const [selectedTeacherId, setSelectedTeacherId] = useState("")
-  const [selectedClassId, setSelectedClassId] = useState("")
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([])
   const [selectedSubjectId, setSelectedSubjectId] = useState("")
   const [totalJP, setTotalJP] = useState("2")
 
@@ -113,6 +115,15 @@ export default function TeacherAssignmentsPage() {
     })
   }, [classes])
 
+  const groupedClassesByLevel = useMemo(() => {
+    const groups: Record<number, Classroom[]> = {}
+    sortedClasses.forEach(c => {
+      if (!groups[c.gradeLevel]) groups[c.gradeLevel] = []
+      groups[c.gradeLevel].push(c)
+    })
+    return groups
+  }, [sortedClasses])
+
   const sortedSubjects = useMemo(() => {
     if (!subjects) return []
     return [...subjects].sort((a, b) => (a.name || "").localeCompare(b.name || ""))
@@ -127,7 +138,6 @@ export default function TeacherAssignmentsPage() {
     }>()
 
     localAssignments.forEach(a => {
-      // SINKRONISASI NAMA KELAS: Ambil nama terbaru dari koleksi classes
       const cls = classes?.find(c => c.id === a.classId)
       const displayClassName = cls ? cls.name : a.className
       const assignmentWithLatestName = { ...a, className: displayClassName }
@@ -153,7 +163,7 @@ export default function TeacherAssignmentsPage() {
   const handleOpenAdd = () => {
     setEditingAssignment(null)
     setSelectedTeacherId("")
-    setSelectedClassId("")
+    setSelectedClassIds([])
     setSelectedSubjectId("")
     setTotalJP("2")
     setIsDialogOpen(true)
@@ -162,42 +172,67 @@ export default function TeacherAssignmentsPage() {
   const handleEditLocal = (a: TeacherAssignment) => {
     setEditingAssignment(a)
     setSelectedTeacherId(a.teacherId)
-    setSelectedClassId(a.classId)
+    setSelectedClassIds([a.classId])
     setSelectedSubjectId(a.subjectId)
     setTotalJP(a.totalJP?.toString() || "2")
     setIsDialogOpen(true)
   }
 
+  const toggleClassSelection = (classId: string) => {
+    setSelectedClassIds(prev => 
+      prev.includes(classId) 
+        ? prev.filter(id => id !== classId) 
+        : [...prev, classId]
+    )
+  }
+
   const handleSaveLocal = () => {
-    if (!selectedTeacherId || !selectedClassId || !selectedSubjectId) {
-      toast({ variant: "destructive", title: "Mohon isi semua data" })
+    if (!selectedTeacherId || selectedClassIds.length === 0 || !selectedSubjectId) {
+      toast({ variant: "destructive", title: "Mohon isi semua data", description: "Pilih guru, mapel, dan minimal satu kelas." })
       return
     }
     
     const teacher = sortedTeachers.find(t => t.id === selectedTeacherId)
-    const cls = sortedClasses.find(c => c.id === selectedClassId)
     const subject = sortedSubjects.find(s => s.id === selectedSubjectId)
-
-    const payload = {
-      id: editingAssignment ? editingAssignment.id : `temp-${Date.now()}`,
-      teacherId: selectedTeacherId,
-      teacherName: teacher?.fullName || "",
-      classId: selectedClassId,
-      className: cls?.name || "", // Gunakan nama terbaru dari input kelas
-      subjectId: selectedSubjectId,
-      subjectName: subject?.name || "",
-      totalJP: parseInt(totalJP) || 0
-    } as TeacherAssignment
+    const jpNum = parseInt(totalJP) || 0
 
     if (editingAssignment) {
+      // Logic for single edit
+      const cls = sortedClasses.find(c => c.id === selectedClassIds[0])
+      const payload = {
+        ...editingAssignment,
+        teacherId: selectedTeacherId,
+        teacherName: teacher?.fullName || "",
+        classId: selectedClassIds[0],
+        className: cls?.name || "",
+        subjectId: selectedSubjectId,
+        subjectName: subject?.name || "",
+        totalJP: jpNum
+      } as TeacherAssignment
+
       setLocalAssignments(prev => prev.map(a => a.id === editingAssignment.id ? payload : a))
     } else {
-      setLocalAssignments(prev => [...prev, payload])
+      // Logic for bulk add
+      const newAssignments: TeacherAssignment[] = selectedClassIds.map(cid => {
+        const cls = sortedClasses.find(c => c.id === cid)
+        return {
+          id: `temp-${Date.now()}-${cid}`,
+          teacherId: selectedTeacherId,
+          teacherName: teacher?.fullName || "",
+          classId: cid,
+          className: cls?.name || "",
+          subjectId: selectedSubjectId,
+          subjectName: subject?.name || "",
+          totalJP: jpNum
+        } as TeacherAssignment
+      })
+
+      setLocalAssignments(prev => [...prev, ...newAssignments])
     }
     
     setIsDirty(true)
     setIsDialogOpen(false)
-    toast({ title: "Perubahan Disimpan di Buffer" })
+    toast({ title: editingAssignment ? "Perubahan Disimpan" : `${selectedClassIds.length} Penugasan Ditambahkan` })
   }
 
   const handleDeleteTrigger = (id: string) => {
@@ -223,7 +258,6 @@ export default function TeacherAssignmentsPage() {
       toDelete.forEach(a => batch.delete(doc(db, 'teacherAssignments', a.id)))
 
       localAssignments.forEach(la => {
-        // Saat sinkronisasi, pastikan className yang tersimpan adalah yang terbaru
         const cls = classes?.find(c => c.id === la.classId)
         const updatedLa = { ...la, className: cls ? cls.name : la.className }
 
@@ -285,7 +319,6 @@ export default function TeacherAssignmentsPage() {
           groupedAssignments.map(group => (
             <Card key={group.teacherId} className="border-border/50 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
               <div className="flex flex-col md:flex-row">
-                {/* Info Guru */}
                 <div className="p-4 md:w-[250px] border-b md:border-b-0 md:border-r bg-primary/5 shrink-0">
                   <div className="flex items-center md:flex-col md:items-start gap-3 md:gap-4">
                     <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary border-2 border-primary/20 font-bold text-xl md:text-2xl shadow-inner">
@@ -305,7 +338,6 @@ export default function TeacherAssignmentsPage() {
                   </div>
                 </div>
                 
-                {/* Daftar Penugasan */}
                 <div className="flex-1 p-4 md:p-6 bg-card/50">
                   <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-3 text-[10px] font-black text-muted-foreground uppercase tracking-widest bg-muted/20 rounded-t-xl border-x border-t">
                     <div className="col-span-5 flex items-center gap-2"><BookMarked className="w-3.5 h-3.5" /> Mata Pelajaran</div>
@@ -367,75 +399,95 @@ export default function TeacherAssignmentsPage() {
         )}
       </div>
 
-      <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-3">
-        <Info className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-        <div className="text-[10px] md:text-xs text-muted-foreground leading-relaxed italic">
-          <strong>Catatan:</strong> Layout sekarang menyesuaikan dengan ukuran layar Anda. Pada HP, setiap penugasan tampil sebagai blok terpisah agar mudah dibaca dan diedit menggunakan jari.
-        </div>
-      </div>
-
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <DialogHeader className="p-6 pb-2">
             <DialogTitle>{editingAssignment ? 'Edit Penugasan' : 'Plotting Guru & Beban JP'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                <UserCheck className="w-3 h-3" /> Pilih Guru
-              </label>
-              <Select value={selectedTeacherId} onValueChange={setSelectedTeacherId}>
-                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Guru Pengajar" /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {sortedTeachers.map(t => (
-                    <SelectItem key={t.id} value={t.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
-                      {t.fullName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                <BookOpen className="w-3 h-3" /> Pilih Mata Pelajaran
-              </label>
-              <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {sortedSubjects.map(s => (
-                    <SelectItem key={s.id} value={s.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
-                      {s.name} ({s.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
-                <Users className="w-3 h-3" /> Rombongan Belajar (Kelas)
-              </label>
-              <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Kelas" /></SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {sortedClasses.map(c => (
-                    <SelectItem key={c.id} value={c.id} className="cursor-pointer hover:bg-primary/10 focus:bg-primary/10 transition-colors py-2.5">
-                      <div className="flex items-center justify-between w-full gap-4">
-                        <span>Kelas {c.name}</span>
-                        <span className="text-[10px] text-muted-foreground font-bold uppercase">Tingkat {c.gradeLevel}</span>
+          
+          <ScrollArea className="flex-1 p-6 pt-2">
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                  <UserCheck className="w-3 h-3" /> Pilih Guru
+                </label>
+                <Select value={selectedTeacherId} onValueChange={setSelectedTeacherId}>
+                  <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Guru Pengajar" /></SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {sortedTeachers.map(t => (
+                      <SelectItem key={t.id} value={t.id} className="cursor-pointer py-2.5">
+                        {t.fullName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                  <BookOpen className="w-3 h-3" /> Pilih Mata Pelajaran
+                </label>
+                <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
+                  <SelectTrigger className="h-11 focus:ring-primary transition-all"><SelectValue placeholder="Pilih Mata Pelajaran" /></SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {sortedSubjects.map(s => (
+                      <SelectItem key={s.id} value={s.id} className="cursor-pointer py-2.5">
+                        {s.name} ({s.code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
+                  <Users className="w-3 h-3" /> Pilih Rombongan Belajar (Kelas)
+                </label>
+                
+                <div className="space-y-4 bg-muted/20 p-4 rounded-xl border border-border/50">
+                  {Object.entries(groupedClassesByLevel).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([level, clsList]) => (
+                    <div key={level} className="space-y-2">
+                      <div className="flex items-center gap-2">
+                         <Badge variant="outline" className="text-[9px] font-bold">TINGKAT {level}</Badge>
+                         <div className="h-px bg-border flex-1"></div>
                       </div>
-                    </SelectItem>
+                      <div className="grid grid-cols-3 gap-2">
+                        {clsList.map(c => (
+                          <div 
+                            key={c.id} 
+                            className={`flex items-center space-x-2 p-2 rounded-lg border transition-all cursor-pointer hover:bg-background ${selectedClassIds.includes(c.id) ? 'bg-primary/10 border-primary/40 ring-1 ring-primary/20' : 'bg-background/50 border-transparent'}`}
+                            onClick={() => toggleClassSelection(c.id)}
+                          >
+                            <Checkbox 
+                              id={`class-${c.id}`} 
+                              checked={selectedClassIds.includes(c.id)}
+                              onCheckedChange={() => toggleClassSelection(c.id)}
+                              className="h-4 w-4"
+                            />
+                            <Label htmlFor={`class-${c.id}`} className="text-xs font-bold cursor-pointer select-none">
+                              {c.name}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
+                  {sortedClasses.length === 0 && (
+                    <p className="text-center text-xs text-muted-foreground italic py-4">Belum ada data kelas.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 pt-2">
+                <label className="text-[10px] font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (JP / Minggu)</label>
+                <Input type="text" inputMode="numeric" value={totalJP} onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
+              </div>
             </div>
-            <div className="space-y-2 pt-2">
-              <label className="text-xs font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (JP / Minggu)</label>
-              <Input type="text" inputMode="numeric" value={totalJP} onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
-            </div>
-          </div>
-          <DialogFooter>
+          </ScrollArea>
+          
+          <DialogFooter className="p-6 border-t bg-muted/5">
             <Button onClick={handleSaveLocal} className="w-full h-11 shadow-lg shadow-primary/20 font-bold">
-              Simpan ke Draf
+              {editingAssignment ? 'Simpan Perubahan' : `Simpan ${selectedClassIds.length > 0 ? selectedClassIds.length : ''} Penugasan ke Draf`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -448,7 +500,7 @@ export default function TeacherAssignmentsPage() {
               <ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Penugasan?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Tindakan ini akan menghapus draf penugasan guru dari daftar sementara Anda. Anda tetap harus menekan tombol Sinkron untuk menyimpan perubahan ini ke cloud.
+              Tindakan ini akan menghapus draf penugasan guru dari daftar sementara Anda.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
