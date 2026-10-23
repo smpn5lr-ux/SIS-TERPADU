@@ -1,32 +1,31 @@
+
 "use client"
 
 import React, { useMemo, Suspense } from 'react'
 import { 
   BookOpen, 
   Users, 
-  ChevronRight, 
   Star, 
-  ClipboardCheck,
-  Loader2,
-  Backpack,
-  CalendarDays,
-  FileText,
-  Clock,
-  ArrowRight,
-  QrCode,
-  Layers,
-  History,
-  RefreshCw
+  Loader2, 
+  Backpack, 
+  CalendarDays, 
+  FileText, 
+  Clock, 
+  QrCode, 
+  RefreshCw,
+  Coffee,
+  LogOut,
+  Zap,
+  CheckCircle2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
 import { collection, query, where, doc } from "firebase/firestore"
-import { TeacherAssignment, Staff, RosterEntry, Classroom } from "@/lib/types"
+import { TeacherAssignment, Staff, RosterEntry, Classroom, GlobalActivity } from "@/lib/types"
 import { format, parse, addMinutes } from 'date-fns'
 import { id as localeId } from 'date-fns/locale'
 
@@ -107,47 +106,91 @@ function TeacherDashboardContent() {
     return DAYS_LIST[idx - 1]
   }, [today])
 
-  const todaySchedule = useMemo(() => {
-    if (!rosters || !classes) return []
-    return rosters
-      .filter(r => r.day === today)
-      .map(r => {
-         const cls = classes.find(c => c.id === r.classId)
-         return { ...r, className: cls ? cls.name : r.className }
-      })
-      .sort((a, b) => a.period - b.period)
-  }, [rosters, today, classes])
-
-  const prevSchedule = useMemo(() => {
-    if (!rosters || !classes) return []
-    return rosters
-      .filter(r => r.day === yesterday)
-      .map(r => {
-         const cls = classes.find(c => c.id === r.classId)
-         return { ...r, className: cls ? cls.name : r.className }
-      })
-      .sort((a, b) => a.period - b.period)
-  }, [rosters, yesterday, classes])
-
-  const getTimeForPeriod = (period: number) => {
-    if (!rosterConfig) return "-"
-    let current = parse(rosterConfig.entryTime || "07:00", 'HH:mm', new Date())
-    const jpDur = rosterConfig.jpDuration || 40
+  // Helper untuk generate timeline harian (Logika yang sama dengan Admin)
+  const generateTimelineForDay = (dayName: string) => {
+    if (!rosterConfig) return [];
     
-    for (let i = 1; i < period; i++) {
-      let duration = jpDur
-      if (rosterConfig.break1Active && i === rosterConfig.break1Period) duration = rosterConfig.break1Duration
-      if (rosterConfig.break2Active && i === rosterConfig.break2Period) duration = rosterConfig.break2Duration
-      current = addMinutes(current, duration)
+    const timeline: any[] = [];
+    let currentTime = parse(rosterConfig.entryTime || "07:00", 'HH:mm', new Date());
+    const dailyDismissals = rosterConfig.dailyDismissalTimes || {};
+    const dayDismissalStr = dailyDismissals[dayName] || rosterConfig.dismissalTime || "13:00";
+    const dayDismissalTime = parse(dayDismissalStr, 'HH:mm', new Date());
+
+    const dayActivities = (rosterConfig.globalActivities || []).filter((a: GlobalActivity) => a.day === dayName);
+    const startActivities = dayActivities.filter((a: GlobalActivity) => a.position !== 'end');
+    const endActivities = dayActivities.filter((a: GlobalActivity) => a.position === 'end');
+    
+    const totalEndDur = endActivities.reduce((sum: number, a: GlobalActivity) => sum + a.duration, 0);
+    const effectiveDismissalLimit = addMinutes(dayDismissalTime, -totalEndDur);
+
+    const maxP = rosterConfig.maxPeriods || 10;
+    const jpDur = rosterConfig.jpDuration || 40;
+
+    for (let p = 1; p <= maxP; p++) {
+      const periodStartActs = startActivities.filter((a: GlobalActivity) => a.period === p);
+      periodStartActs.forEach((act: GlobalActivity) => {
+        const start = currentTime;
+        currentTime = addMinutes(currentTime, act.duration);
+        timeline.push({ 
+          type: 'activity', 
+          name: act.name, 
+          startTime: start, 
+          endTime: currentTime,
+          icon: Zap
+        });
+      });
+
+      const lessonStart = currentTime;
+      const lessonEnd = addMinutes(currentTime, jpDur);
+      
+      if (lessonEnd <= effectiveDismissalLimit) {
+        currentTime = lessonEnd;
+        
+        // Cek apakah guru ini ada jadwal mengajar di jam ini
+        const myLesson = rosters?.find(r => r.day === dayName && r.period === p);
+        
+        timeline.push({ 
+          type: 'lesson', 
+          period: p,
+          startTime: lessonStart, 
+          endTime: currentTime,
+          isMyClass: !!myLesson,
+          lessonData: myLesson
+        });
+
+        if (rosterConfig.break1Active && p === rosterConfig.break1Period) {
+          const bStart = currentTime;
+          currentTime = addMinutes(currentTime, rosterConfig.break1Duration);
+          timeline.push({ type: 'break', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, icon: Coffee });
+        }
+        if (rosterConfig.break2Active && p === rosterConfig.break2Period) {
+          const bStart = currentTime;
+          currentTime = addMinutes(currentTime, rosterConfig.break2Duration);
+          timeline.push({ type: 'break', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, icon: Coffee });
+        }
+      }
     }
-    
-    let currentDuration = jpDur
-    if (rosterConfig.break1Active && period === rosterConfig.break1Period) currentDuration = rosterConfig.break1Duration
-    if (rosterConfig.break2Active && period === rosterConfig.break2Period) currentDuration = rosterConfig.break2Duration
-    
-    const end = addMinutes(current, currentDuration)
-    return `${format(current, 'HH:mm')} - ${format(end, 'HH:mm')}`
-  }
+
+    let endStartTime = effectiveDismissalLimit;
+    endActivities.forEach((act: GlobalActivity) => {
+       const start = endStartTime;
+       const end = addMinutes(start, act.duration);
+       timeline.push({ 
+         type: 'activity', 
+         name: act.name, 
+         startTime: start, 
+         endTime: end,
+         icon: Zap
+       });
+       endStartTime = end;
+    });
+
+    timeline.push({ type: 'dismissal', name: 'WAKTU PULANG', startTime: dayDismissalTime, icon: LogOut });
+    return timeline;
+  };
+
+  const todayTimeline = useMemo(() => generateTimelineForDay(today), [rosterConfig, rosters, today]);
+  const prevTimeline = useMemo(() => generateTimelineForDay(yesterday), [rosterConfig, rosters, yesterday]);
 
   if (loadingA || loadingR) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-primary" /></div>
 
@@ -168,24 +211,24 @@ function TeacherDashboardContent() {
           </div>
           <div className="bg-primary/10 px-4 py-2 rounded-xl border border-primary/20 flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-primary" />
-            <span className="text-sm font-bold text-primary uppercase">{assignments?.length || 0} Kelas</span>
+            <span className="text-sm font-bold text-primary uppercase">{assignments?.length || 0} Unit</span>
           </div>
         </div>
       </div>
 
-      {/* JADWAL ROSTER - PALING ATAS */}
+      {/* ROSTER SECTION */}
       <section className="space-y-4">
         <div className="flex items-center gap-2 text-muted-foreground">
            <Clock className="w-4 h-4" />
-           <h2 className="text-sm font-bold uppercase tracking-widest">Agenda Roster Anda</h2>
+           <h2 className="text-sm font-bold uppercase tracking-widest">Roster Sekolah & Jadwal Mengajar</h2>
         </div>
         
         <Card className="border-border/50 bg-card/40 backdrop-blur-sm relative overflow-hidden shadow-xl">
            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
            
-           <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x border-b">
-              {/* KOLOM HARI INI */}
-              <div className="p-6 md:p-8 space-y-6 bg-primary/[0.02]">
+           <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
+              {/* HARI INI */}
+              <div className="p-6 md:p-8 space-y-6 bg-primary/[0.01]">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                        <div className="bg-primary/20 p-2.5 rounded-2xl">
@@ -193,74 +236,87 @@ function TeacherDashboardContent() {
                        </div>
                        <div>
                           <CardTitle className="text-xl font-bold">Jadwal Hari Ini</CardTitle>
-                          <CardDescription>Urutan mengajar Anda hari ini.</CardDescription>
+                          <CardDescription>Agenda resmi sekolah hari ini.</CardDescription>
                        </div>
                     </div>
-                    <Badge className="bg-primary text-primary-foreground px-4 py-1 text-sm font-bold shadow-lg shadow-primary/20">{today}</Badge>
+                    <Badge className="bg-primary text-primary-foreground px-4 py-1 text-sm font-bold shadow-lg shadow-primary/20 uppercase tracking-widest">{today}</Badge>
                  </div>
 
-                 {todaySchedule.length === 0 ? (
-                   <div className="py-12 text-center flex flex-col items-center gap-4 bg-muted/5 rounded-3xl border border-dashed">
-                     <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                        <Star className="w-6 h-6 text-muted-foreground opacity-20" />
+                 <div className="space-y-3">
+                   {todayTimeline.length === 0 ? (
+                     <div className="py-12 text-center bg-muted/5 rounded-3xl border border-dashed text-muted-foreground text-xs italic">
+                        Belum ada konfigurasi roster untuk hari ini.
                      </div>
-                     <p className="text-xs text-muted-foreground italic max-w-[200px]">Anda tidak memiliki jadwal mengajar pada hari ini.</p>
-                   </div>
-                 ) : (
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     {todaySchedule.map((s) => (
-                       <div key={s.id} className="p-4 rounded-2xl bg-background/50 border border-border/50 hover:border-primary/40 transition-all group relative overflow-hidden">
-                         <div className="absolute top-0 left-0 w-1 h-full bg-primary/20 group-hover:bg-primary transition-colors"></div>
-                         <div className="flex flex-col gap-2">
-                           <div className="flex items-center justify-between">
-                             <span className="text-[10px] font-black text-primary uppercase tracking-tighter">{getTimeForPeriod(s.period)}</span>
-                             <Badge variant="outline" className="text-[9px] font-bold h-5 bg-background">KELAS {s.className}</Badge>
+                   ) : todayTimeline.map((item, idx) => (
+                     <div key={idx} className={`relative flex items-center gap-4 p-3 rounded-2xl transition-all border ${
+                       item.isMyClass ? 'bg-primary/10 border-primary/30 shadow-sm ring-1 ring-primary/20' : 
+                       item.type === 'dismissal' ? 'bg-destructive/5 border-destructive/20' :
+                       item.type === 'break' ? 'bg-accent/5 border-accent/20' : 'bg-background/40 border-border/40'
+                     }`}>
+                        <div className="flex flex-col items-center w-16 shrink-0 border-r border-border/50 pr-4">
+                           <span className="text-[10px] font-black text-foreground">{format(item.startTime, 'HH:mm')}</span>
+                           <span className="text-[8px] font-bold text-muted-foreground uppercase">{item.type === 'lesson' ? `Jam ${item.period}` : ''}</span>
+                        </div>
+                        
+                        <div className="flex-1 flex items-center justify-between">
+                           <div className="flex flex-col">
+                              {item.isMyClass ? (
+                                <>
+                                  <span className="text-xs font-black text-primary uppercase tracking-tight">{item.lessonData?.subjectName}</span>
+                                  <span className="text-[10px] font-bold text-muted-foreground italic">KELAS {item.lessonData?.className}</span>
+                                </>
+                              ) : (
+                                <span className={`text-xs font-bold uppercase tracking-widest ${item.type === 'dismissal' ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                  {item.name || 'Jam Pelajaran'}
+                                </span>
+                              )}
                            </div>
-                           <h4 className="font-bold text-sm leading-tight line-clamp-1">{s.subjectName}</h4>
-                           <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">JAM KE-{s.period}</span>
-                         </div>
-                       </div>
-                     ))}
-                   </div>
-                 )}
+                           
+                           <div className="flex items-center gap-2">
+                             {item.isMyClass && <Badge className="bg-primary text-[8px] h-5 px-2">MENGAJAR</Badge>}
+                             {item.icon && <item.icon className={`w-4 h-4 opacity-30 ${item.type === 'dismissal' ? 'text-destructive' : 'text-accent'}`} />}
+                           </div>
+                        </div>
+                     </div>
+                   ))}
+                 </div>
               </div>
 
-              {/* KOLOM SEBELUMNYA */}
+              {/* JADWAL SEBELUMNYA */}
               <div className="p-6 md:p-8 space-y-6">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                        <div className="bg-muted p-2.5 rounded-2xl">
-                          <History className="w-6 h-6 text-muted-foreground" />
+                          <RefreshCw className="w-6 h-6 text-muted-foreground" />
                        </div>
                        <div>
                           <CardTitle className="text-xl font-bold text-muted-foreground">Jadwal Sebelumnya</CardTitle>
                           <CardDescription>Riwayat mengajar di hari sekolah lalu.</CardDescription>
                        </div>
                     </div>
-                    <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30 px-4 py-1 text-sm font-bold">{yesterday}</Badge>
+                    <Badge variant="outline" className="text-muted-foreground border-muted-foreground/30 px-4 py-1 text-sm font-bold uppercase tracking-widest">{yesterday}</Badge>
                  </div>
 
-                 {prevSchedule.length === 0 ? (
-                   <div className="py-12 text-center flex flex-col items-center gap-4">
-                     <p className="text-xs text-muted-foreground italic">Tidak ada data jadwal kemarin.</p>
-                   </div>
-                 ) : (
-                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 opacity-60">
-                     {prevSchedule.map((s) => (
-                       <div key={s.id} className="p-4 rounded-2xl bg-muted/10 border border-border/50 flex flex-col gap-2">
-                           <div className="flex items-center justify-between">
-                             <span className="text-[10px] font-bold text-muted-foreground uppercase">{getTimeForPeriod(s.period)}</span>
-                             <span className="text-[9px] font-bold text-muted-foreground">KLS {s.className}</span>
-                           </div>
-                           <h4 className="font-medium text-xs text-muted-foreground line-clamp-1">{s.subjectName}</h4>
-                       </div>
-                     ))}
-                   </div>
-                 )}
+                 <div className="space-y-2 opacity-60 grayscale-[0.5]">
+                    {prevTimeline.slice(0, 10).map((item, idx) => (
+                       item.isMyClass && (
+                         <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-muted/10 border border-border/50">
+                            <div className="flex flex-col">
+                               <span className="text-[10px] font-bold text-muted-foreground uppercase">{format(item.startTime, 'HH:mm')}</span>
+                               <span className="text-xs font-bold">{item.lessonData?.subjectName}</span>
+                            </div>
+                            <Badge variant="outline" className="text-[9px]">KLS {item.lessonData?.className}</Badge>
+                         </div>
+                       )
+                    ))}
+                    {!prevTimeline.some(i => i.isMyClass) && (
+                       <p className="text-xs text-muted-foreground italic text-center py-8">Tidak ada jadwal mengajar pada hari {yesterday}.</p>
+                    )}
+                 </div>
 
                  <div className="pt-4">
                     <Button asChild variant="outline" className="w-full text-xs gap-2 border-border/50 hover:bg-muted/50 rounded-xl h-11">
-                      <Link href="/teacher">Perbarui Dasbor <RefreshCw className="w-4 h-4" /></Link>
+                      <Link href="/teacher">Perbarui Roster <RefreshCw className="w-4 h-4" /></Link>
                     </Button>
                  </div>
               </div>
@@ -315,7 +371,7 @@ function TeacherDashboardContent() {
                           <div className="grid grid-cols-2 gap-3">
                             <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-primary/10 hover:bg-primary/5 rounded-xl text-xs font-bold shadow-sm">
                               <Link href={`/teacher/grading/${a.id}?semester=${selectedSemester}`}>
-                                <ClipboardCheck className="w-3.5 h-3.5 text-primary" /> Buku Nilai
+                                <CheckCircle2 className="w-3.5 h-3.5 text-primary" /> Buku Nilai
                               </Link>
                             </Button>
                             <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-accent/10 hover:bg-accent/5 rounded-xl text-xs font-bold shadow-sm">
