@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useMemo, useEffect } from 'react'
@@ -93,12 +92,6 @@ export default function TeacherAssignmentsPage() {
   const { data: staff } = useCollection<Staff>(staffQuery)
   const { data: classes } = useCollection<Classroom>(classesQuery)
   const { data: subjects } = useCollection<Subject>(subjectsQuery)
-
-  useEffect(() => {
-    if (serverApplicants && !isDirty) {
-      setLocalApplicants(serverApplicants)
-    }
-  }, [serverApplicants, isDirty])
 
   useEffect(() => {
     if (serverAssignments && !isDirty) {
@@ -488,7 +481,14 @@ export default function TeacherAssignmentsPage() {
 
               <div className="space-y-2 pt-2">
                 <label className="text-[10px] font-bold uppercase text-primary tracking-widest">Beban Jam Pelajaran (JP / Minggu)</label>
-                <Input type="text" inputMode="numeric" value={totalJP} onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} className="h-11 font-bold text-lg" placeholder="Contoh: 4" />
+                <Input 
+                   type="text" 
+                   inputMode="numeric" 
+                   value={totalJP} 
+                   onChange={e => setTotalJP(e.target.value.replace(/[^0-9]/g, ''))} 
+                   className="h-11 font-bold text-lg" 
+                   placeholder="Contoh: 4" 
+                />
               </div>
             </div>
           </div>
