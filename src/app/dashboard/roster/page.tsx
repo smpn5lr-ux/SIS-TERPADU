@@ -885,8 +885,8 @@ export default function RosterManagementPage() {
                  <CardContent className="p-0">
                     <Accordion type="single" collapsible className="w-full">
                        {DAYS.map((day) => {
-                          const dayActsPagi = config.globalActivities.filter(a => a.day === day && a.position !== 'end');
-                          const dayActsAkhir = config.globalActivities.filter(a => a.day === day && a.position === 'end');
+                          const dayActsPagi = config.globalActivities.filter((a: GlobalActivity) => a.day === day && a.position !== 'end');
+                          const dayActsAkhir = config.globalActivities.filter((a: GlobalActivity) => a.day === day && a.position === 'end');
                           const dayBreak = config.dailyBreaks[day];
                           
                           return (
@@ -1012,7 +1012,7 @@ export default function RosterManagementPage() {
                                               <div className="text-center py-6 border border-dashed rounded-xl text-[10px] text-muted-foreground opacity-50 uppercase font-bold tracking-widest">
                                                  Belum ada agenda pagi
                                               </div>
-                                           ) : dayActsPagi.map(act => (
+                                           ) : dayActsPagi.map((act: GlobalActivity) => (
                                               <div key={act.id} className="p-3 bg-muted/20 border rounded-xl space-y-3 group/act relative">
                                                  <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute -top-1.5 -right-1.5 h-6 w-6 bg-background border shadow-sm text-destructive rounded-full opacity-0 group-hover/act:opacity-100 transition-opacity">
                                                     <X className="w-3 h-3" />
@@ -1051,7 +1051,7 @@ export default function RosterManagementPage() {
                                               <div className="text-center py-6 border border-dashed rounded-xl text-[10px] text-muted-foreground opacity-50 uppercase font-bold tracking-widest">
                                                  Belum ada agenda akhir
                                               </div>
-                                           ) : dayActsAkhir.map(act => (
+                                           ) : dayActsAkhir.map((act: GlobalActivity) => (
                                               <div key={act.id} className="p-3 bg-muted/20 border rounded-xl space-y-3 group/act relative">
                                                  <Button variant="ghost" size="icon" onClick={() => removeGlobalActivity(act.id)} className="absolute -top-1.5 -right-1.5 h-6 w-6 bg-background border shadow-sm text-destructive rounded-full opacity-0 group-hover/act:opacity-100 transition-opacity">
                                                     <X className="w-3 h-3" />
