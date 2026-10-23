@@ -123,6 +123,7 @@ function TeachingJournalPageContent() {
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
 
+  // Load buffer from localStorage on mount or when server data is ready
   useEffect(() => {
     if (serverJournals && !isDirty) {
       const savedBuffer = localStorage.getItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
@@ -135,6 +136,7 @@ function TeachingJournalPageContent() {
     }
   }, [serverJournals, assignmentId, activeSemester]);
 
+  // General persist logic
   useEffect(() => {
     if (isDirty && localJournals.length > 0) {
       localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(localJournals));
@@ -243,32 +245,30 @@ function TeachingJournalPageContent() {
 
     scannedIdsRef.current.add(studentId);
 
-    // Update UI state
-    setNewJournal(prev => ({
-      ...prev,
-      attendanceDetail: { ...(prev.attendanceDetail || {}), [studentId]: 'H' }
-    }));
-
-    // AUTO-SAVE TO LOCAL JOURNALS IMMEDIATELY
+    // Get current date for checking
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Construct the updated list and journal state atomically to prevent loss
+    let finalTargetJournal: Journal | null = null;
+    
     setLocalJournals(prev => {
-      const today = new Date().toISOString().split('T')[0];
       const existingIdx = prev.findIndex(j => j.date === today);
-      
       let updatedList = [...prev];
+      
       if (existingIdx !== -1) {
-        const updatedJournal = {
+        finalTargetJournal = {
           ...updatedList[existingIdx],
           attendanceDetail: { ...updatedList[existingIdx].attendanceDetail, [studentId]: 'H' },
-          absentStudents: students.filter(s => {
+          absentStudents: currentStudents.filter(s => {
              const isHadir = s.id === studentId || updatedList[existingIdx].attendanceDetail?.[s.id] === 'H';
              return !isHadir;
           }).map(s => s.id),
           updatedAt: new Date().toISOString()
         } as Journal;
-        updatedList[existingIdx] = updatedJournal;
+        updatedList[existingIdx] = finalTargetJournal;
       } else {
         const nextMeeting = prev.length > 0 ? Math.max(...prev.map(j => j.meetingNumber)) + 1 : 1;
-        const newEntry: Journal = {
+        finalTargetJournal = {
           id: `temp-${Date.now()}`,
           assignmentId: assignmentId as string,
           semester: activeSemester,
@@ -280,18 +280,27 @@ function TeachingJournalPageContent() {
           material: "",
           kktpAchievement: "",
           attendanceDetail: { [studentId]: 'H' },
-          absentStudents: students.filter(s => s.id !== studentId).map(s => s.id),
+          absentStudents: currentStudents.filter(s => s.id !== studentId).map(s => s.id),
           hasTask: false,
           taskType: null,
           taskScores: {},
           notes: "",
           createdAt: new Date().toISOString()
         };
-        updatedList.push(newEntry);
+        updatedList.push(finalTargetJournal);
       }
+      
+      // IMMEDIATE SYNC TO LOCAL STORAGE
+      localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(updatedList));
+      
       return updatedList;
     });
 
+    // Sync individual journal state for the UI
+    if (finalTargetJournal) {
+      setNewJournal(finalTargetJournal);
+    }
+    
     setIsDirty(true);
     toast({ title: "Berhasil Absen", description: `${student.fullName} hadir.`, className: "bg-green-600 text-white border-none" });
   };
@@ -307,15 +316,21 @@ function TeachingJournalPageContent() {
       absentStudents: students.filter(s => newJournal.attendanceDetail?.[s.id] !== 'H').map(s => s.id)
     } as Journal
 
-    if (editingJournalId) {
-      setLocalJournals(prev => prev.map(j => j.id === editingJournalId ? journalData : j))
-    } else {
-      setLocalJournals(prev => {
+    setLocalJournals(prev => {
+      let next: Journal[];
+      if (editingJournalId) {
+        next = prev.map(j => j.id === editingJournalId ? journalData : j);
+      } else {
         const exists = prev.find(p => p.date === journalData.date);
-        if (exists) return prev.map(p => p.date === journalData.date ? journalData : p);
-        return [...prev, journalData];
-      })
-    }
+        if (exists) {
+          next = prev.map(p => p.date === journalData.date ? journalData : p);
+        } else {
+          next = [...prev, journalData];
+        }
+      }
+      localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(next));
+      return next;
+    });
     
     setIsDirty(true)
     setActiveView('list')
@@ -388,7 +403,9 @@ function TeachingJournalPageContent() {
 
   const executeDeleteLocal = () => {
     if (!journalToDeleteId) return
-    setLocalJournals(prev => prev.filter(j => j.id !== journalToDeleteId))
+    const updated = localJournals.filter(j => j.id !== journalToDeleteId);
+    setLocalJournals(updated)
+    localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(updated));
     setIsDirty(true)
     setIsDeleteDialogOpen(false)
   }
