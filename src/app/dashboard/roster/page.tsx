@@ -90,26 +90,26 @@ import { Separator } from '@/components/ui/separator'
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 const COLOR_PALETTE = [
-  { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-800', rgb: [219, 234, 254] },
-  { bg: 'bg-green-100', border: 'border-green-300', text: 'text-green-800', rgb: [220, 252, 231] },
-  { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-800', rgb: [243, 232, 255] },
-  { bg: 'bg-pink-100', border: 'border-pink-300', text: 'text-pink-800', rgb: [252, 231, 243] },
-  { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-800', rgb: [255, 237, 213] },
-  { bg: 'bg-teal-100', border: 'border-teal-300', text: 'text-teal-800', rgb: [204, 251, 241] },
-  { bg: 'bg-indigo-100', border: 'border-indigo-300', text: 'text-indigo-800', rgb: [224, 231, 255] },
-  { bg: 'bg-rose-100', border: 'border-rose-300', text: 'text-rose-800', rgb: [255, 228, 230] },
-  { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-800', rgb: [254, 243, 199] },
-  { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-800', rgb: [209, 250, 229] },
+  [219, 234, 254], [220, 252, 231], [243, 232, 255], [252, 231, 243], [255, 237, 213],
+  [204, 251, 241], [224, 231, 255], [255, 228, 230], [254, 243, 199], [209, 250, 229],
+  [241, 245, 249], [254, 226, 226], [255, 251, 235], [236, 253, 245], [239, 246, 255],
+  [245, 243, 255], [250, 245, 255], [255, 241, 242], [255, 247, 237], [252, 250, 242]
 ];
 
 const getEntryColor = (subjectName: string) => {
-  if (!subjectName) return COLOR_PALETTE[0];
+  if (!subjectName) return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
   let hash = 0;
   for (let i = 0; i < subjectName.length; i++) {
     hash = subjectName.charCodeAt(i) + ((hash << 5) - hash);
   }
   const index = Math.abs(hash) % COLOR_PALETTE.length;
-  return COLOR_PALETTE[index];
+  const rgb = COLOR_PALETTE[index];
+  return {
+    bg: `bg-[rgb(${rgb[0]},${rgb[1]},${rgb[2]})]`,
+    border: 'border-slate-200',
+    text: 'text-slate-900',
+    rgb: rgb
+  };
 };
 
 export default function RosterManagementPage() {
@@ -188,63 +188,6 @@ export default function RosterManagementPage() {
       globalActivities: (rosterConfig?.globalActivities || []) as GlobalActivity[]
     };
   }, [rosterConfig])
-
-  const calculateNewMaxJP = (dailyEntries: Record<string, string>, dailyDismissals: Record<string, string>, jpDur: number, currentConfig: any) => {
-    let overallMax = 0;
-    
-    DAYS.forEach(day => {
-      const start = parse(dailyEntries[day], 'HH:mm', new Date());
-      const end = parse(dailyDismissals[day], 'HH:mm', new Date());
-      
-      const endActivities = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.position === 'end');
-      const totalEndDur = endActivities.reduce((sum: number, a: any) => sum + (a.duration || 0), 0);
-      
-      const effectiveEnd = addMinutes(end, -totalEndDur);
-      let current = start;
-      let period = 0;
-      
-      const dayBreak = currentConfig.dailyBreaks[day];
-      
-      while (period < 20) {
-        const nextP = period + 1;
-        
-        const startActs = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.period === nextP && a.position !== 'end');
-        startActs.forEach((a: any) => current = addMinutes(current, a.duration));
-        
-        const lessonEnd = addMinutes(current, jpDur);
-        if (lessonEnd > effectiveEnd) break;
-        
-        current = lessonEnd;
-        period = nextP;
-        
-        if (dayBreak.active && period === dayBreak.period) {
-          current = addMinutes(current, dayBreak.duration);
-        }
-        
-        if (current >= effectiveEnd) break;
-      }
-      if (period > overallMax) overallMax = period;
-    });
-    
-    return overallMax || 1;
-  };
-
-  const handleUpdateConfig = (updates: any) => {
-    if (!configRef) return;
-    let finalUpdates = { ...config, ...updates };
-    
-    if (updates.dailyDismissalTimes || updates.dailyEntryTimes || updates.entryTime || updates.jpDuration || updates.globalActivities || updates.dailyBreaks) {
-      const newMax = calculateNewMaxJP(
-        finalUpdates.dailyEntryTimes,
-        finalUpdates.dailyDismissalTimes,
-        finalUpdates.jpDuration,
-        finalUpdates
-      );
-      finalUpdates.maxPeriods = newMax;
-    }
-
-    setDoc(configRef, finalUpdates, { merge: true }).catch(() => {});
-  };
 
   const generateDayTimeline = (day: string) => {
     const timeline: any[] = [];
@@ -444,6 +387,11 @@ export default function RosterManagementPage() {
     setEntryToDeleteId(null)
   }
 
+  const handleUpdateConfig = (updates: any) => {
+    if (!configRef) return;
+    setDoc(configRef, { ...config, ...updates }, { merge: true }).catch(() => {});
+  };
+
   const handleAddGlobalActivity = (day: string, position: 'start' | 'end') => {
     const newAct: GlobalActivity = { 
       id: `act-${Date.now()}`, 
@@ -581,7 +529,6 @@ export default function RosterManagementPage() {
       const schoolName = (systemSettings?.schoolName || "SIS TERPADU").toUpperCase();
       const academicYear = systemSettings?.academicYear || "2024/2025";
 
-      // HEADER
       doc.setFontSize(10).setFont("helvetica", "bold");
       doc.text(govName, 148.5, 10, { align: "center" });
       doc.text(dinasName, 148.5, 15, { align: "center" });
@@ -589,10 +536,32 @@ export default function RosterManagementPage() {
       doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
       doc.line(14, 28, 283, 28);
 
-      // Create Subject Mapping for Legend
-      const uniqueSubjectNames = Array.from(new Set(localEntries.map(e => e.subjectName).filter(Boolean))) as string[];
-      const subjectMap = new Map<string, number>();
-      uniqueSubjectNames.sort().forEach((name, i) => subjectMap.set(name, i + 1));
+      // PENGATURAN KODE UNIK PER GURU & MAPEL
+      // Ambil seluruh assignment unik dari roster yang ada
+      const assignmentPairs: { teacherId: string, teacherName: string, subjectName: string, key: string }[] = [];
+      localEntries.forEach(e => {
+        if (e.teacherId && e.subjectName && !e.isActivity) {
+          const key = `${e.teacherId}|${e.subjectName}`;
+          if (!assignmentPairs.find(p => p.key === key)) {
+            assignmentPairs.push({ teacherId: e.teacherId, teacherName: e.teacherName || "-", subjectName: e.subjectName, key });
+          }
+        }
+      });
+      
+      // Urutkan untuk menjaga konsistensi nomor (berdasarkan nama guru lalu mapel)
+      assignmentPairs.sort((a, b) => {
+        const nameComp = a.teacherName.localeCompare(b.teacherName);
+        if (nameComp !== 0) return nameComp;
+        return a.subjectName.localeCompare(b.subjectName);
+      });
+
+      const assignmentMap = new Map<string, { code: number, rgb: number[] }>();
+      assignmentPairs.forEach((p, i) => {
+        assignmentMap.set(p.key, { 
+          code: i + 1, 
+          rgb: COLOR_PALETTE[i % COLOR_PALETTE.length] 
+        });
+      });
 
       const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
       const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
@@ -615,13 +584,16 @@ export default function RosterManagementPage() {
           if (row.type === 'lesson') {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-              if (entry && entry.subjectName) {
-                const code = subjectMap.get(entry.subjectName);
-                const colorInfo = getEntryColor(entry.subjectName);
-                tableRow.push({ 
-                  content: code?.toString() || "", 
-                  styles: { fillColor: colorInfo.rgb, textColor: [0, 0, 0], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
-                });
+              if (entry && entry.teacherId && entry.subjectName) {
+                const mapping = assignmentMap.get(`${entry.teacherId}|${entry.subjectName}`);
+                if (mapping) {
+                  tableRow.push({ 
+                    content: mapping.code.toString(), 
+                    styles: { fillColor: mapping.rgb, textColor: [0, 0, 0], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
+                  });
+                } else {
+                  tableRow.push("");
+                }
               } else {
                 tableRow.push("");
               }
@@ -638,8 +610,7 @@ export default function RosterManagementPage() {
         });
       });
 
-      // Calculate table width to see if we can fit legend on the right
-      const classColWidth = Math.max(10, Math.floor(180 / sorted.length));
+      const classColWidth = Math.max(8, Math.floor(180 / sorted.length));
       const colStyles: any = { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 18 } };
       sorted.forEach((_, i) => colStyles[i + 3] = { cellWidth: classColWidth });
 
@@ -651,33 +622,67 @@ export default function RosterManagementPage() {
         styles: { fontSize: 7, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
         headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.1 },
         columnStyles: colStyles,
-        margin: { right: 55 } // Leave space for legend on the right
+        margin: { right: 65 } // Space for legend on right
       });
 
-      // RENDER LEGEND ON THE RIGHT
-      const startX = 245;
+      // LEGENDA MODEL GAMBAR (DI SISI KANAN)
+      const startX = 238;
       let startY = 32;
-      doc.setFontSize(8).setFont("helvetica", "bold").text("INDEKS MATA PELAJARAN", startX, startY - 2);
+      doc.setFontSize(8).setFont("helvetica", "bold").text("INDEKS GURU & MAPEL", startX, startY - 2);
       
-      uniqueSubjectNames.sort().forEach((name, i) => {
-        const code = i + 1;
-        const colorInfo = getEntryColor(name);
-        
-        // Draw colored box
-        doc.setDrawColor(0).setLineWidth(0.1).setFillColor(colorInfo.rgb[0], colorInfo.rgb[1], colorInfo.rgb[2]).rect(startX, startY, 5, 5, 'F');
-        doc.rect(startX, startY, 5, 5);
-        
-        // Draw code and name
-        doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0).text(code.toString(), startX + 2.5, startY + 3.8, { align: "center" });
-        doc.setFont("helvetica", "normal").text(name.toUpperCase(), startX + 7, startY + 3.8);
-        
-        startY += 6.5;
-        if (startY > 190) {
-           // If too many subjects, we'd need another page or column, but for school this is usually enough
-        }
+      // Grouping assignmentPairs by Teacher
+      const teacherGroups = new Map<string, { name: string, assignments: typeof assignmentPairs }>();
+      assignmentPairs.forEach(p => {
+        const group = teacherGroups.get(p.teacherId) || { name: p.teacherName, assignments: [] };
+        group.assignments.push(p);
+        teacherGroups.set(p.teacherId, group);
       });
 
-      doc.save(`Roster_Model_Kode_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      const sortedTeachers = Array.from(teacherGroups.values()).sort((a,b) => a.name.localeCompare(b.name));
+
+      sortedTeachers.forEach((group) => {
+        const rowHeight = 7.5;
+        if (startY + rowHeight > 195) {
+           doc.addPage();
+           startY = 20;
+        }
+
+        // Draw Box
+        const boxSize = 6;
+        if (group.assignments.length === 1) {
+          const mapping = assignmentMap.get(group.assignments[0].key)!;
+          doc.setDrawColor(180).setLineWidth(0.1).setFillColor(mapping.rgb[0], mapping.rgb[1], mapping.rgb[2]).rect(startX, startY, boxSize, boxSize, 'F');
+          doc.rect(startX, startY, boxSize, boxSize);
+          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(0).text(mapping.code.toString(), startX + boxSize/2, startY + 4.2, { align: "center" });
+        } else {
+          // SPLIT DIAGONAL BOX
+          const m1 = assignmentMap.get(group.assignments[0].key)!;
+          const m2 = assignmentMap.get(group.assignments[1].key)!;
+          
+          // Bottom-right triangle
+          doc.setFillColor(m1.rgb[0], m1.rgb[1], m1.rgb[2]);
+          doc.triangle(startX, startY + boxSize, startX + boxSize, startY + boxSize, startX + boxSize, startY, 'F');
+          
+          // Top-left triangle
+          doc.setFillColor(m2.rgb[0], m2.rgb[1], m2.rgb[2]);
+          doc.triangle(startX, startY, startX + boxSize, startY, startX, startY + boxSize, 'F');
+          
+          doc.setDrawColor(180).setLineWidth(0.1).rect(startX, startY, boxSize, boxSize);
+          doc.line(startX, startY + boxSize, startX + boxSize, startY); // Diagonal line
+          
+          // Show both codes or just the first
+          doc.setFontSize(6).setFont("helvetica", "bold").setTextColor(0).text(`${m1.code}`, startX + boxSize/2, startY + 4.2, { align: "center" });
+        }
+
+        // Teacher Info
+        doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(50).text(group.name.toUpperCase(), startX + boxSize + 2, startY + 2.5);
+        const subjectsText = group.assignments.map(a => a.subjectName).join(", ");
+        doc.setFontSize(5.5).setFont("helvetica", "normal").setTextColor(100).text(subjectsText, startX + boxSize + 2, startY + 5.5);
+
+        startY += rowHeight;
+      });
+
+      doc.save(`Roster_Legenda_Model_Kode_${schoolName.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Berhasil Mengunduh Format Kode" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
