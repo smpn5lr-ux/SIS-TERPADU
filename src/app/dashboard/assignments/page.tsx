@@ -95,16 +95,23 @@ export default function TeacherAssignmentsPage() {
   const { data: subjects } = useCollection<Subject>(subjectsQuery)
 
   useEffect(() => {
+    if (serverApplicants && !isDirty) {
+      setLocalApplicants(serverApplicants)
+    }
+  }, [serverApplicants, isDirty])
+
+  useEffect(() => {
     if (serverAssignments && !isDirty) {
       setLocalAssignments(serverAssignments)
     }
   }, [serverAssignments, isDirty])
 
+  // URUTKAN BERDASARKAN NOMOR URUT (staffNumber)
   const sortedTeachers = useMemo(() => {
     if (!staff) return []
     return staff
       .filter(s => s.role === 'Guru')
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+      .sort((a, b) => (a.staffNumber || 999) - (b.staffNumber || 999))
   }, [staff])
 
   const sortedClasses = useMemo(() => {
@@ -157,8 +164,12 @@ export default function TeacherAssignmentsPage() {
       group.list.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true, sensitivity: 'base' }))
     })
 
-    return Array.from(map.values()).sort((a, b) => a.teacherName.localeCompare(b.teacherName))
-  }, [localAssignments, classes])
+    return Array.from(map.values()).sort((a, b) => {
+        const staffA = staff?.find(s => s.id === a.teacherId);
+        const staffB = staff?.find(s => s.id === b.teacherId);
+        return (staffA?.staffNumber || 999) - (staffB?.staffNumber || 999);
+    })
+  }, [localAssignments, classes, staff])
 
   const handleOpenAdd = () => {
     setEditingAssignment(null)
@@ -403,7 +414,7 @@ export default function TeacherAssignmentsPage() {
             <DialogTitle>{editingAssignment ? 'Edit Penugasan' : 'Plotting Guru & Beban JP'}</DialogTitle>
           </DialogHeader>
           
-          <div className="flex-1 p-6 pt-4 overflow-y-auto scrollbar-thin">
+          <div className="flex-1 p-6 pt-4 overflow-y-auto">
             <div className="space-y-6 pb-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest flex items-center gap-2">
