@@ -84,16 +84,33 @@ import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
 import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity, DailyBreak } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { addMinutes, format, parse } from 'date-fns'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { ScrollArea } from '@/components/area'
 import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
+// Palet warna yang mencolok dan kontras (Vivid Colors)
 const COLOR_PALETTE = [
-  [219, 234, 254], [220, 252, 231], [243, 232, 255], [252, 231, 243], [255, 237, 213],
-  [204, 251, 241], [224, 231, 255], [255, 228, 230], [254, 243, 199], [209, 250, 229],
-  [241, 245, 249], [254, 226, 226], [255, 251, 235], [236, 253, 245], [239, 246, 255],
-  [245, 243, 255], [250, 245, 255], [255, 241, 242], [255, 247, 237], [252, 250, 242]
+  [67, 97, 238],   // Royal Blue
+  [239, 68, 68],   // Bright Red
+  [34, 197, 94],   // Success Green
+  [245, 158, 11],  // Amber/Orange
+  [168, 85, 247],  // Purple
+  [6, 182, 212],   // Cyan
+  [236, 72, 153],  // Pink
+  [132, 204, 22],  // Lime
+  [249, 115, 22],  // Vivid Orange
+  [99, 102, 241],  // Indigo
+  [20, 184, 166],  // Teal
+  [244, 63, 94],   // Rose
+  [14, 165, 233],  // Sky Blue
+  [16, 185, 129],  // Emerald
+  [139, 92, 246],  // Violet
+  [190, 24, 93],   // Dark Pink
+  [153, 27, 27],   // Dark Red
+  [30, 64, 175],   // Dark Blue
+  [21, 128, 61],   // Dark Green
+  [120, 53, 15]    // Brown/Amber
 ];
 
 const getEntryColor = (subjectName: string) => {
@@ -105,9 +122,9 @@ const getEntryColor = (subjectName: string) => {
   const index = Math.abs(hash) % COLOR_PALETTE.length;
   const rgb = COLOR_PALETTE[index];
   return {
-    bg: `bg-[rgb(${rgb[0]},${rgb[1]},${rgb[2]})]`,
-    border: 'border-slate-200',
-    text: 'text-slate-900',
+    bg: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`,
+    border: 'border-white/20',
+    text: 'text-white', // Selalu putih untuk warna mencolok
     rgb: rgb
   };
 };
@@ -466,7 +483,7 @@ export default function RosterManagementPage() {
                 const colorInfo = getEntryColor(entry.subjectName || "");
                 tableRow.push({ 
                   content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
-                  styles: { fillColor: colorInfo.rgb, textColor: [0, 0, 0], fontSize: 6 } 
+                  styles: { fillColor: colorInfo.rgb, textColor: [255, 255, 255], fontSize: 6, fontStyle: 'bold' } 
                 });
               } else {
                 tableRow.push("");
@@ -536,8 +553,7 @@ export default function RosterManagementPage() {
       doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
       doc.line(14, 28, 283, 28);
 
-      // PENGATURAN KODE UNIK PER GURU & MAPEL
-      // Ambil seluruh assignment unik dari roster yang ada
+      // Grouping assignmentPairs by Teacher & Subject for consistent indexing
       const assignmentPairs: { teacherId: string, teacherName: string, subjectName: string, key: string }[] = [];
       localEntries.forEach(e => {
         if (e.teacherId && e.subjectName && !e.isActivity) {
@@ -548,7 +564,6 @@ export default function RosterManagementPage() {
         }
       });
       
-      // Urutkan untuk menjaga konsistensi nomor (berdasarkan nama guru lalu mapel)
       assignmentPairs.sort((a, b) => {
         const nameComp = a.teacherName.localeCompare(b.teacherName);
         if (nameComp !== 0) return nameComp;
@@ -589,7 +604,7 @@ export default function RosterManagementPage() {
                 if (mapping) {
                   tableRow.push({ 
                     content: mapping.code.toString(), 
-                    styles: { fillColor: mapping.rgb, textColor: [0, 0, 0], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
+                    styles: { fillColor: mapping.rgb, textColor: [255, 255, 255], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
                   });
                 } else {
                   tableRow.push("");
@@ -622,15 +637,14 @@ export default function RosterManagementPage() {
         styles: { fontSize: 7, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
         headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.1 },
         columnStyles: colStyles,
-        margin: { right: 65 } // Space for legend on right
+        margin: { right: 65 }
       });
 
-      // LEGENDA MODEL GAMBAR (DI SISI KANAN)
+      // Legenda Mencolok di Samping
       const startX = 238;
       let startY = 32;
-      doc.setFontSize(8).setFont("helvetica", "bold").text("INDEKS GURU & MAPEL", startX, startY - 2);
+      doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(0).text("INDEKS GURU & MAPEL", startX, startY - 2);
       
-      // Grouping assignmentPairs by Teacher
       const teacherGroups = new Map<string, { name: string, assignments: typeof assignmentPairs }>();
       assignmentPairs.forEach(p => {
         const group = teacherGroups.get(p.teacherId) || { name: p.teacherName, assignments: [] };
@@ -647,34 +661,29 @@ export default function RosterManagementPage() {
            startY = 20;
         }
 
-        // Draw Box
         const boxSize = 6;
         if (group.assignments.length === 1) {
           const mapping = assignmentMap.get(group.assignments[0].key)!;
-          doc.setDrawColor(180).setLineWidth(0.1).setFillColor(mapping.rgb[0], mapping.rgb[1], mapping.rgb[2]).rect(startX, startY, boxSize, boxSize, 'F');
+          doc.setDrawColor(0).setLineWidth(0.05).setFillColor(mapping.rgb[0], mapping.rgb[1], mapping.rgb[2]).rect(startX, startY, boxSize, boxSize, 'F');
           doc.rect(startX, startY, boxSize, boxSize);
-          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(0).text(mapping.code.toString(), startX + boxSize/2, startY + 4.2, { align: "center" });
+          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code.toString(), startX + boxSize/2, startY + 4.2, { align: "center" });
         } else {
-          // SPLIT DIAGONAL BOX
+          // DIAGONAL SPLIT
           const m1 = assignmentMap.get(group.assignments[0].key)!;
           const m2 = assignmentMap.get(group.assignments[1].key)!;
           
-          // Bottom-right triangle
           doc.setFillColor(m1.rgb[0], m1.rgb[1], m1.rgb[2]);
           doc.triangle(startX, startY + boxSize, startX + boxSize, startY + boxSize, startX + boxSize, startY, 'F');
-          
-          // Top-left triangle
           doc.setFillColor(m2.rgb[0], m2.rgb[1], m2.rgb[2]);
           doc.triangle(startX, startY, startX + boxSize, startY, startX, startY + boxSize, 'F');
           
-          doc.setDrawColor(180).setLineWidth(0.1).rect(startX, startY, boxSize, boxSize);
-          doc.line(startX, startY + boxSize, startX + boxSize, startY); // Diagonal line
+          doc.setDrawColor(0).setLineWidth(0.05).rect(startX, startY, boxSize, boxSize);
+          doc.line(startX, startY + boxSize, startX + boxSize, startY);
           
-          // Show both codes or just the first
-          doc.setFontSize(6).setFont("helvetica", "bold").setTextColor(0).text(`${m1.code}`, startX + boxSize/2, startY + 4.2, { align: "center" });
+          doc.setFontSize(5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(`${m2.code}`, startX + 1.5, startY + 2.5, { align: "center" });
+          doc.text(`${m1.code}`, startX + boxSize - 1.5, startY + boxSize - 1, { align: "center" });
         }
 
-        // Teacher Info
         doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(50).text(group.name.toUpperCase(), startX + boxSize + 2, startY + 2.5);
         const subjectsText = group.assignments.map(a => a.subjectName).join(", ");
         doc.setFontSize(5.5).setFont("helvetica", "normal").setTextColor(100).text(subjectsText, startX + boxSize + 2, startY + 5.5);
@@ -682,7 +691,7 @@ export default function RosterManagementPage() {
         startY += rowHeight;
       });
 
-      doc.save(`Roster_Legenda_Model_Kode_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Cetak_Vivid_${schoolName.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Berhasil Mengunduh Format Kode" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
@@ -803,10 +812,13 @@ export default function RosterManagementPage() {
                                return (
                                  <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                    {entry ? (
-                                     <div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.bg} ${colorInfo.border}`}>
+                                     <div 
+                                       className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.border}`}
+                                       style={{ backgroundColor: colorInfo.bg }}
+                                     >
                                        <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName || "-"}</div>
-                                       <div className="text-[9px] text-muted-foreground mt-1 font-medium italic">({entry.teacherName || "-"})</div>
-                                       <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-destructive hover:bg-destructive/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                       <div className="text-[9px] text-white/70 mt-1 font-medium italic">({entry.teacherName || "-"})</div>
+                                       <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-white hover:bg-white/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                                      </div>
                                    ) : (
                                      <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: row.period, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
@@ -1101,10 +1113,11 @@ export default function RosterManagementPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Ya, Hapus</AlertDialogAction>
+            <AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Ya, Hapus Sekarang</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
   )
 }
+
