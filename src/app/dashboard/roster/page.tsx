@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -533,7 +534,7 @@ export default function RosterManagementPage() {
             tableRow.push({
               content: "WAKTU PULANG SEKOLAH",
               colSpan: sorted.length,
-              styles: { fillColor: [255, 235, 235], fontStyle: 'bold', textColor: [200, 0, 0], halign: 'center' }
+              styles: { fillColor: [255, 220, 220], fontStyle: 'bold', textColor: [200, 0, 0], halign: 'center' }
             });
           }
           
@@ -652,7 +653,7 @@ export default function RosterManagementPage() {
                              </TableCell>
                            )}
                            
-                           <TableCell className={`border-r font-bold text-[10px] text-center p-2 ${row.type === 'break' ? 'text-accent' : row.type === 'dismissal' ? 'text-destructive' : ''}`}>
+                           <TableCell className={`border-r font-bold text-[10px] text-center p-2 ${row.type === 'break' ? 'text-accent' : row.type === 'dismissal' ? 'text-destructive font-black' : ''}`}>
                              {row.label}
                            </TableCell>
                            

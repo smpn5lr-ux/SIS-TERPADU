@@ -177,7 +177,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       const schoolName = config?.schoolName || "SIS TERPADU"
 
       // Ambil data rombel untuk tau daftar murid ID
-      const classRef = doc(db, 'classes', classId)
       const classSnap = await getDocs(query(collection(db, 'classes'), where('__name__', '==', classId)))
       const targetClass = classSnap.docs[0]?.data() as Classroom
       
@@ -377,20 +376,20 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
             ) : uniqueClasses.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground italic">Anda belum memiliki penugasan kelas.</div>
             ) : (
-              <ScrollArea className="max-h-[300px] border rounded-xl overflow-hidden">
+              <ScrollArea className="h-[350px] w-full border rounded-xl overflow-hidden bg-muted/5">
                 <div className="divide-y">
                   {uniqueClasses.map((cls) => (
                     <button
                       key={cls.id}
                       disabled={isProcessingQR}
                       onClick={() => handleDownloadSpecificClassQR(cls.id, cls.name)}
-                      className="w-full flex items-center justify-between p-4 hover:bg-muted transition-colors group"
+                      className="w-full flex items-center justify-between p-4 hover:bg-primary/5 transition-colors group text-left"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="bg-primary/10 p-2 rounded-lg group-hover:bg-primary group-hover:text-white transition-colors">
+                        <div className="bg-primary/10 p-2.5 rounded-lg group-hover:bg-primary group-hover:text-white transition-all shadow-sm">
                           <Users className="w-4 h-4" />
                         </div>
-                        <span className="font-bold text-sm">Kelas {cls.name}</span>
+                        <span className="font-bold text-sm tracking-tight text-foreground">Kelas {cls.name}</span>
                       </div>
                       <Download className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
@@ -399,7 +398,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
               </ScrollArea>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="border-t pt-4">
             <Button variant="ghost" onClick={() => setIsQRDialogOpen(false)} disabled={isProcessingQR}>Batal</Button>
             {isProcessingQR && (
               <div className="flex items-center gap-2 text-xs text-primary font-bold animate-pulse">
