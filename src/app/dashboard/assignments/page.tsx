@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useMemo, useEffect } from 'react'
@@ -18,7 +19,8 @@ import {
   RefreshCw,
   Info,
   ShieldAlert,
-  Eye
+  Eye,
+  Clock
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -99,7 +101,6 @@ export default function TeacherAssignmentsPage() {
     }
   }, [serverAssignments, isDirty])
 
-  // URUTKAN BERDASARKAN NOMOR URUT (staffNumber)
   const sortedTeachers = useMemo(() => {
     if (!staff) return []
     return staff
@@ -289,9 +290,9 @@ export default function TeacherAssignmentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-headline font-bold">Penugasan Guru</h1>
+          <h1 className="text-2xl md:text-3xl font-headline font-bold">Penugasan Guru (Beban Dapodik)</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Hubungkan Guru dengan Mapel, Kelas, dan Beban Jam (JP).</p>
+             <p className="text-muted-foreground text-sm">Input beban jam per minggu (JP) sesuai infoGTK/Dapodik.</p>
              {isDirty ? (
                <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse gap-1 text-[10px]"><CloudOff className="w-3 h-3" /> Belum Sinkron</Badge>
              ) : (
@@ -307,7 +308,7 @@ export default function TeacherAssignmentsPage() {
             </Button>
           )}
           <Button onClick={handleOpenAdd} className="flex-1 md:flex-none gap-2 shadow-lg shadow-primary/20">
-            <Plus className="w-4 h-4" /> Tambah
+            <Plus className="w-4 h-4" /> Tambah Penugasan
           </Button>
         </div>
       </div>
@@ -332,8 +333,8 @@ export default function TeacherAssignmentsPage() {
                         <Badge variant="outline" className="text-[9px] md:text-[10px] uppercase font-bold tracking-wider">
                           {group.list.length} Rombel
                         </Badge>
-                        <Badge className="bg-amber-500 text-white border-none font-bold text-[9px] md:text-[10px] py-0.5 px-2">
-                          {group.totalJP} JP
+                        <Badge className="bg-amber-500 text-white border-none font-bold text-[9px] md:text-[10px] py-0.5 px-2 flex items-center gap-1">
+                          <Clock className="w-2 h-2" /> {group.totalJP} JP Total
                         </Badge>
                       </div>
                     </div>
@@ -344,7 +345,7 @@ export default function TeacherAssignmentsPage() {
                   <div className="hidden md:grid grid-cols-12 gap-4 px-4 py-3 text-[10px] font-black text-muted-foreground uppercase tracking-widest bg-muted/20 rounded-t-xl border-x border-t">
                     <div className="col-span-5 flex items-center gap-2"><BookMarked className="w-3.5 h-3.5" /> Mata Pelajaran</div>
                     <div className="col-span-4 flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Kelas</div>
-                    <div className="col-span-1 text-center">JP</div>
+                    <div className="col-span-1 text-center">Beban</div>
                     <div className="col-span-2 text-right pr-2">Aksi</div>
                   </div>
                   
@@ -404,7 +405,7 @@ export default function TeacherAssignmentsPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[480px] max-h-[90vh] flex flex-col p-0 overflow-hidden shadow-2xl">
           <DialogHeader className="p-6 pb-2 border-b bg-muted/10 shrink-0">
-            <DialogTitle>{editingAssignment ? 'Edit Penugasan' : 'Plotting Guru & Beban JP'}</DialogTitle>
+            <DialogTitle>{editingAssignment ? 'Edit Beban Ajar' : 'Plotting Guru & Beban Dapodik'}</DialogTitle>
           </DialogHeader>
           
           <div className="flex-1 p-6 pt-4 overflow-y-auto">
@@ -489,6 +490,7 @@ export default function TeacherAssignmentsPage() {
                    className="h-11 font-bold text-lg" 
                    placeholder="Contoh: 4" 
                 />
+                <p className="text-[9px] text-muted-foreground italic leading-tight">JP ini akan dideteksi oleh sistem Roster untuk distribusi otomatis jam mingguan.</p>
               </div>
             </div>
           </div>

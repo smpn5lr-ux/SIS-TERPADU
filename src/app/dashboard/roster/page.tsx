@@ -808,7 +808,7 @@ export default function RosterManagementPage() {
             <Card className="border-border/50 bg-primary/5">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-bold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Beban JP ({totalScheduledJP}/{totalNeededJP})</CardTitle>
-                <CardDescription className="text-[10px]">Total JP terjadwal dari kebutuhan.</CardDescription>
+                <CardDescription className="text-[10px]">Total JP terjadwal dari kebutuhan Dapodik.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-2">
                 <ScrollArea className="h-[500px] pr-2">
@@ -833,83 +833,81 @@ export default function RosterManagementPage() {
           </div>
 
           <div className="lg:col-span-3">
-             <Card className="border-border/50 shadow-md bg-card/30 overflow-hidden">
-               <div className="w-full overflow-x-auto">
-                 <div className="min-w-[1000px]">
-                   <Table className="border-collapse w-full">
-                     <TableHeader>
-                       <TableRow className="bg-muted/30 hover:bg-muted/30">
-                         <TableHead className="w-20 border-r font-bold text-center text-primary text-[10px] uppercase">HARI</TableHead>
-                         <TableHead className="w-12 border-r font-bold text-center text-primary text-[10px] uppercase">JAM</TableHead>
-                         <TableHead className="w-24 border-r font-bold text-center text-primary text-[10px] uppercase">WAKTU</TableHead>
-                         {sortedClasses.map(cls => (
-                           <TableHead key={cls.id} className="text-center min-w-[140px] font-bold border-r last:border-r-0 text-[11px] uppercase py-3">
-                             {cls.name}
-                           </TableHead>
-                         ))}
-                       </TableRow>
-                     </TableHeader>
-                     <TableBody>
-                       {DAYS.map((day) => {
-                         const dayTimeline = generateDayTimeline(day);
-                         let dayCellAdded = false;
+             <div className="w-full overflow-x-auto bg-card/30 border border-border/50 rounded-xl shadow-md">
+               <div className="min-w-[1000px]">
+                 <Table className="border-collapse w-full">
+                   <TableHeader>
+                     <TableRow className="bg-muted/30 hover:bg-muted/30">
+                       <TableHead className="w-20 border-r font-bold text-center text-primary text-[10px] uppercase">HARI</TableHead>
+                       <TableHead className="w-12 border-r font-bold text-center text-primary text-[10px] uppercase">JAM</TableHead>
+                       <TableHead className="w-24 border-r font-bold text-center text-primary text-[10px] uppercase">WAKTU</TableHead>
+                       {sortedClasses.map(cls => (
+                         <TableHead key={cls.id} className="text-center min-w-[140px] font-bold border-r last:border-r-0 text-[11px] uppercase py-3">
+                           {cls.name}
+                         </TableHead>
+                       ))}
+                     </TableRow>
+                   </TableHeader>
+                   <TableBody>
+                     {DAYS.map((day) => {
+                       const dayTimeline = generateDayTimeline(day);
+                       let dayCellAdded = false;
 
-                         return dayTimeline.map((row, rowIdx) => (
-                           <TableRow key={`${day}-${rowIdx}`} className="hover:bg-transparent">
-                             {!dayCellAdded && (
-                               <TableCell rowSpan={dayTimeline.length} className="border-r font-bold text-center bg-muted/5 p-0">
-                                 <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">
-                                   {day}
-                                 </div>
-                                 {(dayCellAdded = true) && null}
-                               </TableCell>
-                             )}
-                             
-                             <TableCell className={`border-r font-bold text-[10px] text-center p-2 ${row.type === 'break' ? 'text-accent' : row.type === 'dismissal' ? 'text-destructive font-black' : ''}`}>
-                               {row.label}
+                       return dayTimeline.map((row, rowIdx) => (
+                         <TableRow key={`${day}-${rowIdx}`} className="hover:bg-transparent">
+                           {!dayCellAdded && (
+                             <TableCell rowSpan={dayTimeline.length} className="border-r font-bold text-center bg-muted/5 p-0">
+                               <div className="rotate-[-90deg] whitespace-nowrap text-xs text-primary font-black uppercase tracking-[0.2em]">
+                                 {day}
+                               </div>
+                               {(dayCellAdded = true) && null}
                              </TableCell>
-                             
-                             <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
-                               {format(row.startTime, 'HH:mm')} 
-                               {row.type !== 'dismissal' && ` - ${format(row.endTime, 'HH:mm')}`}
-                             </TableCell>
+                           )}
+                           
+                           <TableCell className={`border-r font-bold text-[10px] text-center p-2 ${row.type === 'break' ? 'text-accent' : row.type === 'dismissal' ? 'text-destructive font-black' : ''}`}>
+                             {row.label}
+                           </TableCell>
+                           
+                           <TableCell className="border-r text-[9px] text-center p-1 text-muted-foreground whitespace-nowrap">
+                             {format(row.startTime, 'HH:mm')} 
+                             {row.type !== 'dismissal' && ` - ${format(row.endTime, 'HH:mm')}`}
+                           </TableCell>
 
-                             {row.type === 'lesson' ? (
-                               sortedClasses.map(cls => {
-                                 const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-                                 const colorInfo = getEntryColor(entry?.teacherId || "", entry?.subjectId || "");
-                                 return (
-                                   <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
-                                     {entry ? (
-                                       <div 
-                                         className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.border}`}
-                                         style={{ backgroundColor: colorInfo.bg }}
-                                       >
-                                         <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName || "-"}</div>
-                                         <div className="text-[9px] text-white/70 mt-1 font-medium italic">({entry.teacherName || "-"})</div>
-                                         <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-white hover:bg-white/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                                       </div>
-                                     ) : (
-                                       <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: row.period, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
-                                     )}
-                                   </TableCell>
-                                 );
-                               })
-                             ) : (
-                               <TableCell colSpan={sortedClasses.length} className={`p-0 border-r last:border-r-0 border-y ${row.type === 'activity' ? (row.isFinal ? 'bg-amber-200/30' : 'bg-amber-50/50') : row.type === 'break' ? 'bg-accent/5' : 'bg-destructive/5'}`}>
-                                 <div className={`h-12 flex items-center justify-center font-black text-[11px] tracking-[0.4em] uppercase ${row.type === 'activity' ? 'text-amber-700' : row.type === 'break' ? 'text-accent' : 'text-destructive'}`}>
-                                   {row.name} {row.duration && `(${row.duration} MENIT)`}
-                                 </div>
-                               </TableCell>
-                             )}
-                           </TableRow>
-                         ));
-                       })}
-                     </TableBody>
-                   </Table>
-                 </div>
+                           {row.type === 'lesson' ? (
+                             sortedClasses.map(cls => {
+                               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
+                               const colorInfo = getEntryColor(entry?.teacherId || "", entry?.subjectId || "");
+                               return (
+                                 <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
+                                   {entry ? (
+                                     <div 
+                                       className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${colorInfo.border}`}
+                                       style={{ backgroundColor: colorInfo.bg }}
+                                     >
+                                       <div className={`text-[10px] font-bold leading-tight ${colorInfo.text}`}>{entry.subjectName || "-"}</div>
+                                       <div className="text-[9px] text-white/70 mt-1 font-medium italic">({entry.teacherName || "-"})</div>
+                                       <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-white hover:bg-white/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                                     </div>
+                                   ) : (
+                                     <div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: row.period, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>
+                                   )}
+                                 </TableCell>
+                               );
+                             })
+                           ) : (
+                             <TableCell colSpan={sortedClasses.length} className={`p-0 border-r last:border-r-0 border-y ${row.type === 'activity' ? (row.isFinal ? 'bg-amber-200/30' : 'bg-amber-50/50') : row.type === 'break' ? 'bg-accent/5' : 'bg-destructive/5'}`}>
+                               <div className={`h-12 flex items-center justify-center font-black text-[11px] tracking-[0.4em] uppercase ${row.type === 'activity' ? 'text-amber-700' : row.type === 'break' ? 'text-accent' : 'text-destructive'}`}>
+                                 {row.name} {row.duration && `(${row.duration} MENIT)`}
+                               </div>
+                             </TableCell>
+                           )}
+                         </TableRow>
+                       ));
+                     })}
+                   </TableBody>
+                 </Table>
                </div>
-             </Card>
+             </div>
           </div>
         </TabsContent>
 
