@@ -117,6 +117,9 @@ function TeacherDashboardContent() {
     const dayDismissalStr = dailyDismissals[dayName] || rosterConfig.dismissalTime || "13:00";
     const dayDismissalTime = parse(dayDismissalStr, 'HH:mm', new Date());
 
+    const dailyBreaks = rosterConfig.dailyBreaks || {};
+    const dayBreak = dailyBreaks[dayName] || { active: false, period: 4, duration: 15 };
+
     const dayActivities = (rosterConfig.globalActivities || []).filter((a: GlobalActivity) => a.day === dayName);
     const startActivities = dayActivities.filter((a: GlobalActivity) => a.position !== 'end');
     const endActivities = dayActivities.filter((a: GlobalActivity) => a.position === 'end');
@@ -147,7 +150,6 @@ function TeacherDashboardContent() {
       if (lessonEnd <= effectiveDismissalLimit) {
         currentTime = lessonEnd;
         
-        // Cek apakah guru ini ada jadwal mengajar di jam ini
         const myLesson = rosters?.find(r => r.day === dayName && r.period === p);
         
         timeline.push({ 
@@ -159,14 +161,9 @@ function TeacherDashboardContent() {
           lessonData: myLesson
         });
 
-        if (rosterConfig.break1Active && p === rosterConfig.break1Period) {
+        if (dayBreak.active && p === dayBreak.period) {
           const bStart = currentTime;
-          currentTime = addMinutes(currentTime, rosterConfig.break1Duration);
-          timeline.push({ type: 'break', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, icon: Coffee });
-        }
-        if (rosterConfig.break2Active && p === rosterConfig.break2Period) {
-          const bStart = currentTime;
-          currentTime = addMinutes(currentTime, rosterConfig.break2Duration);
+          currentTime = addMinutes(currentTime, dayBreak.duration);
           timeline.push({ type: 'break', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, icon: Coffee });
         }
       }
@@ -197,7 +194,6 @@ function TeacherDashboardContent() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
-      {/* Header & Stats */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-headline font-bold">Halo, Guru {user?.displayName}</h1>
@@ -217,7 +213,6 @@ function TeacherDashboardContent() {
         </div>
       </div>
 
-      {/* ROSTER SECTION */}
       <section className="space-y-4">
         <div className="flex items-center gap-2 text-muted-foreground">
            <Clock className="w-4 h-4" />
@@ -228,7 +223,6 @@ function TeacherDashboardContent() {
            <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-32 -mt-32 blur-3xl"></div>
            
            <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x">
-              {/* HARI INI */}
               <div className="p-6 md:p-8 space-y-6 bg-primary/[0.01]">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -283,7 +277,6 @@ function TeacherDashboardContent() {
                  </div>
               </div>
 
-              {/* JADWAL SEBELUMNYA */}
               <div className="p-6 md:p-8 space-y-6">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -325,7 +318,6 @@ function TeacherDashboardContent() {
         </Card>
       </section>
 
-      {/* MATA PELAJARAN ANDA */}
       <section className="space-y-6">
          <div className="flex items-center justify-between">
            <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">

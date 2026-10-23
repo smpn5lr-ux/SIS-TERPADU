@@ -79,7 +79,7 @@ import {
 } from "@/components/ui/accordion"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
 import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
-import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity } from '@/lib/types'
+import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity, DailyBreak } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { addMinutes, format, parse } from 'date-fns'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -162,9 +162,16 @@ export default function RosterManagementPage() {
   const config = useMemo(() => {
     const dailyDismissals: Record<string, string> = {};
     const dailyEntries: Record<string, string> = {};
+    const dailyBreaks: Record<string, DailyBreak> = {};
+    
     DAYS.forEach(d => {
       dailyDismissals[d] = rosterConfig?.dailyDismissalTimes?.[d] || rosterConfig?.dismissalTime || "13:00";
       dailyEntries[d] = rosterConfig?.dailyEntryTimes?.[d] || rosterConfig?.entryTime || "07:15";
+      dailyBreaks[d] = rosterConfig?.dailyBreaks?.[d] || {
+        active: rosterConfig?.break1Active ?? true,
+        period: rosterConfig?.break1Period ?? 4,
+        duration: rosterConfig?.break1Duration ?? 15
+      };
     });
 
     return {
@@ -172,14 +179,9 @@ export default function RosterManagementPage() {
       dismissalTime: rosterConfig?.dismissalTime || "13:00",
       dailyEntryTimes: dailyEntries,
       dailyDismissalTimes: dailyDismissals,
+      dailyBreaks: dailyBreaks,
       jpDuration: Number(rosterConfig?.jpDuration) || 40,
       maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
-      break1Active: rosterConfig?.break1Active ?? true,
-      break1Period: rosterConfig?.break1Period ?? 4,
-      break1Duration: Number(rosterConfig?.break1Duration) || 30,
-      break2Active: rosterConfig?.break2Active ?? false,
-      break2Period: rosterConfig?.break2Period ?? 6,
-      break2Duration: Number(rosterConfig?.break2Duration) || 15,
       globalActivities: (rosterConfig?.globalActivities || []) as GlobalActivity[]
     };
   }, [rosterConfig])
@@ -198,6 +200,8 @@ export default function RosterManagementPage() {
       let current = start;
       let period = 0;
       
+      const dayBreak = currentConfig.dailyBreaks[day];
+      
       while (period < 20) {
         const nextP = period + 1;
         
@@ -210,8 +214,9 @@ export default function RosterManagementPage() {
         current = lessonEnd;
         period = nextP;
         
-        if (currentConfig.break1Active && period === currentConfig.break1Period) current = addMinutes(current, currentConfig.break1Duration);
-        if (currentConfig.break2Active && period === currentConfig.break2Period) current = addMinutes(current, currentConfig.break2Duration);
+        if (dayBreak.active && period === dayBreak.period) {
+          current = addMinutes(current, dayBreak.duration);
+        }
         
         if (current >= effectiveEnd) break;
       }
@@ -225,7 +230,7 @@ export default function RosterManagementPage() {
     if (!configRef) return;
     let finalUpdates = { ...config, ...updates };
     
-    if (updates.dailyDismissalTimes || updates.dailyEntryTimes || updates.entryTime || updates.jpDuration || updates.globalActivities) {
+    if (updates.dailyDismissalTimes || updates.dailyEntryTimes || updates.entryTime || updates.jpDuration || updates.globalActivities || updates.dailyBreaks) {
       const newMax = calculateNewMaxJP(
         finalUpdates.dailyEntryTimes,
         finalUpdates.dailyDismissalTimes,
@@ -242,6 +247,7 @@ export default function RosterManagementPage() {
     const timeline: any[] = [];
     let currentTime = parse(config.dailyEntryTimes[day], 'HH:mm', new Date());
     const dayDismissalTime = parse(config.dailyDismissalTimes[day], 'HH:mm', new Date());
+    const dayBreak = config.dailyBreaks[day];
 
     const dayActivities = config.globalActivities.filter(a => a.day === day);
     const startActivities = dayActivities.filter(a => a.position !== 'end');
@@ -281,15 +287,10 @@ export default function RosterManagementPage() {
           endTime: currentTime 
         });
 
-        if (config.break1Active && p === config.break1Period) {
+        if (dayBreak.active && p === dayBreak.period) {
           const bStart = currentTime;
-          currentTime = addMinutes(currentTime, config.break1Duration);
-          timeline.push({ type: 'break', label: 'B', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, duration: config.break1Duration });
-        }
-        if (config.break2Active && p === config.break2Period) {
-          const bStart = currentTime;
-          currentTime = addMinutes(currentTime, config.break2Duration);
-          timeline.push({ type: 'break', label: 'B', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, duration: config.break2Duration });
+          currentTime = addMinutes(currentTime, dayBreak.duration);
+          timeline.push({ type: 'break', label: 'B', name: 'ISTIRAHAT', startTime: bStart, endTime: currentTime, duration: dayBreak.duration });
         }
       }
     }
@@ -713,24 +714,6 @@ export default function RosterManagementPage() {
                       <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Durasi 1 JP (Menit)</Label>
                       <Input type="number" className="h-11" value={config.jpDuration || 40} onChange={e => handleUpdateConfig({ jpDuration: parseInt(e.target.value) || 0 })} />
                     </div>
-                    
-                    <Separator />
-                    
-                    <div className="p-4 rounded-xl border border-border/50 space-y-4 bg-accent/5">
-                      <div className="flex items-center justify-between"><Label className="font-bold">Istirahat Sekolah</Label><Switch checked={config.break1Active} onCheckedChange={v => handleUpdateConfig({ break1Active: v })} /></div>
-                      {config.break1Active && (
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-2">
-                            <Label className="text-[10px] uppercase">Setelah Jam Ke-</Label>
-                            <Select value={config.break1Period?.toString() || "4"} onValueChange={v => handleUpdateConfig({ break1Period: parseInt(v) })}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
-                              <SelectContent><SelectItem value="2">Jam Ke-2</SelectItem><SelectItem value="3">Jam Ke-3</SelectItem><SelectItem value="4">Jam Ke-4</SelectItem><SelectItem value="5">Jam Ke-5</SelectItem></SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-2"><Label className="text-[10px] uppercase">Durasi (Menit)</Label><Input type="number" value={config.break1Duration || 10} onChange={e => handleUpdateConfig({ break1Duration: parseInt(e.target.value) || 0 })} /></div>
-                        </div>
-                      )}
-                    </div>
                 </CardContent>
               </Card>
               
@@ -738,7 +721,7 @@ export default function RosterManagementPage() {
                 <CardContent className="p-4 flex gap-3">
                    <Info className="w-5 h-5 text-primary shrink-0" />
                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                     Pengaturan Jam Masuk/Pulang dan Agenda di sisi kanan akan dihitung secara cerdas untuk membatasi jumlah Jam Pelajaran (JP) yang bisa dimuat.
+                     Pengaturan Jam Masuk/Pulang, Istirahat, dan Agenda Harian akan dihitung secara cerdas untuk membatasi jumlah Jam Pelajaran (JP) yang bisa dimuat.
                    </p>
                 </CardContent>
               </Card>
@@ -750,13 +733,14 @@ export default function RosterManagementPage() {
                    <CardTitle className="text-lg flex items-center gap-2">
                      <CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Durasi Belajar
                    </CardTitle>
-                   <CardDescription>Atur jam masuk, jam pulang, dan agenda rutin unik setiap hari.</CardDescription>
+                   <CardDescription>Atur jam masuk, jam pulang, istirahat, dan agenda rutin unik setiap hari.</CardDescription>
                  </CardHeader>
                  <CardContent className="p-0">
                     <Accordion type="single" collapsible className="w-full">
                        {DAYS.map((day) => {
                           const dayActsPagi = config.globalActivities.filter(a => a.day === day && a.position !== 'end');
                           const dayActsAkhir = config.globalActivities.filter(a => a.day === day && a.position === 'end');
+                          const dayBreak = config.dailyBreaks[day];
                           
                           return (
                             <AccordionItem key={day} value={day} className="border-b last:border-b-0 px-6 overflow-hidden transition-all data-[state=open]:bg-primary/5">
@@ -813,12 +797,54 @@ export default function RosterManagementPage() {
                                         </div>
                                      </div>
                                      
-                                     <div className="flex flex-col justify-end">
-                                        <div className="p-4 bg-primary/5 rounded-xl border border-primary/20 flex gap-3">
-                                           <Zap className="w-4 h-4 text-primary shrink-0" />
-                                           <p className="text-[10px] text-muted-foreground leading-relaxed">
-                                              Timeline harian akan dihitung mundur dari Jam Pulang dan maju dari Jam Masuk secara otomatis.
-                                           </p>
+                                     {/* Pengaturan Istirahat Harian */}
+                                     <div className="space-y-6">
+                                        <div className="p-5 rounded-2xl border-2 border-accent/20 bg-accent/5 space-y-5">
+                                           <div className="flex items-center justify-between">
+                                              <div className="flex items-center gap-2">
+                                                 <Coffee className="w-4 h-4 text-accent" />
+                                                 <Label className="font-bold text-sm">Istirahat Hari {day}</Label>
+                                              </div>
+                                              <Switch 
+                                                checked={dayBreak.active} 
+                                                onCheckedChange={v => {
+                                                   const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, active: v } };
+                                                   handleUpdateConfig({ dailyBreaks: newBreaks });
+                                                }} 
+                                              />
+                                           </div>
+                                           
+                                           {dayBreak.active && (
+                                             <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-300">
+                                                <div className="space-y-2">
+                                                   <Label className="text-[10px] font-bold uppercase text-muted-foreground">Setelah Jam Ke-</Label>
+                                                   <Select 
+                                                     value={dayBreak.period.toString()} 
+                                                     onValueChange={v => {
+                                                       const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, period: parseInt(v) } };
+                                                       handleUpdateConfig({ dailyBreaks: newBreaks });
+                                                     }}
+                                                   >
+                                                      <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                                                      <SelectContent>
+                                                         {[2,3,4,5,6].map(p => <SelectItem key={p} value={p.toString()}>Jam Ke-{p}</SelectItem>)}
+                                                      </SelectContent>
+                                                   </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                   <Label className="text-[10px] font-bold uppercase text-muted-foreground">Durasi (Menit)</Label>
+                                                   <Input 
+                                                     type="number" 
+                                                     className="h-10" 
+                                                     value={dayBreak.duration} 
+                                                     onChange={e => {
+                                                       const newBreaks = { ...config.dailyBreaks, [day]: { ...dayBreak, duration: parseInt(e.target.value) || 0 } };
+                                                       handleUpdateConfig({ dailyBreaks: newBreaks });
+                                                     }} 
+                                                   />
+                                                </div>
+                                             </div>
+                                           )}
                                         </div>
                                      </div>
                                   </div>

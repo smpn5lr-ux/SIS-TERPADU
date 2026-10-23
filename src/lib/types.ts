@@ -175,11 +175,18 @@ export interface GlobalActivity {
   position: 'start' | 'end'; // 'start' = jam ke-X, 'end' = sebelum pulang
 }
 
+export interface DailyBreak {
+  active: boolean;
+  period: number;
+  duration: number;
+}
+
 export interface RosterConfig {
   entryTime: string; 
   dismissalTime: string;
   dailyEntryTimes?: Record<string, string>;
   dailyDismissalTimes?: Record<string, string>;
+  dailyBreaks?: Record<string, DailyBreak>;
   jpDuration: number; 
   maxPeriods: number;
   break1Active: boolean;
@@ -189,11 +196,4 @@ export interface RosterConfig {
   break2Period: number;
   break2Duration: number;
   globalActivities?: GlobalActivity[];
-}
-
-export interface GradingConfig {
-  assignmentId: string;
-  semester: number;
-  weights: Record<string, number>;
-  visibility: Record<string, boolean>;
 }
