@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect, Suspense, useRef } from 'react'
@@ -30,7 +29,8 @@ import {
   CloudOff,
   Info,
   Check,
-  ChevronLeft
+  ChevronLeft,
+  Settings
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -156,6 +156,7 @@ function TeachingJournalPageContent() {
     jp: 2,
     learningGoal: "",
     material: "",
+    teachingMethod: "",
     attendanceDetail: {},
     absentStudents: [],
     hasTask: false,
@@ -191,7 +192,8 @@ function TeachingJournalPageContent() {
         jp: 2,
         attendanceDetail: {},
         absentStudents: [],
-        taskScores: {}
+        taskScores: {},
+        teachingMethod: ""
       });
     }
     
@@ -278,6 +280,7 @@ function TeachingJournalPageContent() {
           jp: 2,
           learningGoal: "",
           material: "",
+          teachingMethod: "",
           kktpAchievement: "",
           attendanceDetail: { [studentId]: 'H' },
           absentStudents: currentStudents.filter(s => s.id !== studentId).map(s => s.id),
@@ -540,6 +543,10 @@ function TeachingJournalPageContent() {
                     </div>
                  </div>
                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase text-primary">Metode Pembelajaran</Label>
+                    <Input placeholder="Contoh: Ceramah, Diskusi, Projek, dll" value={newJournal.teachingMethod || ""} onChange={e => setNewJournal({...newJournal, teachingMethod: e.target.value})} className="bg-muted/5 focus:bg-background transition-all" />
+                 </div>
+                 <div className="space-y-2">
                     <Label className="text-[10px] font-bold uppercase text-primary">Materi Pembelajaran</Label>
                     <Textarea placeholder="Tuliskan pokok bahasan..." value={newJournal.material || ""} onChange={e => setNewJournal({...newJournal, material: e.target.value})} className="min-h-[120px] bg-muted/5 focus:bg-background transition-all" />
                  </div>
@@ -589,7 +596,7 @@ function TeachingJournalPageContent() {
         <div className="flex flex-wrap gap-2">
           {isDirty && (<Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">{isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}Simpan Cloud</Button>)}
           <Button variant="outline" onClick={handleOpenScanner} className="gap-2 border-primary/30 text-primary hover:bg-primary/5"><ScanLine className="w-4 h-4" /> Absen QR</Button>
-          <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
+          <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}, teachingMethod: ""}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
         </div>
       </div>
 
@@ -618,7 +625,10 @@ function TeachingJournalPageContent() {
                     </div>
                   </CardHeader>
                   <CardContent className="p-4 space-y-4">
-                    <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Materi Diajarkan:</Label><p className="mt-1 text-xs font-medium line-clamp-2 leading-relaxed h-8">{j.material || "-"}</p></div>
+                    <div className="space-y-3">
+                      <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Metode:</Label><p className="mt-0.5 text-xs font-bold text-primary truncate">{j.teachingMethod || "-"}</p></div>
+                      <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Materi:</Label><p className="mt-1 text-xs font-medium line-clamp-2 leading-relaxed h-8">{j.material || "-"}</p></div>
+                    </div>
                     <div className="flex items-center justify-between bg-background/50 p-2.5 rounded-xl border border-border/50">
                        <div className="flex items-center gap-2">
                          <div className="p-1.5 bg-accent/10 rounded-lg"><Users className="w-3.5 h-3.5 text-accent" /></div>

@@ -118,6 +118,7 @@ export interface Journal {
   jp: number;
   learningGoal: string;
   material: string;
+  teachingMethod?: string;
   kktpAchievement: string;
   absentStudents: string[];
   attendanceDetail: Record<string, 'H' | 'S' | 'I' | 'A'>;
