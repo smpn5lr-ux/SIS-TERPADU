@@ -1,6 +1,7 @@
+
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState, useEffect } from "react"
 import { 
   Users, 
   School, 
@@ -11,48 +12,63 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useCollection, useFirestore, useMemoFirebase, useDoc } from "@/firebase"
-import { collection, query, limit, doc } from "firebase/firestore"
-import { Applicant, Classroom, Staff, Subject } from "@/lib/types"
+import { useFirestore, useMemoFirebase, useDoc } from "@/firebase"
+import { collection, query, limit, doc, getCountFromServer, where } from "firebase/firestore"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 
 export default function OverviewPage() {
   const db = useFirestore()
-  
-  const applicantsQuery = useMemoFirebase(() => {
-    if (!db) return null
-    return query(collection(db, 'applicants'), limit(2000))
-  }, [db])
-
-  const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
-  const staffQuery = useMemoFirebase(() => db ? collection(db, 'staff') : null, [db])
-  const subjectsQuery = useMemoFirebase(() => db ? collection(db, 'subjects') : null, [db])
+  const [counts, setCounts] = useState({
+    classes: 0,
+    staff: 0,
+    subjects: 0,
+    activeStudents: 0
+  })
+  const [loadingCounts, setLoadingCounts] = useState(true)
 
   const settingsRef = useMemoFirebase(() => {
     if (!db) return null
     return doc(db, 'settings', 'system')
   }, [db])
 
-  const { data: allApplicants, loading: loadingApplicants } = useCollection<Applicant>(applicantsQuery)
-  const { data: classes } = useCollection<Classroom>(classesQuery)
-  const { data: staff } = useCollection<Staff>(staffQuery)
-  const { data: subjects } = useCollection<Subject>(subjectsQuery)
   const { data: config, loading: loadingConfig } = useDoc<any>(settingsRef)
 
-  const applicants = useMemo(() => {
-    if (!allApplicants) return []
-    return allApplicants.filter(a => !a.isDeleted)
-  }, [allApplicants])
+  useEffect(() => {
+    async function fetchCounts() {
+      if (!db) return
+      setLoadingCounts(true)
+      try {
+        const [clsSnap, staffSnap, subSnap, stdSnap] = await Promise.all([
+          getCountFromServer(collection(db, 'classes')),
+          getCountFromServer(collection(db, 'staff')),
+          getCountFromServer(collection(db, 'subjects')),
+          getCountFromServer(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), where('isDeleted', '==', false)))
+        ])
+        
+        setCounts({
+          classes: clsSnap.data().count,
+          staff: staffSnap.data().count,
+          subjects: subSnap.data().count,
+          activeStudents: stdSnap.data().count
+        })
+      } catch (e) {
+        console.error("Error fetching counts:", e)
+      } finally {
+        setLoadingCounts(false)
+      }
+    }
+    fetchCounts()
+  }, [db])
 
   const academicStats = [
-    { name: 'Total Rombel', value: classes?.length || 0, icon: School, color: 'text-primary', bg: 'bg-primary/10', href: '/dashboard/classes' },
-    { name: 'Staf & Guru', value: staff?.length || 0, icon: GraduationCap, color: 'text-accent', bg: 'bg-accent/10', href: '/dashboard/staff' },
-    { name: 'Mata Pelajaran', value: subjects?.length || 0, icon: BookOpen, color: 'text-amber-500', bg: 'bg-amber-500/10', href: '/dashboard/subjects' },
-    { name: 'Murid Aktif', value: applicants.filter(a => a.admissionStatus === 'accepted').length, icon: Users, color: 'text-green-500', bg: 'bg-green-500/10', href: '/dashboard/students' },
+    { name: 'Total Rombel', value: counts.classes, icon: School, color: 'text-primary', bg: 'bg-primary/10', href: '/dashboard/classes' },
+    { name: 'Staf & Guru', value: counts.staff, icon: GraduationCap, color: 'text-accent', bg: 'bg-accent/10', href: '/dashboard/staff' },
+    { name: 'Mata Pelajaran', value: counts.subjects, icon: BookOpen, color: 'text-amber-500', bg: 'bg-amber-500/10', href: '/dashboard/subjects' },
+    { name: 'Murid Aktif', value: counts.activeStudents, icon: Users, color: 'text-green-500', bg: 'bg-green-500/10', href: '/dashboard/students' },
   ]
 
-  const loading = loadingApplicants || loadingConfig
+  const loading = loadingCounts || loadingConfig
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">

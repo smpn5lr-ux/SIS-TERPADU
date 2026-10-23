@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Loader2, Eye, Pencil, CloudUpload, CloudOff, CheckCircle2, Info, Contact
+  Search, Loader2, Eye, Pencil, CloudUpload, CloudOff, CheckCircle2, Info
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import Link from 'next/link'
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy, doc, writeBatch } from 'firebase/firestore'
+import { collection, query, orderBy, doc, writeBatch, limit } from 'firebase/firestore'
 import { Applicant } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 
@@ -29,8 +29,8 @@ export default function StudentDatabasePage() {
 
   const studentsQuery = useMemoFirebase(() => {
     if (!db) return null
-    // Tampilkan seluruh data induk siswa yang tidak dihapus
-    return query(collection(db, 'applicants'), orderBy('fullName', 'asc'))
+    // LIMIT 100 untuk menghemat pembacaan (Reads)
+    return query(collection(db, 'applicants'), orderBy('fullName', 'asc'), limit(100))
   }, [db])
 
   const { data: serverStudents, loading } = useCollection<Applicant>(studentsQuery)
@@ -78,7 +78,7 @@ export default function StudentDatabasePage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Induk Siswa</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Database resmi seluruh murid (Dapodik).</p>
+             <p className="text-muted-foreground text-sm">Database resmi seluruh murid (100 Teratas).</p>
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>
@@ -151,9 +151,8 @@ export default function StudentDatabasePage() {
       </div>
 
       <div className="bg-accent/5 p-4 rounded-xl border border-accent/20 flex gap-4">
-         <Info className="w-5 h-5 text-accent shrink-0 mt-0.5" />
          <div className="text-xs text-muted-foreground leading-relaxed italic">
-           Halaman ini berisi data <strong>Buku Induk Sekolah</strong>. Gunakan fitur sinkronisasi untuk menyimpan permanen hasil edit data murid.
+           Halaman ini dibatasi 100 murid terbaru untuk menghemat kuota pembacaan. Gunakan kolom pencarian untuk menemukan murid lainnya.
          </div>
       </div>
     </div>

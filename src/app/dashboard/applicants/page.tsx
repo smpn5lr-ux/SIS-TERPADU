@@ -1,9 +1,9 @@
 
 "use client"
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Plus, Loader2, Camera, Eye, User, Home, MapPin, Phone, Users as UsersIcon, Pencil, Trash2, Scale, Ruler, Clock, Hash, FileUp, FileSpreadsheet, FileText, CheckCircle2, AlertTriangle, Upload, AlertCircle, Download, FileCode, Check, Settings2, CloudUpload, CloudOff, RefreshCw, Info, Briefcase, GraduationCap
+  Search, Plus, Loader2, Pencil, Trash2, CloudUpload, CloudOff, RefreshCw
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog"
 import {
   AlertDialog,
@@ -31,19 +31,15 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import Link from 'next/link'
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
-import { collection, query, orderBy, addDoc, limit, doc, updateDoc, writeBatch } from 'firebase/firestore'
+import { collection, query, orderBy, doc, writeBatch, limit } from 'firebase/firestore'
 import { Applicant } from '@/lib/types'
-import { errorEmitter } from '@/firebase/error-emitter'
-import { FirestorePermissionError } from '@/firebase/errors'
 import { useToast } from '@/hooks/use-toast'
-import * as XLSX from 'xlsx'
 
 const formSchema = z.object({
   registrationSequence: z.string().min(1, "No. Urut harus diisi"),
@@ -105,7 +101,8 @@ export default function ApplicantsPage() {
 
   const applicantsQuery = useMemoFirebase(() => {
     if (!db) return null
-    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(2000))
+    // LIMIT 100 untuk menghemat pembacaan (Reads)
+    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(100))
   }, [db])
 
   const { data: serverApplicants, loading } = useCollection<Applicant>(applicantsQuery)
@@ -197,7 +194,7 @@ export default function ApplicantsPage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Calon Murid</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Pendaftaran dan seleksi PPDB.</p>
+             <p className="text-muted-foreground text-sm">Pendaftaran dan seleksi PPDB (100 Terbaru).</p>
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>
