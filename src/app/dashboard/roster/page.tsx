@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -84,7 +83,7 @@ import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
 import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity, DailyBreak } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 import { addMinutes, format, parse } from 'date-fns'
-import { ScrollArea } from '@/components/area'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
@@ -1120,4 +1119,3 @@ export default function RosterManagementPage() {
     </div>
   )
 }
-
