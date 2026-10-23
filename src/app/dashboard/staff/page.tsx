@@ -104,7 +104,7 @@ export default function StaffManagementPage() {
 
   const staffQuery = useMemoFirebase(() => {
     if (!db) return null
-    return query(collection(db, 'staff'), orderBy('createdAt', 'desc'))
+    return query(collection(db, 'staff'), orderBy('createdAt', 'asc'))
   }, [db])
 
   const { data: staffList, loading } = useCollection<Staff>(staffQuery)
@@ -288,6 +288,7 @@ export default function StaffManagementPage() {
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
+              <TableHead className="font-bold text-primary w-[60px]">No</TableHead>
               <TableHead className="font-bold text-primary">Pegawai</TableHead>
               <TableHead className="font-bold text-primary">Email & Kontak</TableHead>
               <TableHead className="font-bold text-primary">Hak Akses</TableHead>
@@ -297,11 +298,14 @@ export default function StaffManagementPage() {
           </TableHeader>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredStaff.length === 0 ? (
-              <TableRow><TableCell colSpan={5} className="text-center py-12 text-muted-foreground italic">Tidak ada pegawai ditemukan.</TableCell></TableRow>
-            ) : filteredStaff.map((staff) => (
+              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground italic">Tidak ada pegawai ditemukan.</TableCell></TableRow>
+            ) : filteredStaff.map((staff, idx) => (
               <TableRow key={staff.id} className="hover:bg-muted/10 transition-colors">
+                <TableCell className="font-mono text-xs font-bold text-muted-foreground/60">
+                  {idx + 1}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
@@ -397,7 +401,7 @@ export default function StaffManagementPage() {
                     <FormControl>
                       <Input 
                         type="email" 
-                        placeholder="pegawai@sekolah.sch.id" 
+                        placeholder="anda@sekolah.sch.id" 
                         disabled={!!editingStaff}
                         {...field} 
                         value={field.value || ""}
