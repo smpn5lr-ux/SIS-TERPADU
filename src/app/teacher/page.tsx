@@ -14,7 +14,8 @@ import {
   FileText,
   Clock,
   ArrowRight,
-  QrCode
+  QrCode,
+  Layers
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -65,7 +66,6 @@ function TeacherDashboardContent() {
   const { data: rosters, loading: loadingR } = useCollection<RosterEntry>(rosterQuery)
   const { data: classes } = useCollection<Classroom>(classesQuery)
 
-  // SINKRONISASI NAMA KELAS UNTUK GURU
   const displayAssignments = useMemo(() => {
     if (!assignments || !classes) return assignments;
     return assignments.map(a => {
@@ -74,7 +74,31 @@ function TeacherDashboardContent() {
     })
   }, [assignments, classes])
 
-  const today = format(new Date(), 'eeee', { locale: localeId }) // Senin, Selasa, dll
+  // PENGELOMPOKKAN BERDASARKAN TINGKAT & URUTAN ALFABET
+  const groupedAssignments = useMemo(() => {
+    if (!displayAssignments || !classes) return {};
+    const groups: Record<number, TeacherAssignment[]> = {};
+    
+    displayAssignments.forEach(a => {
+      const cls = classes.find(c => c.id === a.classId);
+      const level = cls ? cls.gradeLevel : 0;
+      if (!groups[level]) groups[level] = [];
+      groups[level].push(a);
+    });
+
+    // Urutkan alfabetis di dalam setiap tingkat
+    Object.keys(groups).forEach(level => {
+      groups[parseInt(level)].sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true, sensitivity: 'base' }));
+    });
+
+    return groups;
+  }, [displayAssignments, classes]);
+
+  const sortedGradeLevels = useMemo(() => {
+    return Object.keys(groupedAssignments).map(Number).sort((a, b) => a - b);
+  }, [groupedAssignments]);
+
+  const today = format(new Date(), 'eeee', { locale: localeId })
   const todaySchedule = useMemo(() => {
     if (!rosters || !classes) return []
     return rosters
@@ -130,7 +154,6 @@ function TeacherDashboardContent() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Kolom Jadwal Hari Ini */}
         <div className="lg:col-span-1">
           <Card className="border-border/50 bg-primary/5 h-full relative overflow-hidden">
              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
@@ -172,53 +195,66 @@ function TeacherDashboardContent() {
           </Card>
         </div>
 
-        {/* Kolom Daftar Mata Pelajaran */}
-        <div className="lg:col-span-2 space-y-6">
+        <div className="lg:col-span-2 space-y-8">
            <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
              <BookOpen className="w-4 h-4" /> Mata Pelajaran Anda
            </h2>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {displayAssignments?.map((a) => (
-                <Card key={a.id} className="border-border/50 transition-all shadow-sm hover:shadow-md bg-card/40 backdrop-blur-sm relative group h-full">
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <Badge className="bg-primary/20 text-primary border-none text-[10px] font-bold uppercase">KELAS {a.className}</Badge>
-                      <div className="bg-muted p-2 rounded-lg">
-                        <Star className="w-4 h-4 text-muted-foreground fill-current" />
-                      </div>
-                    </div>
-                    <CardTitle className="text-xl font-headline mt-4">{a.subjectName}</CardTitle>
-                    <CardDescription className="text-xs uppercase tracking-widest font-bold text-muted-foreground/60">Tingkat Menengah Pertama</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-primary/20 hover:bg-primary/5">
-                        <Link href={`/teacher/grading/${a.id}?semester=${selectedSemester}`}>
-                          <ClipboardCheck className="w-4 h-4 text-primary" /> Buku Nilai
-                        </Link>
-                      </Button>
-                      <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-accent/20 hover:bg-accent/5">
-                        <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}`}>
-                          <FileText className="w-4 h-4 text-accent" /> Jurnal
-                        </Link>
-                      </Button>
-                    </div>
-                    <Button asChild className="w-full gap-2 h-11 bg-primary hover:bg-primary/90 shadow-md shadow-primary/10">
-                      <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}&scan=1`}>
-                        <QrCode className="w-5 h-5" /> Mulai Absen QR
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-              {displayAssignments?.length === 0 && (
-                <div className="col-span-full py-20 text-center border-2 border-dashed rounded-2xl bg-muted/20">
-                  <Backpack className="w-12 h-12 mx-auto text-muted-foreground opacity-20 mb-4" />
-                  <h3 className="text-xl font-bold">Belum Ada Penugasan</h3>
-                  <p className="text-muted-foreground">Hubungi Admin/Kurikulum untuk plotting jadwal mengajar Anda.</p>
-                </div>
-              )}
-           </div>
+           
+           {displayAssignments?.length === 0 ? (
+              <div className="py-20 text-center border-2 border-dashed rounded-2xl bg-muted/20">
+                <Backpack className="w-12 h-12 mx-auto text-muted-foreground opacity-20 mb-4" />
+                <h3 className="text-xl font-bold">Belum Ada Penugasan</h3>
+                <p className="text-muted-foreground">Hubungi Admin/Kurikulum untuk plotting jadwal mengajar Anda.</p>
+              </div>
+           ) : (
+             <div className="space-y-10">
+               {sortedGradeLevels.map(level => (
+                 <div key={level} className="space-y-4">
+                   <div className="flex items-center gap-4">
+                      <Badge className="bg-primary/10 text-primary border-primary/30 px-3 py-1 text-xs font-bold gap-2">
+                        <Layers className="w-3 h-3" /> TINGKAT {level}
+                      </Badge>
+                      <div className="h-px bg-border flex-1 opacity-50"></div>
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {groupedAssignments[level].map((a) => (
+                        <Card key={a.id} className="border-border/50 transition-all shadow-sm hover:shadow-md bg-card/40 backdrop-blur-sm relative group h-full">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <Badge className="bg-primary/20 text-primary border-none text-[10px] font-bold uppercase">KELAS {a.className}</Badge>
+                              <div className="bg-muted p-2 rounded-lg">
+                                <Star className="w-4 h-4 text-muted-foreground fill-current" />
+                              </div>
+                            </div>
+                            <CardTitle className="text-xl font-headline mt-4">{a.subjectName}</CardTitle>
+                            <CardDescription className="text-xs uppercase tracking-widest font-bold text-muted-foreground/60">Tingkat Menengah Pertama</CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            <div className="grid grid-cols-2 gap-2">
+                              <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-primary/20 hover:bg-primary/5">
+                                <Link href={`/teacher/grading/${a.id}?semester=${selectedSemester}`}>
+                                  <ClipboardCheck className="w-4 h-4 text-primary" /> Buku Nilai
+                                </Link>
+                              </Button>
+                              <Button asChild variant="outline" size="sm" className="gap-2 h-10 border-accent/20 hover:bg-accent/5">
+                                <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}`}>
+                                  <FileText className="w-4 h-4 text-accent" /> Jurnal
+                                </Link>
+                              </Button>
+                            </div>
+                            <Button asChild className="w-full gap-2 h-11 bg-primary hover:bg-primary/90 shadow-md shadow-primary/10">
+                              <Link href={`/teacher/journal/${a.id}?semester=${selectedSemester}&scan=1`}>
+                                <QrCode className="w-5 h-5" /> Mulai Absen QR
+                              </Link>
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      ))}
+                   </div>
+                 </div>
+               ))}
+             </div>
+           )}
         </div>
       </div>
     </div>
