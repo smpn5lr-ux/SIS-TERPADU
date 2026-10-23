@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useMemo, Suspense } from 'react'
@@ -16,7 +15,8 @@ import {
   ArrowRight,
   QrCode,
   Layers,
-  History
+  History,
+  RefreshCw
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
