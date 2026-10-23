@@ -301,41 +301,88 @@ export default function RosterManagementPage() {
   const handleAutoGenerate = () => {
     if (!assignments || !classes) return;
     setIsDirty(true);
-    let currentRoster = [...localEntries].filter(e => e.isActivity);
-    const shuffledAssignments = [...assignments].sort(() => Math.random() - 0.5);
     
-    shuffledAssignments.forEach(asg => {
-      const scheduledCount = currentRoster.filter(e => e.teacherId === asg.teacherId && e.subjectId === asg.subjectId && e.classId === asg.classId).length;
+    // Reset hanya plotting pelajaran, pertahankan activity jika ada yang manual (isActivity)
+    let currentRoster = [...localEntries].filter(e => e.isActivity);
+    
+    // Urutkan penugasan agar mapel dengan beban JP besar diproses lebih dulu (Prioritas Mapel Utama)
+    const sortedAssignments = [...assignments].sort((a, b) => (b.totalJP || 0) - (a.totalJP || 0));
+
+    sortedAssignments.forEach(asg => {
+      const scheduledCount = currentRoster.filter(e => 
+        e.teacherId === asg.teacherId && e.subjectId === asg.subjectId && e.classId === asg.classId
+      ).length;
+      
       let remainingJP = (asg.totalJP || 0) - scheduledCount;
       if (remainingJP <= 0) return;
       
       const shuffledDays = [...DAYS].sort(() => Math.random() - 0.5);
-      const shuffledPeriods = Array.from({length: config.maxPeriods}, (_, i) => i + 1).sort(() => Math.random() - 0.5);
       
+      // TAHAP 1: Coba pasang BLOK 2 JP agar mata pelajaran "disambung" tidak terputus
       for (const day of shuffledDays) {
-        for (const p of shuffledPeriods) {
-          if (remainingJP <= 0) break;
-          const dayTimeline = generateDayTimeline(day);
-          const isSlotExists = dayTimeline.find(row => row.type === 'lesson' && row.period === p);
-          if (!isSlotExists) continue;
+        if (remainingJP < 2) break;
+        
+        const dayTimeline = generateDayTimeline(day);
+        const lessonPeriods = dayTimeline.filter(row => row.type === 'lesson').map(row => row.period);
+        
+        // Cari 2 jam pelajaran berurutan yang kosong untuk kelas dan juga gurunya
+        for (let i = 0; i < lessonPeriods.length - 1; i++) {
+          const p1 = lessonPeriods[i];
+          const p2 = lessonPeriods[i+1];
+          
+          const isClassFree1 = !currentRoster.find(e => e.day === day && e.period === p1 && e.classId === asg.classId);
+          const isTeacherFree1 = !currentRoster.find(e => e.day === day && e.period === p1 && e.teacherId === asg.teacherId);
+          const isClassFree2 = !currentRoster.find(e => e.day === day && e.period === p2 && e.classId === asg.classId);
+          const isTeacherFree2 = !currentRoster.find(e => e.day === day && e.period === p2 && e.teacherId === asg.teacherId);
 
-          const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
-          const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
-          if (isSlotFree && isTeacherFree) {
+          if (isClassFree1 && isTeacherFree1 && isClassFree2 && isTeacherFree2) {
             currentRoster.push({
               id: `temp-${Date.now()}-${Math.random()}`,
-              day, period: p, classId: asg.classId, className: asg.className,
+              day, period: p1, classId: asg.classId, className: asg.className,
               teacherId: asg.teacherId, teacherName: asg.teacherName,
               subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
             });
-            remainingJP--;
+            currentRoster.push({
+              id: `temp-${Date.now()}-${Math.random()}`,
+              day, period: p2, classId: asg.classId, className: asg.className,
+              teacherId: asg.teacherId, teacherName: asg.teacherName,
+              subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
+            });
+            remainingJP -= 2;
+            break; // Setelah pasang 1 blok, pindah ke hari berikutnya untuk mapel yang sama (distribusi hari)
           }
         }
-        if (remainingJP <= 0) break;
+      }
+
+      // TAHAP 2: Jika masih ada sisa (misal ganjil 3 JP atau blok 2 JP penuh), isi slot tunggal
+      if (remainingJP > 0) {
+        const shuffledDaysForSingle = [...DAYS].sort(() => Math.random() - 0.5);
+        for (const day of shuffledDaysForSingle) {
+          if (remainingJP <= 0) break;
+          const dayTimeline = generateDayTimeline(day);
+          const lessonPeriods = dayTimeline.filter(row => row.type === 'lesson').map(row => row.period);
+          
+          for (const p of lessonPeriods) {
+            if (remainingJP <= 0) break;
+            const isSlotFree = !currentRoster.find(e => e.day === day && e.period === p && e.classId === asg.classId);
+            const isTeacherFree = !currentRoster.find(e => e.day === day && e.period === p && e.teacherId === asg.teacherId);
+            if (isSlotFree && isTeacherFree) {
+              currentRoster.push({
+                id: `temp-${Date.now()}-${Math.random()}`,
+                day, period: p, classId: asg.classId, className: asg.className,
+                teacherId: asg.teacherId, teacherName: asg.teacherName,
+                subjectId: asg.subjectId, subjectName: asg.subjectName, isActivity: false
+              });
+              remainingJP--;
+              break; // Sebar ke hari yang berbeda
+            }
+          }
+        }
       }
     });
+
     setLocalEntries(currentRoster);
-    toast({ title: "Penjadwalan Otomatis Selesai" });
+    toast({ title: "Penjadwalan Otomatis Selesai", description: "Mata pelajaran kini dikelompokkan secara berurutan (Blok 2 JP)." });
   };
 
   const handleAddEntryLocal = () => {
