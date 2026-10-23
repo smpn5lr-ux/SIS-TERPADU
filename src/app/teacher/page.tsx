@@ -15,7 +15,8 @@ import {
   Clock,
   ArrowRight,
   QrCode,
-  Layers
+  Layers,
+  History
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -28,6 +29,8 @@ import { collection, query, where, doc } from "firebase/firestore"
 import { TeacherAssignment, Staff, RosterEntry, Classroom } from "@/lib/types"
 import { format, parse, addMinutes } from 'date-fns'
 import { id as localeId } from 'date-fns/locale'
+
+const DAYS_LIST = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 function TeacherDashboardContent() {
   const { user } = useUser()
@@ -74,7 +77,6 @@ function TeacherDashboardContent() {
     })
   }, [assignments, classes])
 
-  // PENGELOMPOKKAN BERDASARKAN TINGKAT & URUTAN ALFABET
   const groupedAssignments = useMemo(() => {
     if (!displayAssignments || !classes) return {};
     const groups: Record<number, TeacherAssignment[]> = {};
@@ -86,7 +88,6 @@ function TeacherDashboardContent() {
       groups[level].push(a);
     });
 
-    // Urutkan alfabetis di dalam setiap tingkat
     Object.keys(groups).forEach(level => {
       groups[parseInt(level)].sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true, sensitivity: 'base' }));
     });
@@ -99,6 +100,13 @@ function TeacherDashboardContent() {
   }, [groupedAssignments]);
 
   const today = format(new Date(), 'eeee', { locale: localeId })
+  
+  const yesterday = useMemo(() => {
+    const idx = DAYS_LIST.indexOf(today)
+    if (idx === -1 || idx === 0) return "Sabtu"
+    return DAYS_LIST[idx - 1]
+  }, [today])
+
   const todaySchedule = useMemo(() => {
     if (!rosters || !classes) return []
     return rosters
@@ -109,6 +117,17 @@ function TeacherDashboardContent() {
       })
       .sort((a, b) => a.period - b.period)
   }, [rosters, today, classes])
+
+  const prevSchedule = useMemo(() => {
+    if (!rosters || !classes) return []
+    return rosters
+      .filter(r => r.day === yesterday)
+      .map(r => {
+         const cls = classes.find(c => c.id === r.classId)
+         return { ...r, className: cls ? cls.name : r.className }
+      })
+      .sort((a, b) => a.period - b.period)
+  }, [rosters, yesterday, classes])
 
   const getTimeForPeriod = (period: number) => {
     if (!rosterConfig) return "-"
@@ -154,8 +173,8 @@ function TeacherDashboardContent() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1">
-          <Card className="border-border/50 bg-primary/5 h-full relative overflow-hidden">
+        <div className="lg:col-span-1 space-y-6">
+          <Card className="border-border/50 bg-primary/5 relative overflow-hidden">
              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
              <CardHeader>
                 <div className="flex items-center justify-between">
@@ -166,30 +185,60 @@ function TeacherDashboardContent() {
              </CardHeader>
              <CardContent className="space-y-4">
                 {todaySchedule.length === 0 ? (
-                  <div className="py-12 text-center flex flex-col items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
-                       <Star className="w-6 h-6 text-muted-foreground opacity-20" />
+                  <div className="py-8 text-center flex flex-col items-center gap-3 bg-card/40 rounded-xl border border-dashed">
+                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+                       <Star className="w-5 h-5 text-muted-foreground opacity-20" />
                     </div>
-                    <p className="text-xs text-muted-foreground italic">Tidak ada jadwal mengajar hari ini.</p>
+                    <p className="text-[10px] text-muted-foreground italic">Tidak ada jadwal mengajar hari ini.</p>
                   </div>
                 ) : (
-                  todaySchedule.map((s, idx) => (
-                    <div key={s.id} className="relative pl-6 border-l-2 border-primary/20 group hover:border-primary transition-all">
-                       <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-primary group-hover:scale-125 transition-transform"></div>
-                       <div className="flex flex-col gap-1">
-                          <div className="flex items-center justify-between">
-                             <span className="text-[10px] font-bold text-primary uppercase tracking-tighter">JAM KE-{s.period} • {getTimeForPeriod(s.period)}</span>
-                             <Badge variant="outline" className="text-[8px] h-4">KELAS {s.className}</Badge>
-                          </div>
-                          <span className="font-bold text-sm">{s.subjectName}</span>
-                       </div>
-                       {idx < todaySchedule.length - 1 && <Separator className="my-4 opacity-50" />}
-                    </div>
-                  ))
+                  <div className="space-y-4">
+                    {todaySchedule.map((s, idx) => (
+                      <div key={s.id} className="relative pl-6 border-l-2 border-primary/20 group hover:border-primary transition-all">
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-primary group-hover:scale-125 transition-transform"></div>
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-primary uppercase tracking-tighter">JAM KE-{s.period} • {getTimeForPeriod(s.period)}</span>
+                              <Badge variant="outline" className="text-[8px] h-4">KELAS {s.className}</Badge>
+                            </div>
+                            <span className="font-bold text-sm">{s.subjectName}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                
-                <Button asChild variant="outline" className="w-full mt-4 text-xs gap-2 border-primary/20">
-                  <Link href="/teacher">Muat Ulang Dashboard <ArrowRight className="w-3 h-3" /></Link>
+             </CardContent>
+             
+             <Separator className="opacity-30" />
+             
+             <CardHeader className="pt-6">
+                <div className="flex items-center justify-between">
+                   <CardTitle className="text-sm font-bold flex items-center gap-2 text-muted-foreground"><History className="w-4 h-4" /> Jadwal Sebelumnya</CardTitle>
+                   <Badge variant="outline" className="text-[10px] text-muted-foreground">{yesterday}</Badge>
+                </div>
+             </CardHeader>
+             <CardContent className="space-y-4 pb-8">
+                {prevSchedule.length === 0 ? (
+                  <p className="text-[10px] text-muted-foreground italic text-center py-4">Tidak ada data jadwal kemarin.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {prevSchedule.map((s) => (
+                      <div key={s.id} className="relative pl-6 border-l-2 border-border/50 opacity-60">
+                        <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-background border-2 border-border"></div>
+                        <div className="flex flex-col gap-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-bold uppercase text-muted-foreground">JAM KE-{s.period} • {getTimeForPeriod(s.period)}</span>
+                              <span className="text-[8px] font-bold text-muted-foreground">KELAS {s.className}</span>
+                            </div>
+                            <span className="font-medium text-xs text-muted-foreground">{s.subjectName}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Button asChild variant="outline" className="w-full mt-4 text-[10px] h-9 gap-2 border-border/50 hover:bg-background">
+                  <Link href="/teacher">Refresh Dasbor <ArrowRight className="w-3 h-3" /></Link>
                 </Button>
              </CardContent>
           </Card>
