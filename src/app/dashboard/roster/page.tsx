@@ -91,14 +91,14 @@ const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 // Palet warna yang mencolok dan kontras (Vivid Colors) - Sesuai style gambar user
 const COLOR_PALETTE = [
-  [236, 72, 153],  // Pink (Khas Kode 5)
-  [132, 204, 22],  // Lime (Khas Kode 24)
-  [20, 184, 166],  // Teal (Khas Kode 3)
-  [153, 27, 27],   // Dark Red (Khas Kode 2)
-  [120, 53, 15],   // Brown/Amber (Khas Kode 4)
-  [34, 197, 94],   // Bright Green (Khas Kode 7)
-  [190, 24, 93],   // Rose/Dark Pink (Khas Kode 1)
-  [69, 10, 10],    // Dark Brown/Maroon (Khas Kode 6)
+  [236, 72, 153],  // Pink
+  [132, 204, 22],  // Lime
+  [20, 184, 166],  // Teal
+  [153, 27, 27],   // Dark Red
+  [120, 53, 15],   // Brown/Amber
+  [34, 197, 94],   // Bright Green
+  [190, 24, 93],   // Rose/Dark Pink
+  [69, 10, 10],    // Dark Brown/Maroon
   [67, 97, 238],   // Royal Blue
   [245, 158, 11],  // Amber
   [168, 85, 247],  // Purple
@@ -110,18 +110,32 @@ const COLOR_PALETTE = [
   [16, 185, 129],  // Emerald
   [139, 92, 246],  // Violet
   [30, 64, 175],   // Dark Blue
-  [21, 128, 61]    // Dark Green
+  [21, 128, 61],   // Dark Green
+  [219, 39, 119],  // Pink Darker
+  [37, 99, 235],   // Blue
+  [5, 150, 105],   // Green Emerald
+  [217, 70, 239],  // Fuchsia
+  [234, 179, 8],   // Yellow
+  [239, 68, 68],   // Red
+  [79, 70, 229],   // Indigo
+  [147, 197, 253], // Sky Blue Light
+  [252, 211, 77],  // Amber Light
+  [110, 231, 183], // Teal Light
 ];
 
-// Hash function based on teacher name to ensure consistent unique colors per teacher/code
-const getEntryColor = (teacherName: string) => {
+// Hash function based on teacher name + subject name for unique color per assignment
+const getEntryColor = (teacherName: string, subjectName: string = "") => {
   if (!teacherName || teacherName === "-") return { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-800', rgb: [241, 245, 249] };
+  
+  const seed = teacherName + subjectName;
   let hash = 0;
-  for (let i = 0; i < teacherName.length; i++) {
-    hash = teacherName.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
   }
+  
   const index = Math.abs(hash) % COLOR_PALETTE.length;
   const rgb = COLOR_PALETTE[index];
+  
   return {
     bg: `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`,
     border: 'border-white/20',
@@ -522,7 +536,7 @@ export default function RosterManagementPage() {
             sorted.forEach(cls => {
               const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
               if (entry) {
-                const colorInfo = getEntryColor(entry.teacherName || "");
+                const colorInfo = getEntryColor(entry.teacherName || "", entry.subjectName || "");
                 tableRow.push({ 
                   content: `${entry.subjectName || "-"}\n(${entry.teacherName || "-"})`, 
                   styles: { fillColor: colorInfo.rgb, textColor: [255, 255, 255], fontSize: 6, fontStyle: 'bold' } 
@@ -585,6 +599,7 @@ export default function RosterManagementPage() {
       doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
       doc.line(14, 28, 283, 28);
 
+      // Create a map of Teacher-Subject assignments to unique colors
       const assignmentPairs: { teacherId: string, teacherName: string, subjectName: string, key: string }[] = [];
       localEntries.forEach(e => {
         if (e.teacherId && e.subjectName && !e.isActivity) {
@@ -605,12 +620,8 @@ export default function RosterManagementPage() {
       assignmentPairs.forEach((p, i) => {
         const staffMember = staff.find(s => s.id === p.teacherId);
         const code = staffMember?.staffNumber?.toString() || (i + 1).toString();
-        // Consistency: use getEntryColor based on teacherName to match Unified Print colors
-        const colorInfo = getEntryColor(p.teacherName); 
-        assignmentMap.set(p.key, { 
-          code: code, 
-          rgb: colorInfo.rgb
-        });
+        const colorInfo = getEntryColor(p.teacherName, p.subjectName);
+        assignmentMap.set(p.key, { code, rgb: colorInfo.rgb });
       });
 
       const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
@@ -675,7 +686,7 @@ export default function RosterManagementPage() {
         margin: { right: 65 }
       });
 
-      // Legend for teachers and codes
+      // Legend logic with DIAGONAL SPLIT for teachers with multiple subjects
       const startX = 238;
       let startY = 32;
       doc.setFontSize(8).setFont("helvetica", "bold").setTextColor(0).text("INDEKS GURU & MAPEL", startX, startY - 2);
@@ -694,7 +705,7 @@ export default function RosterManagementPage() {
       });
 
       sortedTeachersLegend.forEach((group) => {
-        const rowHeight = 7.5;
+        const rowHeight = group.assignments.length > 1 ? 10 : 8;
         if (startY + rowHeight > 195) {
            doc.addPage();
            startY = 20;
@@ -705,32 +716,37 @@ export default function RosterManagementPage() {
           const mapping = assignmentMap.get(group.assignments[0].key)!;
           doc.setDrawColor(0).setLineWidth(0.05).setFillColor(mapping.rgb[0], mapping.rgb[1], mapping.rgb[2]).rect(startX, startY, boxSize, boxSize, 'F');
           doc.rect(startX, startY, boxSize, boxSize);
-          doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code, startX + boxSize/2, startY + 4.2, { align: "center" });
+          doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(mapping.code, startX + boxSize/2, startY + 4.2, { align: "center" });
         } else {
-          // DIAGONAL SPLIT for teachers with multiple subjects
+          // DIAGONAL SPLIT for multiple subjects (max 2 supported for split visual)
           const m1 = assignmentMap.get(group.assignments[0].key)!;
           const m2 = assignmentMap.get(group.assignments[1].key)!;
           
+          // Draw bottom-right triangle
           doc.setFillColor(m1.rgb[0], m1.rgb[1], m1.rgb[2]);
           doc.triangle(startX, startY + boxSize, startX + boxSize, startY + boxSize, startX + boxSize, startY, 'F');
+          // Draw top-left triangle
           doc.setFillColor(m2.rgb[0], m2.rgb[1], m2.rgb[2]);
           doc.triangle(startX, startY, startX + boxSize, startY, startX, startY + boxSize, 'F');
           
+          // Border and line
           doc.setDrawColor(0).setLineWidth(0.05).rect(startX, startY, boxSize, boxSize);
           doc.line(startX, startY + boxSize, startX + boxSize, startY);
           
+          // Draw numbers in each triangle
           doc.setFontSize(5).setFont("helvetica", "bold").setTextColor(255, 255, 255).text(`${m2.code}`, startX + 1.5, startY + 2.5, { align: "center" });
           doc.text(`${m1.code}`, startX + boxSize - 1.5, startY + boxSize - 1, { align: "center" });
         }
 
-        doc.setFontSize(6.5).setFont("helvetica", "bold").setTextColor(50).text(group.name.toUpperCase(), startX + boxSize + 2, startY + 2.5);
+        // Text info
+        doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(50).text(group.name.toUpperCase(), startX + boxSize + 2, startY + 2.5);
         const subjectsText = group.assignments.map(a => a.subjectName).join(", ");
-        doc.setFontSize(5.5).setFont("helvetica", "normal").setTextColor(100).text(subjectsText, startX + boxSize + 2, startY + 5.5);
+        doc.setFontSize(6).setFont("helvetica", "normal").setTextColor(100).text(subjectsText, startX + boxSize + 2, startY + 5.5);
 
         startY += rowHeight;
       });
 
-      doc.save(`Roster_Cetak_Vivid_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      doc.save(`Roster_Model_Kode_${schoolName.replace(/\s+/g, '_')}.pdf`);
       toast({ title: "Berhasil Mengunduh Format Kode" });
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal unduh" });
@@ -848,7 +864,7 @@ export default function RosterManagementPage() {
                              {row.type === 'lesson' ? (
                                sortedClasses.map(cls => {
                                  const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
-                                 const colorInfo = getEntryColor(entry?.teacherName || "");
+                                 const colorInfo = getEntryColor(entry?.teacherName || "", entry?.subjectName || "");
                                  return (
                                    <TableCell key={cls.id} className="p-1 border-r last:border-r-0 h-24 group relative">
                                      {entry ? (
