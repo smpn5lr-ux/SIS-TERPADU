@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -28,7 +29,8 @@ import {
   ArrowDownToLine,
   ArrowUpToLine,
   ChevronDown,
-  Trash
+  Trash,
+  FileCode
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -117,6 +119,7 @@ export default function RosterManagementPage() {
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isSyncingToCloud, setIsSyncingToCloud] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [isExportingCoded, setIsExportingCoded] = useState(false)
   
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -564,6 +567,125 @@ export default function RosterManagementPage() {
     }
   };
 
+  const handleDownloadCoded = async () => {
+    if (!localEntries || !classes) return;
+    setIsExportingCoded(true);
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF('l', 'mm', 'a4');
+
+      const govName = (systemSettings?.govName || "PEMERINTAH KABUPATEN MANGGARAI").toUpperCase();
+      let dinasName = (systemSettings?.dinasName || "DINAS PENDIDIKAN").toUpperCase();
+      if (dinasName.startsWith(govName)) dinasName = dinasName.replace(govName, "").trim();
+      const schoolName = (systemSettings?.schoolName || "SIS TERPADU").toUpperCase();
+      const academicYear = systemSettings?.academicYear || "2024/2025";
+
+      // HEADER
+      doc.setFontSize(10).setFont("helvetica", "bold");
+      doc.text(govName, 148.5, 10, { align: "center" });
+      doc.text(dinasName, 148.5, 15, { align: "center" });
+      doc.setFontSize(12).text(schoolName, 148.5, 21, { align: "center" });
+      doc.setFontSize(9).text(`JADWAL PELAJARAN TAHUN PELAJARAN ${academicYear}`, 148.5, 26, { align: "center" });
+      doc.line(14, 28, 283, 28);
+
+      // Create Subject Mapping for Legend
+      const uniqueSubjectNames = Array.from(new Set(localEntries.map(e => e.subjectName).filter(Boolean))) as string[];
+      const subjectMap = new Map<string, number>();
+      uniqueSubjectNames.sort().forEach((name, i) => subjectMap.set(name, i + 1));
+
+      const sorted = [...classes].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const tableHead = [['HARI', 'JAM', 'WAKTU', ...sorted.map(c => c.name)]];
+      const tableBody: any[] = [];
+
+      DAYS.forEach(day => {
+        const dayTimeline = generateDayTimeline(day);
+        let dayCellAdded = false;
+
+        dayTimeline.forEach(row => {
+          const tableRow: any[] = [];
+          if (!dayCellAdded) {
+            tableRow.push({ content: day, rowSpan: dayTimeline.length, styles: { fontStyle: 'bold', valign: 'middle', halign: 'center' } });
+            dayCellAdded = true;
+          }
+          tableRow.push(row.label);
+          const timeStr = format(row.startTime, 'HH:mm') + (row.type !== 'dismissal' ? ` - ${format(row.endTime, 'HH:mm')}` : '');
+          tableRow.push(timeStr);
+
+          if (row.type === 'lesson') {
+            sorted.forEach(cls => {
+              const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
+              if (entry && entry.subjectName) {
+                const code = subjectMap.get(entry.subjectName);
+                const colorInfo = getEntryColor(entry.subjectName);
+                tableRow.push({ 
+                  content: code?.toString() || "", 
+                  styles: { fillColor: colorInfo.rgb, textColor: [0, 0, 0], fontSize: 8, fontStyle: 'bold', halign: 'center' } 
+                });
+              } else {
+                tableRow.push("");
+              }
+            });
+          } else if (row.type === 'activity' || row.type === 'break' || row.type === 'dismissal') {
+             const bg = row.type === 'break' ? [230, 230, 230] : row.type === 'dismissal' ? [255, 220, 220] : (row.isFinal ? [255, 230, 230] : [255, 248, 230]);
+             tableRow.push({ 
+               content: row.name.toUpperCase(), 
+               colSpan: sorted.length, 
+               styles: { fillColor: bg, fontStyle: 'bold', halign: 'center', textColor: [0, 0, 0], fontSize: 7 } 
+             });
+          }
+          tableBody.push(tableRow);
+        });
+      });
+
+      // Calculate table width to see if we can fit legend on the right
+      const classColWidth = Math.max(10, Math.floor(180 / sorted.length));
+      const colStyles: any = { 0: { cellWidth: 15 }, 1: { cellWidth: 8 }, 2: { cellWidth: 18 } };
+      sorted.forEach((_, i) => colStyles[i + 3] = { cellWidth: classColWidth });
+
+      autoTable(doc, {
+        head: tableHead,
+        body: tableBody,
+        startY: 32,
+        theme: 'grid',
+        styles: { fontSize: 7, cellPadding: 1, halign: 'center', valign: 'middle', textColor: [0,0,0], lineColor: [0,0,0] },
+        headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold', lineWidth: 0.1 },
+        columnStyles: colStyles,
+        margin: { right: 55 } // Leave space for legend on the right
+      });
+
+      // RENDER LEGEND ON THE RIGHT
+      const startX = 245;
+      let startY = 32;
+      doc.setFontSize(8).setFont("helvetica", "bold").text("INDEKS MATA PELAJARAN", startX, startY - 2);
+      
+      uniqueSubjectNames.sort().forEach((name, i) => {
+        const code = i + 1;
+        const colorInfo = getEntryColor(name);
+        
+        // Draw colored box
+        doc.setDrawColor(0).setLineWidth(0.1).setFillColor(colorInfo.rgb[0], colorInfo.rgb[1], colorInfo.rgb[2]).rect(startX, startY, 5, 5, 'F');
+        doc.rect(startX, startY, 5, 5);
+        
+        // Draw code and name
+        doc.setFontSize(7).setFont("helvetica", "bold").setTextColor(0).text(code.toString(), startX + 2.5, startY + 3.8, { align: "center" });
+        doc.setFont("helvetica", "normal").text(name.toUpperCase(), startX + 7, startY + 3.8);
+        
+        startY += 6.5;
+        if (startY > 190) {
+           // If too many subjects, we'd need another page or column, but for school this is usually enough
+        }
+      });
+
+      doc.save(`Roster_Model_Kode_${schoolName.replace(/\s+/g, '_')}.pdf`);
+      toast({ title: "Berhasil Mengunduh Format Kode" });
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal unduh" });
+    } finally {
+      setIsExportingCoded(false);
+    }
+  };
+
   if (loadingR || loadingConfigDoc || loadingClasses) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
 
   return (
@@ -590,6 +712,10 @@ export default function RosterManagementPage() {
           <Button variant="outline" onClick={handleDownloadUnified} disabled={isExporting} className="gap-2 border-primary/30">
             {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
             Cetak Matriks
+          </Button>
+          <Button variant="outline" onClick={handleDownloadCoded} disabled={isExportingCoded} className="gap-2 border-accent/30 text-accent">
+            {isExportingCoded ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
+            Cetak Model Kode
           </Button>
           <Button variant="secondary" onClick={handleAutoGenerate} className="gap-2 text-primary border-primary/20 hover:bg-primary/10">
             <Zap className="w-4 h-4" /> Acak Jadwal
