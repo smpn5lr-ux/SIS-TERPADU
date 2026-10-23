@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useState, useMemo, useEffect } from 'react'
@@ -162,13 +161,16 @@ export default function RosterManagementPage() {
 
   const config = useMemo(() => {
     const dailyDismissals: Record<string, string> = {};
+    const dailyEntries: Record<string, string> = {};
     DAYS.forEach(d => {
       dailyDismissals[d] = rosterConfig?.dailyDismissalTimes?.[d] || rosterConfig?.dismissalTime || "13:00";
+      dailyEntries[d] = rosterConfig?.dailyEntryTimes?.[d] || rosterConfig?.entryTime || "07:15";
     });
 
     return {
-      entryTime: rosterConfig?.entryTime || "07:00",
+      entryTime: rosterConfig?.entryTime || "07:15",
       dismissalTime: rosterConfig?.dismissalTime || "13:00",
+      dailyEntryTimes: dailyEntries,
       dailyDismissalTimes: dailyDismissals,
       jpDuration: Number(rosterConfig?.jpDuration) || 40,
       maxPeriods: Number(rosterConfig?.maxPeriods) || 8,
@@ -182,11 +184,11 @@ export default function RosterManagementPage() {
     };
   }, [rosterConfig])
 
-  const calculateNewMaxJP = (entry: string, dailyDismissals: Record<string, string>, jpDur: number, currentConfig: any) => {
-    const start = parse(entry, 'HH:mm', new Date());
+  const calculateNewMaxJP = (dailyEntries: Record<string, string>, dailyDismissals: Record<string, string>, jpDur: number, currentConfig: any) => {
     let overallMax = 0;
     
     DAYS.forEach(day => {
+      const start = parse(dailyEntries[day], 'HH:mm', new Date());
       const end = parse(dailyDismissals[day], 'HH:mm', new Date());
       
       const endActivities = (currentConfig.globalActivities || []).filter((a: any) => a.day === day && a.position === 'end');
@@ -223,9 +225,9 @@ export default function RosterManagementPage() {
     if (!configRef) return;
     let finalUpdates = { ...config, ...updates };
     
-    if (updates.dailyDismissalTimes || updates.entryTime || updates.jpDuration || updates.globalActivities) {
+    if (updates.dailyDismissalTimes || updates.dailyEntryTimes || updates.entryTime || updates.jpDuration || updates.globalActivities) {
       const newMax = calculateNewMaxJP(
-        finalUpdates.entryTime,
+        finalUpdates.dailyEntryTimes,
         finalUpdates.dailyDismissalTimes,
         finalUpdates.jpDuration,
         finalUpdates
@@ -238,7 +240,7 @@ export default function RosterManagementPage() {
 
   const generateDayTimeline = (day: string) => {
     const timeline: any[] = [];
-    let currentTime = parse(config.entryTime, 'HH:mm', new Date());
+    let currentTime = parse(config.dailyEntryTimes[day], 'HH:mm', new Date());
     const dayDismissalTime = parse(config.dailyDismissalTimes[day], 'HH:mm', new Date());
 
     const dayActivities = config.globalActivities.filter(a => a.day === day);
@@ -704,7 +706,7 @@ export default function RosterManagementPage() {
                 <CardHeader className="border-b bg-muted/5"><CardTitle className="text-lg flex items-center gap-2"><Clock className="w-5 h-5 text-primary" /> Aturan Dasar</CardTitle></CardHeader>
                 <CardContent className="pt-6 space-y-6">
                     <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Jam Masuk Sekolah</Label>
+                      <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Default Jam Masuk Sekolah</Label>
                       <input type="time" className="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none transition-all" value={config.entryTime || "07:15"} onChange={e => handleUpdateConfig({ entryTime: e.target.value })} />
                     </div>
                     <div className="space-y-2">
@@ -736,7 +738,7 @@ export default function RosterManagementPage() {
                 <CardContent className="p-4 flex gap-3">
                    <Info className="w-5 h-5 text-primary shrink-0" />
                    <p className="text-[10px] text-muted-foreground italic leading-relaxed">
-                     Pengaturan Jam Pulang dan Agenda di sisi kanan akan dihitung secara cerdas untuk membatasi jumlah Jam Pelajaran (JP) yang bisa dimuat.
+                     Pengaturan Jam Masuk/Pulang dan Agenda di sisi kanan akan dihitung secara cerdas untuk membatasi jumlah Jam Pelajaran (JP) yang bisa dimuat.
                    </p>
                 </CardContent>
               </Card>
@@ -746,9 +748,9 @@ export default function RosterManagementPage() {
                <Card className="border-border/50 shadow-md">
                  <CardHeader className="bg-muted/5 border-b">
                    <CardTitle className="text-lg flex items-center gap-2">
-                     <CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Jam Pulang
+                     <CalendarDays className="w-5 h-5 text-accent" /> Agenda Harian & Durasi Belajar
                    </CardTitle>
-                   <CardDescription>Atur jam pulang dan daftar kegiatan kustom untuk setiap hari.</CardDescription>
+                   <CardDescription>Atur jam masuk, jam pulang, dan agenda rutin unik setiap hari.</CardDescription>
                  </CardHeader>
                  <CardContent className="p-0">
                     <Accordion type="single" collapsible className="w-full">
@@ -764,8 +766,11 @@ export default function RosterManagementPage() {
                                      <div className="flex flex-col items-start text-left">
                                         <span className="font-bold text-lg">{day}</span>
                                         <div className="flex items-center gap-3 mt-0.5">
-                                           <Badge variant="outline" className="text-[9px] font-bold tracking-widest gap-1 bg-background">
-                                              <LogOut className="w-2.5 h-2.5" /> PULANG: {config.dailyDismissalTimes[day]}
+                                           <Badge variant="outline" className="text-[9px] font-bold tracking-widest gap-1 bg-background text-primary">
+                                              MASUK: {config.dailyEntryTimes[day]}
+                                           </Badge>
+                                           <Badge variant="outline" className="text-[9px] font-bold tracking-widest gap-1 bg-background text-destructive">
+                                              PULANG: {config.dailyDismissalTimes[day]}
                                            </Badge>
                                            <span className="text-[9px] text-muted-foreground font-bold uppercase tracking-widest">
                                               {dayActsPagi.length + dayActsAkhir.length} KEGIATAN
@@ -776,27 +781,43 @@ export default function RosterManagementPage() {
                                </AccordionTrigger>
                                <AccordionContent className="pb-8 pt-2 space-y-8 animate-in slide-in-from-top-2 duration-300">
                                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                                     {/* Jam Pulang */}
-                                     <div className="space-y-4">
-                                        <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
-                                           <Clock className="w-3.5 h-3.5" /> Jam Pulang Hari {day}
-                                        </Label>
-                                        <input 
-                                           type="time" 
-                                           className="flex h-12 w-full rounded-xl border-2 border-border bg-background px-4 py-2 text-lg font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
-                                           value={config.dailyDismissalTimes[day]}
-                                           onChange={e => {
-                                             const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value };
-                                             handleUpdateConfig({ dailyDismissalTimes: newDaily });
-                                           }}
-                                        />
+                                     {/* Jam Masuk & Pulang */}
+                                     <div className="space-y-6">
+                                        <div className="space-y-4">
+                                           <Label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                                              <ArrowUpToLine className="w-3.5 h-3.5" /> Jam Masuk Hari {day}
+                                           </Label>
+                                           <input 
+                                              type="time" 
+                                              className="flex h-12 w-full rounded-xl border-2 border-border bg-background px-4 py-2 text-lg font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
+                                              value={config.dailyEntryTimes[day]}
+                                              onChange={e => {
+                                                const newDaily = { ...config.dailyEntryTimes, [day]: e.target.value };
+                                                handleUpdateConfig({ dailyEntryTimes: newDaily });
+                                              }}
+                                           />
+                                        </div>
+                                        <div className="space-y-4">
+                                           <Label className="text-[10px] font-black uppercase tracking-widest text-destructive flex items-center gap-2">
+                                              <LogOut className="w-3.5 h-3.5" /> Jam Pulang Hari {day}
+                                           </Label>
+                                           <input 
+                                              type="time" 
+                                              className="flex h-12 w-full rounded-xl border-2 border-border bg-background px-4 py-2 text-lg font-bold outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all"
+                                              value={config.dailyDismissalTimes[day]}
+                                              onChange={e => {
+                                                const newDaily = { ...config.dailyDismissalTimes, [day]: e.target.value };
+                                                handleUpdateConfig({ dailyDismissalTimes: newDaily });
+                                              }}
+                                           />
+                                        </div>
                                      </div>
                                      
                                      <div className="flex flex-col justify-end">
                                         <div className="p-4 bg-primary/5 rounded-xl border border-primary/20 flex gap-3">
                                            <Zap className="w-4 h-4 text-primary shrink-0" />
                                            <p className="text-[10px] text-muted-foreground leading-relaxed">
-                                              Sistem akan secara otomatis menyisipkan kegiatan rutin Anda ke dalam matriks mingguan untuk seluruh rombel.
+                                              Timeline harian akan dihitung mundur dari Jam Pulang dan maju dari Jam Masuk secara otomatis.
                                            </p>
                                         </div>
                                      </div>

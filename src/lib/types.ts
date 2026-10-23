@@ -178,6 +178,7 @@ export interface GlobalActivity {
 export interface RosterConfig {
   entryTime: string; 
   dismissalTime: string;
+  dailyEntryTimes?: Record<string, string>;
   dailyDismissalTimes?: Record<string, string>;
   jpDuration: number; 
   maxPeriods: number;

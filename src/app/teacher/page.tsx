@@ -1,4 +1,3 @@
-
 "use client"
 
 import React, { useMemo, Suspense } from 'react'
@@ -106,12 +105,14 @@ function TeacherDashboardContent() {
     return DAYS_LIST[idx - 1]
   }, [today])
 
-  // Helper untuk generate timeline harian (Logika yang sama dengan Admin)
   const generateTimelineForDay = (dayName: string) => {
     if (!rosterConfig) return [];
     
     const timeline: any[] = [];
-    let currentTime = parse(rosterConfig.entryTime || "07:00", 'HH:mm', new Date());
+    const dailyEntries = rosterConfig.dailyEntryTimes || {};
+    const dayEntryStr = dailyEntries[dayName] || rosterConfig.entryTime || "07:15";
+    let currentTime = parse(dayEntryStr, 'HH:mm', new Date());
+    
     const dailyDismissals = rosterConfig.dailyDismissalTimes || {};
     const dayDismissalStr = dailyDismissals[dayName] || rosterConfig.dismissalTime || "13:00";
     const dayDismissalTime = parse(dayDismissalStr, 'HH:mm', new Date());
@@ -316,7 +317,7 @@ function TeacherDashboardContent() {
 
                  <div className="pt-4">
                     <Button asChild variant="outline" className="w-full text-xs gap-2 border-border/50 hover:bg-muted/50 rounded-xl h-11">
-                      <Link href="/teacher">Perbarui Roster <RefreshCw className="w-4 h-4" /></Link>
+                      <Link href="/teacher">Perbarui Dasbor <RefreshCw className="w-4 h-4" /></Link>
                     </Button>
                  </div>
               </div>
