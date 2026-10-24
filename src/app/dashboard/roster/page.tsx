@@ -30,7 +30,8 @@ import {
   ArrowUpToLine,
   ChevronDown,
   Trash,
-  FileCode
+  FileCode,
+  Move
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -89,7 +90,6 @@ import { Separator } from '@/components/ui/separator'
 
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
-// Palet warna yang jauh lebih banyak dan kontras (40+ warna)
 const COLOR_PALETTE = [
   [67, 97, 238], [76, 201, 240], [247, 37, 133], [114, 9, 183], [58, 12, 163],
   [255, 120, 0], [132, 204, 22], [236, 72, 153], [20, 184, 166], [153, 27, 27],
@@ -124,6 +124,8 @@ export default function RosterManagementPage() {
   
   const [localEntries, setLocalEntries] = useState<RosterEntry[]>([])
   const [isDirty, setIsDirty] = useState(false)
+  const [draggedItem, setDraggedItem] = useState<{ sourceDay: string, sourcePeriod: number, sourceClassId: string, sourceEntryId: string } | null>(null)
+  const [dragOverSlot, setDragOverSlot] = useState<string | null>(null)
 
   const [newEntry, setNewEntry] = useState<Partial<RosterEntry>>({
     day: "Senin", period: 1, teacherId: "", classId: "", subjectId: ""
@@ -241,7 +243,6 @@ export default function RosterManagementPage() {
     const teacher = staff?.find(s => s.id === teacherId);
     const subject = subjects?.find(s => s.id === subjectId);
 
-    // Conflict Check
     const classConflict = localEntries.find(e => e.day === day && e.period === period && e.classId === classId);
     if (classConflict) {
       toast({ variant: "destructive", title: "Bentrok Kelas", description: `Kelas ${cls?.name} sudah terisi ${classConflict.subjectName} pada jam ini.` });
@@ -271,6 +272,93 @@ export default function RosterManagementPage() {
     setIsDirty(true);
     setIsAddOpen(false);
     toast({ title: "Penugasan Ditambahkan ke Draf" });
+  };
+
+  const handleDragStart = (e: React.DragEvent, sourceEntry: RosterEntry) => {
+    setDraggedItem({
+      sourceDay: sourceEntry.day,
+      sourcePeriod: sourceEntry.period,
+      sourceClassId: sourceEntry.classId,
+      sourceEntryId: sourceEntry.id
+    });
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, day: string, period: number, classId: string) => {
+    e.preventDefault();
+    setDragOverSlot(`${day}-${period}-${classId}`);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetDay: string, targetPeriod: number, targetClassId: string) => {
+    e.preventDefault();
+    setDragOverSlot(null);
+    if (!draggedItem) return;
+
+    const { sourceEntryId, sourceDay, sourcePeriod, sourceClassId } = draggedItem;
+    if (sourceDay === targetDay && sourcePeriod === targetPeriod && sourceClassId === targetClassId) return;
+
+    const sourceEntry = localEntries.find(ent => ent.id === sourceEntryId);
+    if (!sourceEntry) return;
+
+    const targetEntry = localEntries.find(ent => ent.day === targetDay && ent.period === targetPeriod && ent.classId === targetClassId);
+
+    // Conflict Check Source Guru at Target Slot
+    const sourceGuruConflict = localEntries.find(ent => 
+      ent.day === targetDay && 
+      ent.period === targetPeriod && 
+      ent.teacherId === sourceEntry.teacherId &&
+      ent.id !== sourceEntry.id &&
+      ent.id !== targetEntry?.id
+    );
+
+    if (sourceGuruConflict) {
+      toast({ 
+        variant: "destructive", 
+        title: "Bentrok Guru", 
+        description: `Guru ${sourceEntry.teacherName} sudah mengajar di ${sourceGuruConflict.className} pada jam tersebut.` 
+      });
+      return;
+    }
+
+    // Conflict Check Target Guru at Source Slot (if swapping)
+    if (targetEntry) {
+      const targetGuruConflict = localEntries.find(ent => 
+        ent.day === sourceDay && 
+        ent.period === sourcePeriod && 
+        ent.teacherId === targetEntry.teacherId &&
+        ent.id !== targetEntry.id &&
+        ent.id !== sourceEntry.id
+      );
+
+      if (targetGuruConflict) {
+        toast({ 
+          variant: "destructive", 
+          title: "Bentrok Guru", 
+          description: `Guru ${targetEntry.teacherName} sudah mengajar di ${targetGuruConflict.className} pada jam asal.` 
+        });
+        return;
+      }
+    }
+
+    setLocalEntries(prev => {
+      let next = [...prev];
+      next = next.map(ent => {
+        if (ent.id === sourceEntry.id) {
+          const targetCls = classes?.find(c => c.id === targetClassId);
+          return { ...ent, day: targetDay, period: targetPeriod, classId: targetClassId, className: targetCls?.name || ent.className };
+        }
+        if (targetEntry && ent.id === targetEntry.id) {
+          const sourceCls = classes?.find(c => c.id === sourceClassId);
+          return { ...ent, day: sourceDay, period: sourcePeriod, classId: sourceClassId, className: sourceCls?.name || ent.className };
+        }
+        return ent;
+      });
+      return next;
+    });
+
+    setIsDirty(true);
+    setDraggedItem(null);
+    toast({ title: targetEntry ? "Jadwal Ditukar" : "Jadwal Dipindahkan" });
   };
 
   const handleAutoGenerate = () => {
@@ -609,7 +697,44 @@ export default function RosterManagementPage() {
                            {row.type === 'lesson' ? (sortedClasses.map(cls => {
                                const entry = localEntries.find(e => e.day === day && e.period === row.period && e.classId === cls.id);
                                const ci = getEntryColor(entry?.teacherId || "", entry?.subjectId || "");
-                               return (<TableCell key={cls.id} className="p-1 border-r h-24 group relative">{entry ? (<div className={`h-full border rounded-lg p-2 flex flex-col justify-center text-center transition-all shadow-sm ${ci.border}`} style={{ backgroundColor: ci.bg }}><div className={`text-[10px] font-bold leading-tight ${ci.text}`}>{entry.subjectName || "-"}</div><div className="text-[9px] text-white/70 mt-1 font-medium italic">({entry.teacherName || "-"})</div><Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-white hover:bg-white/10 rounded-full" onClick={() => handleDeleteTrigger(entry.id)}><Trash2 className="w-3.5 h-3.5" /></Button></div>) : (<div className="h-full flex flex-col items-center justify-center border border-dashed border-border/10 rounded-lg group-hover:border-primary/20 cursor-pointer bg-muted/5 hover:bg-muted/10 transition-colors" onClick={() => { setNewEntry({...newEntry, day, period: row.period, classId: cls.id}); setIsAddOpen(true); }}><Plus className="w-4 h-4 text-muted-foreground opacity-20 group-hover:opacity-40" /></div>)}</TableCell>);
+                               const isOver = dragOverSlot === `${day}-${row.period}-${cls.id}`;
+                               return (
+                                 <TableCell 
+                                   key={cls.id} 
+                                   className={`p-1 border-r h-28 group relative transition-colors ${isOver ? 'bg-primary/20 ring-2 ring-primary/40 ring-inset' : ''}`}
+                                   onDragOver={(e) => handleDragOver(e, day, row.period, cls.id)}
+                                   onDrop={(e) => handleDrop(e, day, row.period, cls.id)}
+                                   onDragLeave={() => setDragOverSlot(null)}
+                                 >
+                                    {entry ? (
+                                      <div 
+                                        draggable={true}
+                                        onDragStart={(e) => handleDragStart(e, entry)}
+                                        className={`h-full border-2 rounded-xl p-3 flex flex-col justify-center text-center transition-all shadow-md active:scale-95 active:rotate-1 cursor-grab active:cursor-grabbing ${ci.border} hover:brightness-110`} 
+                                        style={{ backgroundColor: ci.bg }}
+                                      >
+                                        <div className={`text-[10px] font-black leading-tight uppercase tracking-tight ${ci.text}`}>{entry.subjectName || "-"}</div>
+                                        <div className="text-[9px] text-white/80 mt-1.5 font-bold italic line-clamp-2 leading-tight">({entry.teacherName || "-"})</div>
+                                        
+                                        <div className="absolute top-1 left-1 opacity-0 group-hover:opacity-40 transition-opacity">
+                                           <Move className="w-3 h-3 text-white" />
+                                        </div>
+
+                                        <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 text-white hover:bg-white/10 rounded-full" onClick={(e) => { e.stopPropagation(); handleDeleteTrigger(entry.id); }}>
+                                           <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div 
+                                        className="h-full flex flex-col items-center justify-center border border-dashed border-border/20 rounded-xl group-hover:border-primary/40 cursor-pointer bg-muted/5 hover:bg-primary/5 transition-all" 
+                                        onClick={() => { setNewEntry({...newEntry, day, period: row.period, classId: cls.id}); setIsAddOpen(true); }}
+                                      >
+                                        <Plus className="w-4 h-4 text-muted-foreground opacity-10 group-hover:opacity-40" />
+                                        <span className="text-[8px] text-muted-foreground font-bold mt-1 opacity-0 group-hover:opacity-40">KOSONG</span>
+                                      </div>
+                                    )}
+                                 </TableCell>
+                               );
                              })) : (<TableCell colSpan={sortedClasses.length} className="p-0 border-r border-y"><div className={`h-12 flex items-center justify-center font-black text-[11px] tracking-[0.4em] uppercase ${row.type === 'activity' ? 'text-amber-700' : row.type === 'break' ? 'text-accent' : 'text-destructive'}`}>{row.name} {row.duration && `(${row.duration} MENIT)`}</div></TableCell>)}
                          </TableRow>
                        ));
