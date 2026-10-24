@@ -20,7 +20,9 @@ import {
   UserCheck,
   GraduationCap,
   CalendarClock,
-  Contact
+  Contact,
+  QrCode,
+  Download
 } from "lucide-react"
 import { 
   Sidebar, 
@@ -50,9 +52,10 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth, useUser, useFirestore, useDoc, useMemoFirebase, useCollection } from "@/firebase"
 import { signOut, updateProfile } from "firebase/auth"
-import { doc, collection, query, where } from "firebase/firestore"
+import { doc, collection, query, where, getDocs } from "firebase/firestore"
 import { useToast } from "@/hooks/use-toast"
-import { Staff } from "@/lib/types"
+import { Staff, Classroom, Applicant } from "@/lib/types"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -67,6 +70,9 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const [newName, setNewName] = React.useState("")
   const [updating, setUpdating] = React.useState(false)
 
+  const [isQRDialogOpen, setIsQRDialogOpen] = React.useState(false)
+  const [isProcessingQR, setIsProcessingQR] = React.useState(false)
+
   const settingsRef = useMemoFirebase(() => {
     if (!db) return null
     return doc(db, 'settings', 'system')
@@ -80,6 +86,12 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   }, [db, user])
 
   const { data: staffData, loading: staffLoading } = useCollection<Staff>(staffQuery)
+
+  const classesQuery = useMemoFirebase(() => {
+    if (!db) return null
+    return collection(db, 'classes')
+  }, [db])
+  const { data: allClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
   React.useEffect(() => {
     if (!userLoading && !user) {
@@ -123,6 +135,80 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
       })
     } finally {
       setUpdating(false)
+    }
+  }
+
+  const handleDownloadSpecificClassQR = async (classId: string, className: string) => {
+    if (!db) return
+    setIsProcessingQR(true)
+    
+    try {
+      const { default: jsPDF } = await import('jspdf')
+      const brandBlue = [67, 97, 238] as [number, number, number]
+      const schoolName = config?.schoolName || "SIS TERPADU"
+
+      const targetClass = allClasses?.find(c => c.id === classId)
+      
+      if (!targetClass || !targetClass.students || targetClass.students.length === 0) {
+        toast({ variant: "destructive", title: "Gagal", description: "Tidak ada murid terdaftar di kelas ini." })
+        setIsProcessingQR(false)
+        return
+      }
+
+      const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')))
+      const students = studentsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Applicant))
+        .filter(s => targetClass.students.includes(s.id))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName))
+
+      const docPdf = new jsPDF('p', 'mm', 'a4')
+      
+      docPdf.setFontSize(14).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
+      docPdf.text(`KARTU QR ABSENSI - KELAS ${className}`, 105, 15, { align: "center" })
+      docPdf.setFontSize(10).setTextColor(100).setFont("helvetica", "normal")
+      docPdf.text(`${schoolName}`, 105, 20, { align: "center" })
+      docPdf.setDrawColor(200).setLineWidth(0.1).line(14, 25, 196, 25)
+
+      let x = 12;
+      let y = 35;
+      const cardWidth = 60;
+      const cardHeight = 80;
+      const marginX = 6;
+      const marginY = 8;
+
+      students.forEach((s, idx) => {
+        docPdf.setDrawColor(230).setLineWidth(0.1).rect(x, y, cardWidth, cardHeight)
+        docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 6, 'F')
+        docPdf.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
+        const truncatedName = s.fullName.length > 28 ? s.fullName.substring(0, 25) + "..." : s.fullName
+        docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 14, { align: "center" })
+        docPdf.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
+        docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 19, { align: "center" })
+        docPdf.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
+        docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 24, { align: "center" })
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
+        docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 40) / 2, y + 28, 40, 40)
+        docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + cardHeight - 4, { align: "center" })
+
+        x += cardWidth + marginX;
+        if (x + cardWidth > 205) {
+          x = 12;
+          y += cardHeight + marginY;
+        }
+        if (y + cardHeight > 285) {
+          docPdf.addPage()
+          y = 15;
+          x = 12;
+        }
+      })
+      
+      docPdf.save(`Kartu_QR_Absensi_${className.replace(/\s+/g, '_')}.pdf`)
+      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan.` })
+      setIsQRDialogOpen(false)
+    } catch (e) {
+      toast({ variant: "destructive", title: "Kesalahan", description: "Gagal membuat dokumen PDF." })
+    } finally {
+      setIsProcessingQR(false)
     }
   }
 
@@ -205,6 +291,23 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
                 ))}
               </SidebarMenu>
             </div>
+
+            {isKurikulum && (
+              <div>
+                <p className="px-3 mb-2 text-[10px] font-bold text-primary uppercase tracking-widest">Utilitas Cetak</p>
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton 
+                      onClick={() => setIsQRDialogOpen(true)}
+                      className="h-10 gap-3"
+                    >
+                      <QrCode className="w-4 h-4 text-accent" />
+                      <span className="font-medium text-sm">Kartu QR Absensi</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </div>
+            )}
           </div>
         </SidebarContent>
         <SidebarFooter className="p-4 mt-auto border-t border-border">
@@ -291,6 +394,56 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         </main>
       </SidebarInset>
 
+      <Dialog open={isQRDialogOpen} onOpenChange={setIsQRDialogOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-primary" />
+              Cetak Kartu QR Siswa
+            </DialogTitle>
+            <DialogDescription>
+              Pilih rombongan belajar untuk mengunduh seluruh kartu QR identitas absensi mandiri.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            {loadingClasses ? (
+              <div className="flex justify-center py-8"><Loader2 className="animate-spin text-primary" /></div>
+            ) : !allClasses || allClasses.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground italic">Belum ada data kelas yang terdaftar.</div>
+            ) : (
+              <ScrollArea className="h-[350px] w-full border rounded-xl overflow-hidden bg-muted/5">
+                <div className="divide-y">
+                  {[...allClasses].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map((cls) => (
+                    <button
+                      key={cls.id}
+                      disabled={isProcessingQR}
+                      onClick={() => handleDownloadSpecificClassQR(cls.id, cls.name)}
+                      className="w-full flex items-center justify-between p-4 hover:bg-primary/5 transition-colors group text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="bg-primary/10 p-2.5 rounded-lg group-hover:bg-primary group-hover:text-white transition-all shadow-sm">
+                          <School className="w-4 h-4" />
+                        </div>
+                        <span className="font-bold text-sm tracking-tight text-foreground">Kelas {cls.name}</span>
+                      </div>
+                      <Download className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                </div>
+              </ScrollArea>
+            )}
+          </div>
+          <DialogFooter className="border-t pt-4">
+            <Button variant="ghost" onClick={() => setIsQRDialogOpen(false)} disabled={isProcessingQR}>Batal</Button>
+            {isProcessingQR && (
+              <div className="flex items-center gap-2 text-xs text-primary font-bold animate-pulse">
+                <Loader2 className="w-3 h-3 animate-spin" /> Membuat PDF...
+              </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
@@ -313,7 +466,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsProfileOpen(false)}>Batal</Button>
             <Button onClick={handleUpdateName} disabled={updating}>
-              {updating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Simpan Perubahan
             </Button>
           </DialogFooter>
