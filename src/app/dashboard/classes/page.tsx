@@ -92,8 +92,6 @@ export default function ClassesPage() {
         return
       }
 
-      // Jika berpindah kelas tapi data draf belum disinkronkan, tetap perlu memuat data
-      // Namun hindari infinite loop dengan pengecekan ID kelas
       if (lastFetchedClassId.current === selectedClassForStudents.id && localApplicants.length > 0 && isDirty) return;
 
       setIsLoadingStudents(true)
@@ -110,7 +108,6 @@ export default function ClassesPage() {
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        // Filter murid yang aktif dan tidak terhapus
         const validResults = results.filter(r => !r.isDeleted);
         const sortedResults = validResults.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
         
@@ -166,7 +163,6 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
-      // 1. Proses pemindahan ke sampah untuk murid yang dihapus/dikosongkan
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
@@ -174,7 +170,6 @@ export default function ClassesPage() {
         })
       })
 
-      // 2. Bersihkan dan Proses kelas
       localClasses.forEach(lc => {
         const cleanIds = Array.from(new Set((lc.students || []).filter(Boolean)));
         const lcClean = { 
@@ -191,7 +186,6 @@ export default function ClassesPage() {
         }
       })
 
-      // 3. Hapus kelas yang dibuang di draf
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -310,9 +304,20 @@ export default function ClassesPage() {
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
+          const isDuplicateName = (selectedClassForStudents.students || []).some(id => {
+            const existing = allStudents.find(x => x.id === id);
+            return existing?.fullName.toLowerCase() === s.fullName.toLowerCase();
+          });
+
           if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
             if (matchedIds.includes(s.id)) return;
             if ((selectedClassForStudents.students || []).includes(s.id)) return;
+            
+            if (isDuplicateName) {
+              toast({ variant: "destructive", title: "Gagal Impor", description: `Nama ${s.fullName} sudah ada di kelas ini.` });
+              return;
+            }
+
             matchedIds.push(s.id)
             matchedApps.push(s)
           }
@@ -343,6 +348,35 @@ export default function ClassesPage() {
       }
     }
     reader.readAsArrayBuffer(file)
+  }
+
+  const handleExportExcel = () => {
+    if (!selectedClassForStudents || localApplicants.length === 0) return
+    const data = localApplicants.map((s, idx) => ({
+      "No": idx + 1,
+      "NIS": s.NIS || "-",
+      "NISN": s.NISN || "-",
+      "Nama Murid": s.fullName,
+      "L/P": s.gender === 'Laki-laki' ? 'L' : 'P'
+    }))
+    const worksheet = XLSX.utils.json_to_sheet(data)
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Murid")
+    XLSX.writeFile(workbook, `Daftar_Siswa_Kelas_${selectedClassForStudents.name}.xlsx`)
+    toast({ title: "Daftar Excel Diunduh" })
+  }
+
+  const handleDownloadTemplate = () => {
+    if (!selectedClassForStudents) return
+    const data = [["No", "Nama Murid", "NISN", "Absensi (%)", "Tugas 1", "Tugas 2", "Tugas 3", "Ulangan", "STS", "SAS"]]
+    localApplicants.forEach((s, i) => {
+        data.push([(i + 1).toString(), s.fullName, s.NISN || "-", "", "", "", "", "", "", ""])
+    })
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Template Nilai")
+    XLSX.writeFile(wb, `Template_Nilai_Kelas_${selectedClassForStudents.name}.xlsx`)
+    toast({ title: "Template Nilai Diunduh" })
   }
 
   const groupedClasses = useMemo(() => {
@@ -383,8 +417,14 @@ export default function ClassesPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleExportExcel} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+              <Download className="w-4 h-4" /> Unduh Daftar Excel
+            </Button>
+            <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2 border-green-500/20 text-green-500 hover:bg-green-500/5">
+              <FileSpreadsheet className="w-4 h-4" /> Template Nilai
+            </Button>
             <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
-              <FileSpreadsheet className="w-4 h-4" /> Import Daftar Excel
+              <Upload className="w-4 h-4" /> Import Daftar Excel
             </Button>
             <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5">
               <Trash className="w-4 h-4" /> Kosongkan Kelas
