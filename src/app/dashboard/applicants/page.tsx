@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Plus, Loader2, Pencil, Trash2, CloudUpload, CloudOff, RefreshCw
+  Search, Plus, Loader2, Pencil, Trash2, CloudUpload, CloudOff, RefreshCw, Eye
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -101,8 +101,7 @@ export default function ApplicantsPage() {
 
   const applicantsQuery = useMemoFirebase(() => {
     if (!db) return null
-    // LIMIT 100 untuk menghemat pembacaan (Reads)
-    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(100))
+    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(500))
   }, [db])
 
   const { data: serverApplicants, loading } = useCollection<Applicant>(applicantsQuery)
@@ -164,8 +163,21 @@ export default function ApplicantsPage() {
     setIsSyncing(true)
     const batch = writeBatch(db)
     try {
-      const toDelete = serverApplicants.filter(sa => !localApplicants.some(la => la.id === sa.id))
-      toDelete.forEach(a => batch.delete(doc(db, 'applicants', a.id)))
+      // PERBAIKAN: Jangan hard-delete data dari database
+      // Data yang dihapus dari localApplicants ditandai sebagai isDeleted: true
+      const serverIdsInLocal = new Set(localApplicants.map(la => la.id))
+      
+      serverApplicants.forEach(sa => {
+        if (!serverIdsInLocal.has(sa.id)) {
+          // Jika ada di server tapi tidak di local, artinya user menghapus dari daftar local
+          // Tandai sebagai isDeleted daripada batch.delete
+          batch.update(doc(db, 'applicants', sa.id), { 
+            isDeleted: true, 
+            deletedAt: new Date().toISOString() 
+          })
+        }
+      })
+
       localApplicants.forEach(la => {
         if (la.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'applicants'))
@@ -194,7 +206,7 @@ export default function ApplicantsPage() {
         <div>
           <h1 className="text-3xl font-headline font-bold">Data Calon Murid</h1>
           <div className="flex items-center gap-2 mt-1">
-             <p className="text-muted-foreground text-sm">Pendaftaran dan seleksi PPDB (100 Terbaru).</p>
+             <p className="text-muted-foreground text-sm">Pendaftaran dan seleksi PPDB.</p>
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>
@@ -231,7 +243,7 @@ export default function ApplicantsPage() {
             {loading && !localApplicants.length ? (
               <TableRow><TableCell colSpan={6} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : filteredApplicants.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar aktif.</TableCell></TableRow>
             ) : filteredApplicants.map((a, idx) => {
               const isTemp = a.id.startsWith('temp-')
               return (
@@ -362,7 +374,7 @@ export default function ApplicantsPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Data?</AlertDialogTitle>
-            <AlertDialogDescription>Data akan dihapus dari draf sementara. Klik Sinkron untuk menghapus permanen.</AlertDialogDescription>
+            <AlertDialogDescription>Data akan dipindahkan ke tempat sampah sementara. Klik Sinkron untuk menerapkan perubahan ke Cloud.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalApplicants(prev => prev.filter(a => a.id !== applicantToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Hapus</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>

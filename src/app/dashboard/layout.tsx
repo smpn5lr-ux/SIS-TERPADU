@@ -22,7 +22,8 @@ import {
   CalendarClock,
   Contact,
   QrCode,
-  Download
+  Download,
+  Trash2
 } from "lucide-react"
 import { 
   Sidebar, 
@@ -243,6 +244,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
     ...(isKurikulum ? [{ name: 'Manajemen Roster', href: '/dashboard/roster', icon: CalendarClock }] : []),
     { name: 'Manajemen Pegawai', href: '/dashboard/staff', icon: UserPlus },
     { name: 'Laporan', href: '/dashboard/reports', icon: BarChart3 },
+    { name: 'Tempat Sampah', href: '/dashboard/trash', icon: Trash2 },
   ]
 
   return (
