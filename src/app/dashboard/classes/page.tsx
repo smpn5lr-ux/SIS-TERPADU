@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, Info, UserMinus, X, GraduationCap, ArrowLeft, School, Download, Upload, AlertCircle, ArrowRightLeft, UserPlus, ShieldAlert, FileSpreadsheet
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, Info, UserMinus, X, GraduationCap, ArrowLeft, School, Download, Upload, AlertCircle, ArrowRightLeft, UserPlus, ShieldAlert, FileSpreadsheet, MoreVertical, FileText, Home, User
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -25,6 +25,12 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -66,6 +72,9 @@ export default function ClassesPage() {
   
   const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] = useState(false)
   const [studentToRemove, setStudentToRemove] = useState<Applicant | null>(null)
+
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [selectedStudentForDetail, setSelectedStudentForDetail] = useState<Applicant | null>(null)
 
   const { toast } = useToast()
   const db = useFirestore()
@@ -324,7 +333,7 @@ export default function ClassesPage() {
   }
 
   const handleDownloadImportTemplate = () => {
-    const data = [["No", "NIS", "NISN", "Nama Lengkap", "L/P (Laki-laki/Perempuan)"]]
+    const data = [["No", "NIS", "NISN", "Nama Lengkap", "L/P (Laki-laki/Perempuan)", "Alamat", "Nama Ayah", "Nama Ibu", "Nama Wali"]]
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template Import Rombel")
@@ -354,7 +363,6 @@ export default function ClassesPage() {
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
-        // Peta siswa yang sudah berkelas untuk validasi tingkat
         const studentGradeMap = new Map<string, number>();
         localClasses.forEach(c => {
           (c.students || []).forEach(sid => studentGradeMap.set(sid, c.gradeLevel));
@@ -368,7 +376,6 @@ export default function ClassesPage() {
           const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
           if (isAlreadyInThisClass) return;
 
-          // Validasi: Siswa hanya bisa ditarik jika belum berkelas atau di tingkat yang sama
           const existingGrade = studentGradeMap.get(s.id);
           if (existingGrade !== undefined && existingGrade !== selectedClassForStudents.gradeLevel) {
             skipCount++;
@@ -429,7 +436,11 @@ export default function ClassesPage() {
       "NIS": s.NIS || "-",
       "NISN": s.NISN || "-",
       "Nama Murid": s.fullName,
-      "L/P": s.gender === 'Laki-laki' ? 'L' : 'P'
+      "L/P": s.gender === 'Laki-laki' ? 'L' : 'P',
+      "Alamat": s.address || "-",
+      "Nama Ayah": s.fatherName || "-",
+      "Nama Ibu": s.motherName || "-",
+      "Nama Wali": s.guardianName || "-"
     }))
     const worksheet = XLSX.utils.json_to_sheet(data)
     const workbook = XLSX.utils.book_new()
@@ -534,16 +545,98 @@ export default function ClassesPage() {
                   <TableCell><span className="font-bold text-sm">{s.fullName}</span></TableCell>
                   <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
                   <TableCell className="text-right pr-6">
-                    <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm" className="text-primary gap-1.5" onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }}><ArrowRightLeft className="w-3.5 h-3.5" /> Pindah</Button>
-                      <Button variant="ghost" size="sm" className="text-destructive gap-1.5" onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }}><UserMinus className="w-3.5 h-3.5" /> Hapus</Button>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => { setSelectedStudentForDetail(s); setIsDetailOpen(true); }} className="gap-2 cursor-pointer">
+                          <FileText className="w-4 h-4 text-primary" /> Lihat Data Lengkap
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }} className="gap-2 cursor-pointer">
+                          <ArrowRightLeft className="w-4 h-4 text-accent" /> Pindah Kelas
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }} className="gap-2 cursor-pointer text-destructive focus:text-destructive">
+                          <UserMinus className="w-4 h-4" /> Hapus (Ke Sampah)
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
+
+        <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Biodata Lengkap Siswa</DialogTitle>
+              <DialogDescription>Detail identitas sesuai database utama.</DialogDescription>
+            </DialogHeader>
+            {selectedStudentForDetail && (
+              <div className="space-y-6 py-4">
+                <div className="flex items-center gap-4 bg-primary/5 p-4 rounded-xl border border-primary/20">
+                   <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border-2 border-primary/20">
+                      {selectedStudentForDetail.fullName.charAt(0)}
+                   </div>
+                   <div>
+                      <h3 className="font-bold text-lg leading-tight">{selectedStudentForDetail.fullName}</h3>
+                      <p className="text-xs text-muted-foreground font-mono mt-1">NISN: {selectedStudentForDetail.NISN || "-"}</p>
+                      <p className="text-xs text-muted-foreground font-mono">NIS: {selectedStudentForDetail.NIS || "-"}</p>
+                   </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-2">
+                      <Home className="w-3 h-3 text-primary" /> Alamat Domisili
+                    </Label>
+                    <div className="bg-muted/30 p-3 rounded-lg text-sm border">
+                      {selectedStudentForDetail.address || "-"}
+                      <div className="mt-1 text-[10px] text-muted-foreground">
+                        RT/RW: {selectedStudentForDetail.rt}/{selectedStudentForDetail.rw} • Kel: {selectedStudentForDetail.kelurahan} • Kec: {selectedStudentForDetail.kecamatan}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-2">
+                      <User className="w-3 h-3 text-accent" /> Data Orang Tua
+                    </Label>
+                    <div className="grid grid-cols-2 gap-3">
+                       <div className="bg-muted/30 p-3 rounded-lg border">
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase">Nama Ayah</p>
+                          <p className="text-sm font-semibold">{selectedStudentForDetail.fatherName || "-"}</p>
+                       </div>
+                       <div className="bg-muted/30 p-3 rounded-lg border">
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase">Nama Ibu</p>
+                          <p className="text-sm font-semibold">{selectedStudentForDetail.motherName || "-"}</p>
+                       </div>
+                    </div>
+                  </div>
+
+                  {selectedStudentForDetail.livingWith !== 'Bersama Orang Tua' && (
+                    <div className="space-y-2">
+                      <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-2">
+                        <Users className="w-3 h-3 text-pink-500" /> Data Wali
+                      </Label>
+                      <div className="bg-muted/30 p-3 rounded-lg border">
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase">Nama Wali (Tinggal dengan {selectedStudentForDetail.livingWith})</p>
+                        <p className="text-sm font-semibold">{selectedStudentForDetail.guardianName || "-"}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button onClick={() => setIsDetailOpen(false)} className="w-full">Tutup</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
           <DialogContent className="sm:max-w-[400px]">
