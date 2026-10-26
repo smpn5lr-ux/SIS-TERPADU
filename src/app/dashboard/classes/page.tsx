@@ -3,18 +3,18 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus, Filter, ShieldAlert, Sparkles
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, Info, UserMinus, X, GraduationCap, ArrowLeft, School, Download, Upload, AlertCircle, ArrowRightLeft, UserPlus, ShieldAlert
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useCollection, useFirestore, useMemoFirebase, useDoc, useUser } from '@/firebase'
-import { collection, doc, updateDoc, writeBatch, query, getDocs, settlement, where, limit, orderBy } from 'firebase/firestore'
+import { collection, doc, updateDoc, writeBatch, query, getDocs, where, orderBy } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Form, FormControl, FormField, FormItem, FormLabel } from "@/components/ui/form"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -60,9 +60,6 @@ export default function ClassesPage() {
   const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
-  const [isSearchAddOpen, setIsSearchAddOpen] = useState(false)
-  const [studentSearchTerm, setStudentSearchTerm] = useState("")
-
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState("")
@@ -82,38 +79,6 @@ export default function ClassesPage() {
     return query(collection(db, 'classes'), orderBy('name', 'asc'))
   }, [db, user, userLoading])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
-
-  const studentToClassMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    localClasses.forEach(c => {
-      (c.students || []).forEach(sid => {
-        map[sid] = c.name
-      })
-    })
-    return map
-  }, [localClasses])
-
-  const applicantsBaseQuery = useMemoFirebase(() => {
-    if (!db || !isSearchAddOpen) return null
-    return query(
-      collection(db, 'applicants'), 
-      where('isDeleted', '==', false),
-      where('admissionStatus', 'in', ['accepted', 'graduated']),
-      limit(200)
-    )
-  }, [db, isSearchAddOpen])
-  const { data: dbStudents, loading: loadingDbStudents } = useCollection<Applicant>(applicantsBaseQuery)
-
-  const filteredSearchStudents = useMemo(() => {
-    if (!dbStudents) return []
-    return dbStudents.filter(s => {
-      const term = studentSearchTerm.toLowerCase();
-      const matchesSearch = s.fullName.toLowerCase().includes(term) || 
-                           (s.NISN || "").includes(term) ||
-                           (s.NIS || "").includes(term);
-      return matchesSearch;
-    })
-  }, [dbStudents, studentSearchTerm])
 
   const lastFetchedClassId = useRef<string | null>(null);
 
@@ -180,8 +145,6 @@ export default function ClassesPage() {
     
     try {
       const batch = writeBatch(db);
-      
-      // 1. Ambil semua kelas dan kumpulkan ID murid yang punya kelas
       const classesSnap = await getDocs(collection(db, 'classes'));
       const allAssignedIds = new Set<string>();
       classesSnap.docs.forEach(d => {
@@ -191,12 +154,10 @@ export default function ClassesPage() {
         });
       });
 
-      // 2. Ambil semua murid aktif di database
       const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)));
       let removedCount = 0;
       
       studentsSnap.docs.forEach(d => {
-        // Jika murid tidak ada di set allAssignedIds, pindahkan ke sampah
         if (!allAssignedIds.has(d.id)) {
           batch.update(d.ref, { 
             isDeleted: true, 
@@ -210,13 +171,13 @@ export default function ClassesPage() {
         await batch.commit();
         toast({ 
           title: "Audit Selesai", 
-          description: `${removedCount} murid tanpa rombel telah dipindahkan ke Tempat Sampah agar Dasbor sinkron.` 
+          description: `${removedCount} murid tanpa rombel telah dipindahkan ke Tempat Sampah.` 
         });
       } else {
         toast({ title: "Audit Selesai", description: "Seluruh murid aktif sudah memiliki rombel." });
       }
     } catch (e) {
-      toast({ variant: "destructive", title: "Audit Gagal", description: "Terjadi kesalahan saat memproses data." });
+      toast({ variant: "destructive", title: "Audit Gagal" });
     } finally {
       setIsSyncing(false);
     }
@@ -281,55 +242,14 @@ export default function ClassesPage() {
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
       await batch.commit()
-      
       setIdsToTrash(new Set())
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh perubahan draf telah disimpan ke database." })
+      toast({ title: "Sinkronisasi Berhasil" })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
       setIsSyncing(false)
     }
-  }
-
-  const handlePickStudentManual = (s: Applicant) => {
-    if (!selectedClassForStudents) return
-    
-    const isAlreadyInCurrent = (selectedClassForStudents.students || []).includes(s.id);
-    const existingClass = studentToClassMap[s.id];
-
-    if (isAlreadyInCurrent) {
-      toast({ variant: "destructive", title: "Murid Sudah Ada", description: `${s.fullName} sudah terdaftar di kelas ini.` })
-      return
-    }
-
-    if (existingClass) {
-      toast({ 
-        title: "Konfirmasi Perpindahan", 
-        description: `${s.fullName} akan ditarik dari Kelas ${existingClass} ke Kelas ${selectedClassForStudents.name}.` 
-      })
-      
-      setLocalClasses(prev => prev.map(c => {
-        if (c.name === existingClass) {
-          const updatedStudents = (c.students || []).filter(id => id !== s.id);
-          return { ...c, students: updatedStudents, currentEnrollment: updatedStudents.length };
-        }
-        return c;
-      }));
-    }
-
-    const updatedIds = Array.from(new Set([...(selectedClassForStudents.students || []), s.id]))
-    const updatedClass = {
-      ...selectedClassForStudents,
-      students: updatedIds,
-      currentEnrollment: updatedIds.length
-    }
-
-    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-    setLocalApplicants(prev => [...prev, s].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
-    setSelectedClassForStudents(updatedClass)
-    setIsDirty(true)
-    toast({ title: "Murid Ditambahkan", description: `${s.fullName} masuk ke rombel.` })
   }
 
   const handleMoveStudent = () => {
@@ -362,14 +282,12 @@ export default function ClassesPage() {
     setIsMoveDialogOpen(false)
     setStudentToMove(null)
     setTargetClassId("")
-    
-    toast({ title: "Murid Dipindahkan", description: `${studentToMove.fullName} pindah ke Kelas ${targetClass.name}` })
+    toast({ title: "Siswa Dipindahkan" })
   }
 
   const handleRemoveStudentFromClass = () => {
     if (!selectedClassForStudents || !studentToRemove) return
     const studentId = studentToRemove.id
-    
     setIdsToTrash(prev => new Set([...prev, studentId]))
     
     const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
@@ -384,39 +302,34 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsRemoveConfirmOpen(false)
     setStudentToRemove(null)
-    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah (Klik Sinkron untuk menerapkan)." })
+    toast({ title: "Siswa Dihapus ke Tempat Sampah" })
   }
 
   const handleClearAllStudents = () => {
     if (!selectedClassForStudents) return
     const currentStudentIds = selectedClassForStudents.students || []
-    
     setIdsToTrash(prev => {
       const next = new Set(prev)
       currentStudentIds.forEach(id => next.add(id))
       return next
     })
     
-    const updatedClass = {
-      ...selectedClassForStudents,
-      students: [],
-      currentEnrollment: 0
-    }
+    const updatedClass = { ...selectedClassForStudents, students: [], currentEnrollment: 0 }
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setLocalApplicants([])
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
     setIsClearAllDialogOpen(false)
-    toast({ title: "Kelas Dikosongkan", description: `${currentStudentIds.length} murid ditandai untuk dihapus.` })
+    toast({ title: "Kelas Dikosongkan" })
   }
 
   const handleDownloadImportTemplate = () => {
-    const data = [["NIS", "NISN", "Nama Lengkap", "L/P (Laki-laki/Perempuan)"]]
+    const data = [["No", "NIS", "NISN", "Nama Lengkap", "L/P (Laki-laki/Perempuan)"]]
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template Import Rombel")
-    XLSX.writeFile(wb, "Template_Import_Murid_Rombel.xlsx")
-    toast({ title: "Template Import Diunduh", description: "Gunakan kolom ini agar data sesuai dengan Database Utama." })
+    XLSX.writeFile(wb, "Template_Import_Rombel.xlsx")
+    toast({ title: "Template Diunduh" })
   }
 
   const handleImportEnrollment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -443,16 +356,10 @@ export default function ClassesPage() {
         
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
-        let skipCount = 0;
 
         allStudents.forEach(s => {
           const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
-          const isAlreadyInDraf = localApplicants.some(la => la.id === s.id);
-          
-          if (isAlreadyInThisClass || isAlreadyInDraf) {
-            skipCount++;
-            return;
-          }
+          if (isAlreadyInThisClass) return;
 
           const matchNISN = s.NISN && nisnList.includes(s.NISN);
           const matchNIS = s.NIS && nisList.includes(s.NIS);
@@ -466,11 +373,7 @@ export default function ClassesPage() {
         })
 
         if (matchedIds.length === 0) {
-          toast({ 
-            variant: "destructive", 
-            title: "Tidak Ada Data Baru", 
-            description: "Seluruh murid di file sudah terdaftar or tidak ditemukan di Database Utama." 
-          })
+          toast({ variant: "destructive", title: "Tidak Ada Murid Baru", description: "Gunakan template yang benar atau periksa Nama/NISN di Database Utama." })
         } else {
           const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
           const updatedClass = {
@@ -483,13 +386,10 @@ export default function ClassesPage() {
           setLocalApplicants(prev => [...prev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
-          toast({ 
-            title: "Import Berhasil", 
-            description: `${matchedIds.length} murid ditarik dari Database Utama. ${skipCount} dilewati karena sudah ada.` 
-          })
+          toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditarik ke rombel.` })
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Gagal memproses file Excel." })
+        toast({ variant: "destructive", title: "Error" })
       } finally {
         setIsImporting(false)
         setIsImportEnrollmentOpen(false)
@@ -512,7 +412,6 @@ export default function ClassesPage() {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, "Daftar Murid")
     XLSX.writeFile(workbook, `Daftar_Siswa_Kelas_${selectedClassForStudents.name}.xlsx`)
-    toast({ title: "Daftar Excel Diunduh" })
   }
 
   const handleDownloadTemplate = () => {
@@ -525,7 +424,6 @@ export default function ClassesPage() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template Nilai")
     XLSX.writeFile(wb, `Template_Nilai_Kelas_${selectedClassForStudents.name}.xlsx`)
-    toast({ title: "Template Nilai Diunduh" })
   }
 
   const groupedClasses = useMemo(() => {
@@ -552,7 +450,7 @@ export default function ClassesPage() {
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => { setView('grid'); setEditingClass(null); lastFetchedClassId.current = null; }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
+            <button onClick={() => { setView('grid'); setSelectedClassForStudents(null); lastFetchedClassId.current = null; }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-3xl font-headline font-bold">Kelas {selectedClassForStudents.name}</h1>
@@ -566,17 +464,17 @@ export default function ClassesPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={handleExportExcel} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+            <Button variant="outline" onClick={handleExportExcel} className="gap-2 border-primary/20 text-primary">
               <Download className="w-4 h-4" /> Unduh Daftar Excel
             </Button>
-            <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2 border-green-500/20 text-green-500 hover:bg-green-500/5">
-              <FileSpreadsheet className="w-4 h-4" /> Template Nilai
+            <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2 border-green-500/20 text-green-500">
+              <Download className="w-4 h-4" /> Template Nilai
             </Button>
             <div className="h-4 w-px bg-border mx-1 hidden md:block" />
-            <Button onClick={() => setIsSearchAddOpen(true)} className="gap-2 bg-primary">
-              <UserPlus className="w-4 h-4" /> Tarik Murid Database
+            <Button variant="outline" onClick={handleDownloadImportTemplate} className="gap-2 border-primary/30 text-primary hover:bg-primary/5 shadow-sm">
+              <Download className="w-4 h-4" /> Unduh Template Import
             </Button>
-            <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+            <Button onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 bg-primary">
               <Upload className="w-4 h-4" /> Import Excel
             </Button>
             <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5">
@@ -598,14 +496,11 @@ export default function ClassesPage() {
             </TableHeader>
             <TableBody>
               {isLoadingStudents ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /> Memuat daftar siswa...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell></TableRow>
               ) : localApplicants.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
-                  <GraduationCap className="w-16 h-16 opacity-5" />
-                  <p>Belum ada murid di kelas ini. Gunakan Import Excel atau Tarik Murid dari Database.</p>
-                </TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic">Belum ada murid di kelas ini. Gunakan Import Excel untuk menarik data dari Database Utama.</TableCell></TableRow>
               ) : localApplicants.map((s, idx) => (
-                <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
+                <TableRow key={s.id} className="hover:bg-muted/10 h-14">
                   <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell>
                     <div className="flex flex-col font-mono text-[11px]">
@@ -613,26 +508,12 @@ export default function ClassesPage() {
                        <span className="text-accent">{s.NISN || "-"}</span>
                     </div>
                   </TableCell>
-                  <TableCell><span className="font-bold text-sm text-foreground">{s.fullName}</span></TableCell>
+                  <TableCell><span className="font-bold text-sm">{s.fullName}</span></TableCell>
                   <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
                   <TableCell className="text-right pr-6">
                     <div className="flex justify-end gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="text-primary hover:bg-primary/5 h-8 gap-1.5"
-                        onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }}
-                      >
-                        <ArrowRightLeft className="w-3.5 h-3.5" /> Pindah
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="text-destructive hover:bg-destructive/5 h-8 gap-1.5"
-                        onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }}
-                      >
-                        <UserMinus className="w-3.5 h-3.5" /> Hapus
-                      </Button>
+                      <Button variant="ghost" size="sm" className="text-primary gap-1.5" onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }}><ArrowRightLeft className="w-3.5 h-3.5" /> Pindah</Button>
+                      <Button variant="ghost" size="sm" className="text-destructive gap-1.5" onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }}><UserMinus className="w-3.5 h-3.5" /> Hapus</Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -641,169 +522,42 @@ export default function ClassesPage() {
           </Table>
         </div>
 
-        <Dialog open={isSearchAddOpen} onOpenChange={setIsSearchAddOpen}>
-          <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden flex flex-col max-h-[85vh]">
-            <DialogHeader className="p-6 pb-2 border-b bg-muted/20">
-              <div className="flex items-center justify-between">
-                <DialogTitle className="flex items-center gap-2">
-                  <UserPlus className="w-5 h-5 text-primary" />
-                  Tarik Murid dari Database Utama
-                </DialogTitle>
-                <Badge variant="outline" className="font-mono bg-background">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
-              </div>
-              <DialogDescription>Menambahkan murid ke Kelas {selectedClassForStudents.name}.</DialogDescription>
-            </DialogHeader>
-            
-            <div className="p-4 border-b">
-               <div className="relative">
-                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                 <input 
-                   placeholder="Cari Nama, NIS, atau NISN..." 
-                   className="w-full h-11 pl-9 pr-4 bg-muted/20 border-none rounded-lg focus:ring-2 focus:ring-primary outline-none transition-all"
-                   value={studentSearchTerm}
-                   onChange={(e) => setStudentSearchTerm(e.target.value)}
-                 />
-               </div>
-            </div>
-
-            <ScrollArea className="flex-1">
-              <div className="p-4 space-y-2">
-                {loadingDbStudents ? (
-                  <div className="py-20 text-center flex flex-col items-center gap-2">
-                    <Loader2 className="animate-spin text-primary" />
-                    <span className="text-xs text-muted-foreground">Menghubungkan ke database...</span>
-                  </div>
-                ) : filteredSearchStudents.length === 0 ? (
-                  <div className="py-20 text-center flex flex-col items-center gap-4 text-muted-foreground italic text-sm">
-                    <X className="w-10 h-10 opacity-10" />
-                    <p>Murid tidak ditemukan.</p>
-                  </div>
-                ) : filteredSearchStudents.map(s => {
-                  const isAlreadyInThis = (selectedClassForStudents?.students || []).includes(s.id);
-                  const currentClass = studentToClassMap[s.id];
-                  
-                  return (
-                    <div key={s.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all hover:shadow-md bg-card/50 ${isAlreadyInThis ? 'border-primary/30 bg-primary/5' : 'hover:bg-muted/30'}`}>
-                      <div className="flex flex-col">
-                        <span className="font-bold text-sm flex items-center gap-2">
-                          {s.fullName}
-                          {isAlreadyInThis && <CheckCircle2 className="w-3 h-3 text-primary" />}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"} • {s.gender}</span>
-                        <div className="mt-1">
-                           {currentClass ? (
-                             <Badge variant="secondary" className="text-[9px] font-bold py-0 h-5 border-accent/20 text-accent">Rombel: Kelas {currentClass}</Badge>
-                           ) : (
-                             <Badge variant="outline" className="text-[9px] font-bold py-0 h-5 text-green-500 border-green-500/20">Status: Belum Ber-Rombel</Badge>
-                           )}
-                        </div>
-                      </div>
-                      <Button 
-                        size="sm" 
-                        variant={isAlreadyInThis ? "outline" : "default"}
-                        disabled={isAlreadyInThis}
-                        onClick={() => handlePickStudentManual(s)}
-                        className="h-9 px-4 rounded-lg"
-                      >
-                        {isAlreadyInThis ? "Sudah Ada" : currentClass ? "Pindahkan" : "Pilih Murid"}
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            </ScrollArea>
-            <DialogFooter className="p-4 border-t bg-muted/10">
-               <Button variant="outline" onClick={() => setIsSearchAddOpen(false)} className="w-full h-11 font-bold">Selesai Menata Rombel</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
         <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
           <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader>
-              <DialogTitle>Pindahkan Kelas</DialogTitle>
-              <DialogDescription>
-                Pindahkan <strong>{studentToMove?.fullName}</strong> ke rombel lain.
-              </DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Pindahkan Kelas</DialogTitle><DialogDescription>Pindahkan <strong>{studentToMove?.fullName}</strong> ke rombel lain.</DialogDescription></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="space-y-2">
                  <Label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">Pilih Kelas Tujuan</Label>
-                 <Select value={targetClassId} onValueChange={setTargetClassId}>
-                   <SelectTrigger className="h-12">
-                     <SelectValue placeholder="Pilih Rombongan Belajar" />
-                   </SelectTrigger>
-                   <SelectContent>
-                     {localClasses
-                       .filter(c => c.id !== selectedClassForStudents.id)
-                       .sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
-                       .map(c => (
-                         <SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>
-                       ))
-                     }
-                   </SelectContent>
-                 </Select>
+                 <Select value={targetClassId} onValueChange={setTargetClassId}><SelectTrigger className="h-12"><SelectValue placeholder="Pilih Rombongan Belajar" /></SelectTrigger><SelectContent>{localClasses.filter(c => c.id !== selectedClassForStudents.id).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(c => (<SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>))}</SelectContent></Select>
                </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Batal</Button>
-              <Button onClick={handleMoveStudent} disabled={!targetClassId} className="bg-primary">Proses Pindah</Button>
-            </DialogFooter>
+            <DialogFooter><Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Batal</Button><Button onClick={handleMoveStudent} disabled={!targetClassId}>Proses Pindah</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
         <AlertDialog open={isRemoveConfirmOpen} onOpenChange={setIsRemoveConfirmOpen}>
           <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-destructive" /> Konfirmasi Penghapusan Murid
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                Apakah Anda yakin ingin menghapus <strong>{studentToRemove?.fullName}</strong>? Murid ini akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah** database.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setStudentToRemove(null)}>Batal</AlertDialogCancel>
-              <AlertDialogAction onClick={handleRemoveStudentFromClass} className="bg-destructive">Ya, Hapus Permanen</AlertDialogAction>
-            </AlertDialogFooter>
+            <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Konfirmasi Penghapusan</AlertDialogTitle><AlertDialogDescription>Apakah Anda yakin ingin menghapus <strong>{studentToRemove?.fullName}</strong>? Murid akan dipindahkan ke **Tempat Sampah** database.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel onClick={() => setStudentToRemove(null)}>Batal</AlertDialogCancel><AlertDialogAction onClick={handleRemoveStudentFromClass} className="bg-destructive">Ya, Hapus</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
 
         <Dialog open={isImportEnrollmentOpen} onOpenChange={setIsImportEnrollmentOpen}>
           <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Import Murid ke Kelas {selectedClassForStudents.name}</DialogTitle>
-              <DialogDescription>Gunakan Excel berisi kolom NIS, NISN, Nama Lengkap, dan L/P.</DialogDescription>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>Import Murid Massal</DialogTitle><DialogDescription>Daftarkan murid dari Database Utama ke Kelas {selectedClassForStudents.name}.</DialogDescription></DialogHeader>
             <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
                <Upload className="w-8 h-8 text-primary" />
                <input type="file" ref={enrollmentFileInputRef} onChange={handleImportEnrollment} accept=".xlsx,.xls" className="hidden" />
-               <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>
-                  {isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />}
-                  Pilih File Excel Anda
-               </Button>
-               <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 px-4 gap-2">
-                 <Download className="w-3 h-3" /> Unduh Template Import
-               </Button>
-               <p className="text-[10px] text-muted-foreground italic text-center px-4">
-                 Sistem akan mencocokkan identitas murid dengan Database Utama (Data Induk).
-               </p>
+               <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />} Pilih File Excel</Button>
+               <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
             </div>
           </DialogContent>
         </Dialog>
 
         <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
           <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Anda akan mengeluarkan seluruh murid dari kelas {selectedClassForStudents.name} dan memindahkan datanya ke **Tempat Sampah**.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Batal</AlertDialogCancel>
-              <AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan Rombel</AlertDialogAction>
-            </AlertDialogFooter>
+            <AlertDialogHeader><AlertDialogTitle>Kosongkan Kelas?</AlertDialogTitle><AlertDialogDescription>Seluruh murid akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah**.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
       </div>
@@ -821,19 +575,11 @@ export default function ClassesPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button 
-            variant="outline" 
-            onClick={() => setIsAuditDialogOpen(true)}
-            className="gap-2 border-destructive/20 text-destructive hover:bg-destructive/5"
-            disabled={isSyncing}
-          >
-            <ShieldAlert className="w-4 h-4" /> Audit Database
-          </Button>
+          <Button variant="outline" onClick={() => setIsAuditDialogOpen(true)} className="gap-2 border-destructive/20 text-destructive hover:bg-destructive/5" disabled={isSyncing}><ShieldAlert className="w-4 h-4" /> Audit Database</Button>
           <div className="w-px h-8 bg-border mx-1 hidden md:block"></div>
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
-              {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Sinkronkan ke Cloud
+              {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />} Sinkronkan ke Cloud
             </Button>
           )}
           <Button onClick={() => { setEditingClass(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Tambah Rombel</Button>
@@ -849,33 +595,21 @@ export default function ClassesPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {groupedClasses[level].sort((a,b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})).map(cls => {
-                const isTemp = !serverClasses?.find(sc => sc.id === cls.id);
                 const enrollmentCount = (cls.students || []).length;
                 return (
-                  <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
-                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => { setClassToDelete(cls); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
+                  <Card key={cls.id} className="border-border/50 relative group transition-all hover:border-primary/50 shadow-sm">
+                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100" onClick={() => { setClassToDelete(cls); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
                     <CardHeader>
                       <CardTitle className="flex items-center gap-2 text-xl">Kelas {cls.name}</CardTitle>
                       <CardDescription className="flex items-center justify-between mt-1">
-                        <div className="flex items-center gap-2">
-                          <Users className="w-3.5 h-3.5" />
-                          <span className={`font-bold ${enrollmentCount > cls.capacity ? 'text-destructive animate-pulse' : 'text-foreground'}`}>
-                            {enrollmentCount}
-                          </span> / {cls.capacity} Murid
-                        </div>
+                        <div className="flex items-center gap-2"><Users className="w-3.5 h-3.5" /><span className={`font-bold ${enrollmentCount > cls.capacity ? 'text-destructive' : 'text-foreground'}`}>{enrollmentCount}</span> / {cls.capacity} Murid</div>
                       </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                      <div className="bg-muted/30 p-3 rounded-lg text-[10px] uppercase font-bold tracking-wider text-muted-foreground">
-                        Wali Kelas: <span className="text-primary block mt-1 text-sm normal-case font-bold">{cls.homeroomTeacher || "Belum Ditentukan"}</span>
-                      </div>
+                      <div className="bg-muted/30 p-3 rounded-lg text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Wali Kelas: <span className="text-primary block mt-1 text-sm normal-case font-bold">{cls.homeroomTeacher || "Belum Ditentukan"}</span></div>
                       <div className="grid grid-cols-2 gap-2 pt-2">
-                        <Button variant="outline" className="w-full text-xs gap-2 border-primary/20 hover:bg-primary/5" onClick={() => { setEditingClass(cls); form.reset({...cls, gradeLevel: cls.gradeLevel.toString(), capacity: cls.capacity.toString()}); setIsDialogOpen(true); }}>
-                          <Pencil className="w-3.5 h-3.5" /> Edit Info
-                        </Button>
-                        <Button variant="default" className="w-full text-xs gap-2 bg-primary shadow-lg shadow-primary/20" onClick={() => { setSelectedClassForStudents(cls); setView('students'); }}>
-                          <Users className="w-3.5 h-3.5" /> Lihat Murid
-                        </Button>
+                        <Button variant="outline" className="w-full text-xs gap-2 border-primary/20" onClick={() => { setEditingClass(cls); form.reset({...cls, gradeLevel: cls.gradeLevel.toString(), capacity: cls.capacity.toString()}); setIsDialogOpen(true); }}><Pencil className="w-3.5 h-3.5" /> Edit Info</Button>
+                        <Button variant="default" className="w-full text-xs gap-2 bg-primary" onClick={() => { setSelectedClassForStudents(cls); setView('students'); }}><Users className="w-3.5 h-3.5" /> Lihat Murid</Button>
                       </div>
                     </CardContent>
                   </Card>
@@ -884,17 +618,11 @@ export default function ClassesPage() {
             </div>
           </section>
         ))}
-        {sortedLevels.length === 0 && !loadingClasses && (
-           <div className="py-32 text-center flex flex-col items-center gap-4 text-muted-foreground italic">
-              <School className="w-16 h-16 opacity-5" />
-              <p>Belum ada rombongan belajar yang terdaftar.</p>
-           </div>
-        )}
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[450px]">
-          <DialogHeader><DialogTitle className="font-headline">{editingClass ? 'Ubah Informasi Rombel' : 'Tambah Rombongan Belajar'}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editingClass ? 'Ubah Informasi Rombel' : 'Tambah Rombongan Belajar'}</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSaveLocal)} className="space-y-4 pt-4">
               <div className="grid grid-cols-2 gap-4">
@@ -919,31 +647,14 @@ export default function ClassesPage() {
 
       <AlertDialog open={isAuditDialogOpen} onOpenChange={setIsAuditDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Tindakan ini akan memindai seluruh <strong>Data Induk</strong> dan memindahkan setiap murid yang <strong>TIDAK terdaftar di rombel manapun</strong> ke Tempat Sampah.
-              <br/><br/>
-              Tujuannya agar angka di Dasbor hanya menampilkan data riil murid yang sudah memiliki kelas. Anda dapat membatalkan di Tempat Sampah jika keliru.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Batal</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              Ya, Bersihkan Murid Tanpa Kelas
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini akan memindahkan setiap murid yang **TIDAK terdaftar di rombel manapun** ke Tempat Sampah.<br/><br/>Tujuannya agar angka di Dasbor hanya menampilkan data riil murid yang sudah memiliki kelas.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive">Ya, Bersihkan</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Rombel?</AlertDialogTitle>
-            <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda dari sistem.</AlertDialogDescription>
-          </AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>Hapus Rombel?</AlertDialogTitle><AlertDialogDescription>Tindakan ini menghapus draf kelas Anda dari sistem.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalClasses(prev => prev.filter(c => c.id !== classToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Hapus</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
