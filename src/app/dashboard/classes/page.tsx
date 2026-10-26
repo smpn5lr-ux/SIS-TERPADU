@@ -17,6 +17,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { 
   Select, 
   SelectContent, 
@@ -407,7 +408,7 @@ export default function ClassesPage() {
                 <Badge variant="outline" className="font-mono">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
               </div>
               <div className="flex items-center gap-3 mt-1">
-                 <span className="text-xs text-muted-foreground font-bold">DAFTAR AKTIF: {stats.total} SISWA</span>
+                 <span className="text-xs text-muted-foreground font-bold">TOTAL: {stats.total} SISWA</span>
                  <Separator orientation="vertical" className="h-3" />
                  <span className="text-[10px] text-primary uppercase font-bold">L: {stats.male} • P: {stats.female}</span>
               </div>
