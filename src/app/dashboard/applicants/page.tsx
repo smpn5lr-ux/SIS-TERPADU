@@ -135,6 +135,7 @@ export default function ApplicantsPage() {
   }
 
   function onSaveLocal(values: z.infer<typeof formSchema>) {
+    if (!db) return;
     const seq = Number(values.registrationSequence) || 0;
     let prefix = (systemConfig?.regPrefix || "REG-").trim();
     if (prefix && !prefix.endsWith('-')) prefix = prefix + '-';
@@ -142,7 +143,7 @@ export default function ApplicantsPage() {
 
     const applicantData = {
       ...values,
-      id: editingApplicant ? editingApplicant.id : `temp-${Date.now()}`,
+      id: editingApplicant ? editingApplicant.id : doc(collection(db, 'applicants')).id,
       registrationSequence: seq,
       registrationNumber: regNumber,
       verificationStatus: editingApplicant?.verificationStatus || 'Lengkap',
@@ -163,6 +164,7 @@ export default function ApplicantsPage() {
   }
 
   const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!db) return;
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -180,7 +182,7 @@ export default function ApplicantsPage() {
           const gender = row['Jenis Kelamin'] === 'P' || row['Jenis Kelamin'] === 'Perempuan' ? 'Perempuan' : 'Laki-laki'
           const seq = localApplicants.length + idx + 1
           return {
-            id: `temp-${Date.now()}-${idx}`,
+            id: doc(collection(db, 'applicants')).id,
             fullName: row['Nama Lengkap'] || row['Nama'] || 'Tanpa Nama',
             NISN: String(row['NISN'] || ''),
             NIK: String(row['NIK'] || ''),
@@ -215,10 +217,11 @@ export default function ApplicantsPage() {
     setIsSyncing(true)
     const batch = writeBatch(db)
     try {
-      const serverIdsInLocal = new Set(localApplicants.map(la => la.id))
+      const currentIds = new Set(localApplicants.map(la => la.id))
       
+      // Hapus data di server yang tidak ada di local draf
       serverApplicants.forEach(sa => {
-        if (!serverIdsInLocal.has(sa.id)) {
+        if (!currentIds.has(sa.id)) {
           batch.update(doc(db, 'applicants', sa.id), { 
             isDeleted: true, 
             deletedAt: new Date().toISOString() 
@@ -226,21 +229,19 @@ export default function ApplicantsPage() {
         }
       })
 
+      // Update atau Create data di server sesuai local draf
       localApplicants.forEach(la => {
-        if (la.id.startsWith('temp-')) {
-          const newRef = doc(collection(db, 'applicants'))
-          const { id, ...data } = la
-          batch.set(newRef, data)
-        } else {
-          const serverVer = serverApplicants.find(sa => sa.id === la.id)
-          if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
-            batch.update(doc(db, 'applicants', la.id), la as any)
-          }
+        const serverVer = serverApplicants.find(sa => sa.id === la.id)
+        if (!serverVer) {
+          batch.set(doc(db, 'applicants', la.id), la)
+        } else if (JSON.stringify(serverVer) !== JSON.stringify(la)) {
+          batch.update(doc(db, 'applicants', la.id), la as any)
         }
       })
+      
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil" })
+      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data murid telah diperbarui di database." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -301,9 +302,9 @@ export default function ApplicantsPage() {
             ) : filteredApplicants.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center py-12 text-muted-foreground">Tidak ada pendaftar aktif.</TableCell></TableRow>
             ) : filteredApplicants.map((a, idx) => {
-              const isTemp = a.id.startsWith('temp-')
+              const isDraft = !serverApplicants?.find(s => s.id === a.id);
               return (
-                <TableRow key={a.id} className={isTemp ? 'bg-amber-500/5' : ''}>
+                <TableRow key={a.id} className={isDraft ? 'bg-amber-500/5' : ''}>
                   <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
                   <TableCell className="font-mono text-xs font-bold text-primary">
                     <div className="flex flex-col">
@@ -317,7 +318,7 @@ export default function ApplicantsPage() {
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button variant="ghost" size="icon" onClick={() => handleEditLocal(a)}><Pencil className="w-4 h-4" /></Button>
-                      {!isTemp && <Button variant="ghost" size="icon" asChild><Link href={`/dashboard/applicants/${a.id}`}><Eye className="w-4 h-4" /></Link></Button>}
+                      {!isDraft && <Button variant="ghost" size="icon" asChild><Link href={`/dashboard/applicants/${a.id}`}><Eye className="w-4 h-4" /></Link></Button>}
                       <Button variant="ghost" size="icon" className="text-destructive" onClick={() => { setApplicantToDelete(a); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
                     </div>
                   </TableCell>

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -91,7 +92,9 @@ export default function ClassesPage() {
         return
       }
 
-      if (lastFetchedClassId.current === selectedClassForStudents.id && isDirty) return;
+      // Jika berpindah kelas tapi data draf belum disinkronkan, tetap perlu memuat data
+      // Namun hindari infinite loop dengan pengecekan ID kelas
+      if (lastFetchedClassId.current === selectedClassForStudents.id && localApplicants.length > 0 && isDirty) return;
 
       setIsLoadingStudents(true)
       try {
@@ -107,23 +110,11 @@ export default function ClassesPage() {
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        const validResults = results.filter(r => !r.isDeleted && r.admissionStatus === 'accepted');
+        // Filter murid yang aktif dan tidak terhapus
+        const validResults = results.filter(r => !r.isDeleted);
         const sortedResults = validResults.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
         
         setLocalApplicants(sortedResults)
-        
-        const validIds = sortedResults.map(r => r.id);
-        if (validIds.length !== studentIds.length) {
-          const updatedClass = { 
-            ...selectedClassForStudents, 
-            students: validIds, 
-            currentEnrollment: validIds.length 
-          };
-          setSelectedClassForStudents(updatedClass);
-          setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c));
-          setIsDirty(true); 
-        }
-
         lastFetchedClassId.current = selectedClassForStudents.id;
       } catch (err) {
         console.error("Gagal mengambil data siswa:", err)
@@ -132,7 +123,7 @@ export default function ClassesPage() {
       }
     }
     fetchClassStudents()
-  }, [db, selectedClassForStudents?.id, view, isDirty])
+  }, [db, selectedClassForStudents?.id, view])
 
   useEffect(() => {
     if (serverClasses && !isDirty) {
@@ -148,15 +139,14 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
-    const cleanStudents = Array.from(new Set((editingClass?.students || []).filter(Boolean)));
     const classData = {
-      id: editingClass ? editingClass.id : `temp-${Date.now()}`,
+      id: editingClass ? editingClass.id : doc(collection(db!, 'classes')).id,
       name: values.name.trim(),
       gradeLevel: parseInt(values.gradeLevel),
       homeroomTeacher: values.homeroomTeacher?.trim() || "",
       capacity: parseInt(values.capacity),
-      students: cleanStudents,
-      currentEnrollment: cleanStudents.length
+      students: Array.from(new Set((editingClass?.students || []).filter(Boolean))),
+      currentEnrollment: (editingClass?.students || []).length
     } as Classroom
 
     if (editingClass) {
@@ -176,68 +166,40 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
-      // 1. DATA AUDIT: Fetch all truly active applicants
-      const activeAppsSnap = await getDocs(query(
-        collection(db, 'applicants'),
-        where('admissionStatus', '==', 'accepted'),
-        where('isDeleted', '==', false)
-      ));
-      const activeAppIds = new Set(activeAppsSnap.docs.map(d => d.id));
-
-      // 2. Process ids marked for trash
+      // 1. Proses pemindahan ke sampah untuk murid yang dihapus/dikosongkan
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
           deletedAt: new Date().toISOString() 
         })
-        activeAppIds.delete(id); // Remove from valid list for class cleanup
       })
 
-      // 3. Clean and Process classes
-      let removedCount = 0;
-      const nextClasses = localClasses.map(lc => {
-        const rawIds = Array.from(new Set((lc.students || []).filter(Boolean)));
-        
-        // Remove ghost IDs (those not in activeAppIds)
-        const cleanIds = rawIds.filter(id => {
-          const isValid = activeAppIds.has(id);
-          if (!isValid) removedCount++;
-          return isValid;
-        });
-
+      // 2. Bersihkan dan Proses kelas
+      localClasses.forEach(lc => {
+        const cleanIds = Array.from(new Set((lc.students || []).filter(Boolean)));
         const lcClean = { 
           ...lc, 
           students: cleanIds, 
           currentEnrollment: cleanIds.length 
         };
 
-        if (lc.id.startsWith('temp-')) {
-          const newRef = doc(collection(db, 'classes'))
-          const { id, ...data } = lcClean
-          batch.set(newRef, { ...data, id: newRef.id })
-          return { ...lcClean, id: newRef.id }
-        } else {
-          const serverVer = serverClasses.find(sc => sc.id === lc.id)
-          if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(lcClean)) {
-            batch.update(doc(db, 'classes', lc.id), lcClean as any)
-          }
-          return lcClean
+        const serverVer = serverClasses.find(sc => sc.id === lc.id)
+        if (!serverVer) {
+          batch.set(doc(db, 'classes', lc.id), lcClean)
+        } else if (JSON.stringify(serverVer) !== JSON.stringify(lcClean)) {
+          batch.update(doc(db, 'classes', lc.id), lcClean as any)
         }
       })
 
+      // 3. Hapus kelas yang dibuang di draf
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
       await batch.commit()
       
-      setLocalClasses(nextClasses)
       setIdsToTrash(new Set())
       setIsDirty(false)
-      
-      toast({ 
-        title: "Pembersihan & Sinkronisasi Berhasil", 
-        description: `Database dibersihkan. ${removedCount > 0 ? `${removedCount} data nyangkut dibuang.` : 'Data sudah sinkron total.'}` 
-      })
+      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data kelas dan murid telah diperbarui." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -251,28 +213,24 @@ export default function ClassesPage() {
     const targetClass = localClasses.find(c => c.id === targetClassId)
     if (!targetClass) return
 
-    // 1. Remove from source
     const sourceClassUpdated = {
       ...selectedClassForStudents,
       students: (selectedClassForStudents.students || []).filter(id => id !== studentToMove.id),
       currentEnrollment: (selectedClassForStudents.currentEnrollment || 1) - 1
     }
 
-    // 2. Add to target
     const targetClassUpdated = {
       ...targetClass,
       students: Array.from(new Set([...(targetClass.students || []), studentToMove.id])),
-      currentEnrollment: (targetClass.currentEnrollment || 0) + 1
+      currentEnrollment: (targetClass.students?.length || 0) + 1
     }
 
-    // 3. Update localClasses
     setLocalClasses(prev => prev.map(c => {
       if (c.id === sourceClassUpdated.id) return sourceClassUpdated
       if (c.id === targetClassUpdated.id) return targetClassUpdated
       return c
     }))
 
-    // 4. Update UI
     setLocalApplicants(prev => prev.filter(a => a.id !== studentToMove.id))
     setSelectedClassForStudents(sourceClassUpdated)
     setIsDirty(true)
@@ -287,7 +245,6 @@ export default function ClassesPage() {
     if (!selectedClassForStudents || !studentToRemove) return
     const studentId = studentToRemove.id
     
-    // Mark for trash when synced
     setIdsToTrash(prev => new Set([...prev, studentId]))
     
     const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
@@ -302,15 +259,13 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsRemoveConfirmOpen(false)
     setStudentToRemove(null)
-    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah (Sinkron untuk menerapkan)." })
+    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah (Klik Sinkron untuk menerapkan)." })
   }
 
   const handleClearAllStudents = () => {
     if (!selectedClassForStudents) return
-    
     const currentStudentIds = selectedClassForStudents.students || []
     
-    // Add all current students in this class to IDs marked for Trash
     setIdsToTrash(prev => {
       const next = new Set(prev)
       currentStudentIds.forEach(id => next.add(id))
@@ -327,10 +282,7 @@ export default function ClassesPage() {
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
     setIsClearAllDialogOpen(false)
-    toast({ 
-      title: "Kelas Dikosongkan", 
-      description: `${currentStudentIds.length} murid ditandai untuk dipindahkan ke tempat sampah.` 
-    })
+    toast({ title: "Kelas Dikosongkan", description: `${currentStudentIds.length} murid ditandai untuk dihapus.` })
   }
 
   const handleImportEnrollment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -350,12 +302,7 @@ export default function ClassesPage() {
         const nisnList = jsonData.map(row => String(row['NISN'] || row['nisn'] || '').trim()).filter(Boolean)
         const nameList = jsonData.map(row => String(row['Nama'] || row['Nama Lengkap'] || '').trim().toLowerCase()).filter(Boolean)
 
-        if (nisnList.length === 0 && nameList.length === 0) {
-          toast({ variant: "destructive", title: "Format Salah", description: "Kolom NISN atau Nama tidak ditemukan." })
-          return
-        }
-
-        const q = query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated']), where('isDeleted', '==', false))
+        const q = query(collection(db, 'applicants'), where('isDeleted', '==', false))
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
@@ -363,7 +310,7 @@ export default function ClassesPage() {
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
-          if (!s.id.startsWith('temp-') && ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase())))) {
+          if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
             if (matchedIds.includes(s.id)) return;
             if ((selectedClassForStudents.students || []).includes(s.id)) return;
             matchedIds.push(s.id)
@@ -374,9 +321,7 @@ export default function ClassesPage() {
         if (matchedIds.length === 0) {
           toast({ variant: "destructive", title: "Tidak Ada Data Baru", description: "Seluruh murid di file sudah ada atau tidak ditemukan di database." })
         } else {
-          const currentIds = new Set((selectedClassForStudents.students || []).filter(Boolean));
-          const finalIds = Array.from(new Set([...currentIds, ...matchedIds])).filter(Boolean)
-          
+          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
           const updatedClass = {
             ...selectedClassForStudents,
             students: finalIds,
@@ -384,12 +329,7 @@ export default function ClassesPage() {
           }
           
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-          setLocalApplicants(prev => {
-            const tableIds = new Set(prev.map(p => p.id))
-            const filteredNew = matchedApps.filter(ma => !tableIds.has(ma.id))
-            return [...prev, ...filteredNew].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""))
-          })
-          
+          setLocalApplicants(prev => [...prev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
           toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditambahkan ke draf kelas.` })
@@ -457,7 +397,7 @@ export default function ClassesPage() {
             <TableHeader className="bg-muted/50 border-b">
               <TableRow>
                 <TableHead className="w-16 text-center font-bold">No</TableHead>
-                <TableHead className="font-bold w-[150px]">NISN</TableHead>
+                <TableHead className="font-bold w-[180px]">NIS / NISN</TableHead>
                 <TableHead className="font-bold">Nama Murid</TableHead>
                 <TableHead className="font-bold">L/P</TableHead>
                 <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
@@ -474,7 +414,12 @@ export default function ClassesPage() {
               ) : localApplicants.map((s, idx) => (
                 <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
                   <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-col font-mono text-[11px]">
+                       <span className="font-bold text-primary">{s.NIS || "-"}</span>
+                       <span className="text-accent">{s.NISN || "-"}</span>
+                    </div>
+                  </TableCell>
                   <TableCell><span className="font-bold text-sm text-foreground">{s.fullName}</span></TableCell>
                   <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
                   <TableCell className="text-right pr-6">
@@ -503,7 +448,6 @@ export default function ClassesPage() {
           </Table>
         </div>
 
-        {/* Action: Move Class Dialog */}
         <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
           <DialogContent className="sm:max-w-[400px]">
             <DialogHeader>
@@ -538,7 +482,6 @@ export default function ClassesPage() {
           </DialogContent>
         </Dialog>
 
-        {/* Action: Remove Confirmation */}
         <AlertDialog open={isRemoveConfirmOpen} onOpenChange={setIsRemoveConfirmOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -579,9 +522,9 @@ export default function ClassesPage() {
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas & Hapus Murid?</AlertDialogTitle>
               <AlertDialogDescription>
-                Tindakan ini akan mengeluarkan seluruh murid dari kelas {selectedClassForStudents.name} dan **memindahkan seluruh datanya ke Tempat Sampah**.
+                Tindakan ini akan mengeluarkan seluruh murid dari kelas {selectedClassForStudents.name} dan memindahkan seluruh datanya ke **Tempat Sampah**.
                 <br /><br />
-                Murid tersebut tidak akan lagi terdaftar sebagai "Murid Aktif" di Dashboard. Apakah Anda yakin?
+                Apakah Anda yakin?
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -608,7 +551,7 @@ export default function ClassesPage() {
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Pembersihan & Sinkronisasi
+              Sinkronkan ke Cloud
             </Button>
           )}
           <Button onClick={() => { setEditingClass(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Tambah Rombel</Button>
@@ -624,7 +567,7 @@ export default function ClassesPage() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {groupedClasses[level].sort((a,b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})).map(cls => {
-                const isTemp = cls.id.startsWith('temp-')
+                const isTemp = !serverClasses?.find(sc => sc.id === cls.id);
                 const enrollmentCount = (cls.students || []).length;
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
@@ -690,7 +633,7 @@ export default function ClassesPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Hapus Rombel?</AlertDialogTitle>
-            <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda.</AlertDialogDescription>
+            <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda dari sistem.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalClasses(prev => prev.filter(c => c.id !== classToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Hapus</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
