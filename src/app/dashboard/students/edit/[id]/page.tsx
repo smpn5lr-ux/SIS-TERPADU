@@ -13,7 +13,8 @@ import {
   Info,
   CheckCircle2,
   Trash2,
-  ShieldAlert
+  ShieldAlert,
+  UserCheck
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -66,6 +67,8 @@ const formSchema = z.object({
   fatherJob: z.string().optional(),
   motherName: z.string().optional(),
   motherJob: z.string().optional(),
+  guardianName: z.string().optional(),
+  guardianJob: z.string().optional(),
 })
 
 export default function EditStudentPage() {
@@ -89,9 +92,13 @@ export default function EditStudentPage() {
       birthPlace: "", birthDate: "", religion: "Katolik",
       address: "", rt: "", rw: "", kelurahan: "", kecamatan: "", propinsi: "Jawa Barat",
       livingWith: "Bersama Orang Tua", transportation: "Jalan Kaki",
-      studentPhone: "", fatherName: "", fatherJob: "", motherName: "", motherJob: ""
+      studentPhone: "", fatherName: "", fatherJob: "", motherName: "", motherJob: "",
+      guardianName: "", guardianJob: ""
     },
   })
+
+  // Watch status tinggal untuk tampilan kondisional
+  const livingWith = form.watch("livingWith")
 
   useEffect(() => {
     if (student) {
@@ -152,9 +159,9 @@ export default function EditStudentPage() {
             <form onSubmit={form.handleSubmit(onSubmit)}>
               <Tabs defaultValue="pribadi" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 bg-muted/20 border-b rounded-none h-14 p-1">
-                  <TabsTrigger value="pribadi" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">Identitas Pribadi</TabsTrigger>
-                  <TabsTrigger value="alamat" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">Domisili</TabsTrigger>
-                  <TabsTrigger value="ortu" className="data-[state=active]:bg-background data-[state=active]:shadow-sm">Orang Tua</TabsTrigger>
+                  <TabsTrigger value="pribadi" className="data-[state=active]:bg-background data-[state=active]:shadow-sm font-bold">Identitas Pribadi</TabsTrigger>
+                  <TabsTrigger value="alamat" className="data-[state=active]:bg-background data-[state=active]:shadow-sm font-bold">Domisili</TabsTrigger>
+                  <TabsTrigger value="ortu" className="data-[state=active]:bg-background data-[state=active]:shadow-sm font-bold">Orang Tua & Wali</TabsTrigger>
                 </TabsList>
                 
                 <div className="p-8">
@@ -267,34 +274,72 @@ export default function EditStudentPage() {
                   </TabsContent>
 
                   <TabsContent value="ortu" className="space-y-8 mt-0">
-                    <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
-                      <h4 className="text-xs font-bold uppercase tracking-widest text-primary mb-4 flex items-center gap-2"><Users className="w-3 h-3" /> Data Ayah</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={form.control} name="fatherName" render={({ field }) => (
-                          <FormItem><FormLabel>Nama Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                        )} />
-                        <FormField control={form.control} name="fatherJob" render={({ field }) => (
-                          <FormItem><FormLabel>Pekerjaan Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                        )} />
+                    <div className="p-4 bg-primary/5 rounded-xl border border-primary/20">
+                      <FormField control={form.control} name="livingWith" render={({ field }) => (
+                        <FormItem className="max-w-md">
+                          <FormLabel className="text-primary font-bold flex items-center gap-2">
+                            <UserCheck className="w-4 h-4" /> Tinggal Bersama
+                          </FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl><SelectTrigger className="bg-background"><SelectValue placeholder="Pilih Status Tinggal" /></SelectTrigger></FormControl>
+                            <SelectContent>
+                              <SelectItem value="Bersama Orang Tua">Bersama Orang Tua</SelectItem>
+                              <SelectItem value="Wali">Wali</SelectItem>
+                              <SelectItem value="Asrama">Asrama</SelectItem>
+                              <SelectItem value="Kos">Kos</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[10px] text-muted-foreground mt-1">Status ini menentukan apakah kolom Data Wali wajib diisi.</p>
+                        </FormItem>
+                      )} />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-primary mb-4 flex items-center gap-2"><Users className="w-3 h-3" /> Data Ayah Kandung</h4>
+                        <div className="space-y-4">
+                          <FormField control={form.control} name="fatherName" render={({ field }) => (
+                            <FormItem><FormLabel>Nama Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                          <FormField control={form.control} name="fatherJob" render={({ field }) => (
+                            <FormItem><FormLabel>Pekerjaan Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                        </div>
+                      </div>
+                      <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-accent mb-4 flex items-center gap-2"><Users className="w-3 h-3" /> Data Ibu Kandung</h4>
+                        <div className="space-y-4">
+                          <FormField control={form.control} name="motherName" render={({ field }) => (
+                            <FormItem><FormLabel>Nama Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                          <FormField control={form.control} name="motherJob" render={({ field }) => (
+                            <FormItem><FormLabel>Pekerjaan Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                        </div>
                       </div>
                     </div>
-                    <div className="p-4 bg-muted/20 rounded-xl border border-border/50">
-                      <h4 className="text-xs font-bold uppercase tracking-widest text-accent mb-4 flex items-center gap-2"><Users className="w-3 h-3" /> Data Ibu</h4>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <FormField control={form.control} name="motherName" render={({ field }) => (
-                          <FormItem><FormLabel>Nama Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                        )} />
-                        <FormField control={form.control} name="motherJob" render={({ field }) => (
-                          <FormItem><FormLabel>Pekerjaan Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
-                        )} />
+
+                    {livingWith !== 'Bersama Orang Tua' && (
+                      <div className="p-4 bg-accent/5 rounded-xl border border-accent/20 animate-in slide-in-from-top-4 duration-300">
+                        <h4 className="text-xs font-bold uppercase tracking-widest text-accent mb-4 flex items-center gap-2">
+                          <Users className="w-3 h-3" /> Data Wali Murid
+                        </h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <FormField control={form.control} name="guardianName" render={({ field }) => (
+                            <FormItem><FormLabel>Nama Wali</FormLabel><FormControl><Input placeholder="Nama Lengkap Wali" {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                          <FormField control={form.control} name="guardianJob" render={({ field }) => (
+                            <FormItem><FormLabel>Pekerjaan Wali</FormLabel><FormControl><Input placeholder="Pekerjaan Wali" {...field} value={field.value || ""} /></FormControl></FormItem>
+                          )} />
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </TabsContent>
                 </div>
               </Tabs>
               <div className="p-8 bg-muted/5 border-t flex justify-end gap-3">
                 <Button type="button" variant="outline" onClick={() => router.back()}>Batal</Button>
-                <Button type="submit" disabled={isSaving} className="min-w-[150px]">
+                <Button type="submit" disabled={isSaving} className="min-w-[150px] shadow-lg shadow-primary/20">
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2" />}
                   Simpan Perubahan
                 </Button>
