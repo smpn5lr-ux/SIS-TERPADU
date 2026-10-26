@@ -3,14 +3,14 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus, Filter
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus, Filter, ShieldAlert, Sparkles
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useCollection, useFirestore, useMemoFirebase, useDoc, useUser } from '@/firebase'
-import { collection, doc, updateDoc, writeBatch, query, getDocs, where, limit, orderBy } from 'firebase/firestore'
+import { collection, doc, updateDoc, writeBatch, query, getDocs, settlement, where, limit, orderBy } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -44,6 +44,7 @@ export default function ClassesPage() {
   const [view, setView] = useState<'grid' | 'students'>('grid')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isAuditDialogOpen, setIsAuditDialogOpen] = useState(false)
   
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForStudents, setSelectedClassForStudents] = useState<Classroom | null>(null)
@@ -59,7 +60,6 @@ export default function ClassesPage() {
   const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
-  // State untuk Pencarian & Tambah Murid Manual
   const [isSearchAddOpen, setIsSearchAddOpen] = useState(false)
   const [studentSearchTerm, setStudentSearchTerm] = useState("")
 
@@ -83,7 +83,6 @@ export default function ClassesPage() {
   }, [db, user, userLoading])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
-  // Map untuk melacak murid ada di kelas mana
   const studentToClassMap = useMemo(() => {
     const map: Record<string, string> = {}
     localClasses.forEach(c => {
@@ -94,13 +93,12 @@ export default function ClassesPage() {
     return map
   }, [localClasses])
 
-  // Query untuk mencari murid yang akan ditambahkan dari Database Utama
   const applicantsBaseQuery = useMemoFirebase(() => {
     if (!db || !isSearchAddOpen) return null
     return query(
       collection(db, 'applicants'), 
       where('isDeleted', '==', false),
-      where('admissionStatus', '==', 'accepted'),
+      where('admissionStatus', 'in', ['accepted', 'graduated']),
       limit(200)
     )
   }, [db, isSearchAddOpen])
@@ -174,6 +172,55 @@ export default function ClassesPage() {
     resolver: zodResolver(classFormSchema),
     defaultValues: { name: "", gradeLevel: "7", homeroomTeacher: "", capacity: "32" },
   })
+
+  const handleCleanupUnassigned = async () => {
+    if (!db) return;
+    setIsSyncing(true);
+    setIsAuditDialogOpen(false);
+    
+    try {
+      const batch = writeBatch(db);
+      
+      // 1. Ambil semua kelas dan kumpulkan ID murid yang punya kelas
+      const classesSnap = await getDocs(collection(db, 'classes'));
+      const allAssignedIds = new Set<string>();
+      classesSnap.docs.forEach(d => {
+        const c = d.data() as Classroom;
+        (c.students || []).forEach(id => {
+          if (id) allAssignedIds.add(id);
+        });
+      });
+
+      // 2. Ambil semua murid aktif di database
+      const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)));
+      let removedCount = 0;
+      
+      studentsSnap.docs.forEach(d => {
+        // Jika murid tidak ada di set allAssignedIds, pindahkan ke sampah
+        if (!allAssignedIds.has(d.id)) {
+          batch.update(d.ref, { 
+            isDeleted: true, 
+            deletedAt: new Date().toISOString() 
+          });
+          removedCount++;
+        }
+      });
+
+      if (removedCount > 0) {
+        await batch.commit();
+        toast({ 
+          title: "Audit Selesai", 
+          description: `${removedCount} murid tanpa rombel telah dipindahkan ke Tempat Sampah agar Dasbor sinkron.` 
+        });
+      } else {
+        toast({ title: "Audit Selesai", description: "Seluruh murid aktif sudah memiliki rombel." });
+      }
+    } catch (e) {
+      toast({ variant: "destructive", title: "Audit Gagal", description: "Terjadi kesalahan saat memproses data." });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
     const classData = {
@@ -262,7 +309,6 @@ export default function ClassesPage() {
         description: `${s.fullName} akan ditarik dari Kelas ${existingClass} ke Kelas ${selectedClassForStudents.name}.` 
       })
       
-      // Hapus dari kelas lama di draf lokal
       setLocalClasses(prev => prev.map(c => {
         if (c.name === existingClass) {
           const updatedStudents = (c.students || []).filter(id => id !== s.id);
@@ -423,7 +469,7 @@ export default function ClassesPage() {
           toast({ 
             variant: "destructive", 
             title: "Tidak Ada Data Baru", 
-            description: "Seluruh murid di file sudah terdaftar atau tidak ditemukan di Database Utama." 
+            description: "Seluruh murid di file sudah terdaftar or tidak ditemukan di Database Utama." 
           })
         } else {
           const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
@@ -595,7 +641,6 @@ export default function ClassesPage() {
           </Table>
         </div>
 
-        {/* Dialog Cari & Tarik Murid dari Database Utama */}
         <Dialog open={isSearchAddOpen} onOpenChange={setIsSearchAddOpen}>
           <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden flex flex-col max-h-[85vh]">
             <DialogHeader className="p-6 pb-2 border-b bg-muted/20">
@@ -775,7 +820,16 @@ export default function ClassesPage() {
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 animate-pulse gap-1"><CloudOff className="w-3 h-3" /> Ada Draf Baru</Badge>}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button 
+            variant="outline" 
+            onClick={() => setIsAuditDialogOpen(true)}
+            className="gap-2 border-destructive/20 text-destructive hover:bg-destructive/5"
+            disabled={isSyncing}
+          >
+            <ShieldAlert className="w-4 h-4" /> Audit Database
+          </Button>
+          <div className="w-px h-8 bg-border mx-1 hidden md:block"></div>
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
@@ -830,6 +884,12 @@ export default function ClassesPage() {
             </div>
           </section>
         ))}
+        {sortedLevels.length === 0 && !loadingClasses && (
+           <div className="py-32 text-center flex flex-col items-center gap-4 text-muted-foreground italic">
+              <School className="w-16 h-16 opacity-5" />
+              <p>Belum ada rombongan belajar yang terdaftar.</p>
+           </div>
+        )}
       </div>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -856,6 +916,27 @@ export default function ClassesPage() {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={isAuditDialogOpen} onOpenChange={setIsAuditDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Tindakan ini akan memindai seluruh <strong>Data Induk</strong> dan memindahkan setiap murid yang <strong>TIDAK terdaftar di rombel manapun</strong> ke Tempat Sampah.
+              <br/><br/>
+              Tujuannya agar angka di Dasbor hanya menampilkan data riil murid yang sudah memiliki kelas. Anda dapat membatalkan di Tempat Sampah jika keliru.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Ya, Bersihkan Murid Tanpa Kelas
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
