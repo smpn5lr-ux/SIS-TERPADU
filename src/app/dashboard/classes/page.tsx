@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -108,7 +107,9 @@ export default function ClassesPage() {
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        const sortedResults = results.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
+        const validResults = results.filter(r => !r.isDeleted && r.admissionStatus === 'accepted');
+        const sortedResults = validResults.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
+        
         setLocalApplicants(sortedResults)
         
         const validIds = sortedResults.map(r => r.id);
@@ -175,18 +176,40 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
-      // 1. Process ids marked for trash
+      // 1. DATA AUDIT: Fetch all truly active applicants
+      const activeAppsSnap = await getDocs(query(
+        collection(db, 'applicants'),
+        where('admissionStatus', '==', 'accepted'),
+        where('isDeleted', '==', false)
+      ));
+      const activeAppIds = new Set(activeAppsSnap.docs.map(d => d.id));
+
+      // 2. Process ids marked for trash
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
           deletedAt: new Date().toISOString() 
         })
+        activeAppIds.delete(id); // Remove from valid list for class cleanup
       })
 
-      // 2. Process classes
+      // 3. Clean and Process classes
+      let removedCount = 0;
       const nextClasses = localClasses.map(lc => {
-        const cleanStudents = Array.from(new Set((lc.students || []).filter(Boolean)));
-        const lcClean = { ...lc, students: cleanStudents, currentEnrollment: cleanStudents.length };
+        const rawIds = Array.from(new Set((lc.students || []).filter(Boolean)));
+        
+        // Remove ghost IDs (those not in activeAppIds)
+        const cleanIds = rawIds.filter(id => {
+          const isValid = activeAppIds.has(id);
+          if (!isValid) removedCount++;
+          return isValid;
+        });
+
+        const lcClean = { 
+          ...lc, 
+          students: cleanIds, 
+          currentEnrollment: cleanIds.length 
+        };
 
         if (lc.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'classes'))
@@ -206,10 +229,15 @@ export default function ClassesPage() {
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
       await batch.commit()
+      
       setLocalClasses(nextClasses)
       setIdsToTrash(new Set())
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh perubahan data rombel dan status murid diperbarui." })
+      
+      toast({ 
+        title: "Pembersihan & Sinkronisasi Berhasil", 
+        description: `Database dibersihkan. ${removedCount > 0 ? `${removedCount} data nyangkut dibuang.` : 'Data sudah sinkron total.'}` 
+      })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -274,7 +302,7 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsRemoveConfirmOpen(false)
     setStudentToRemove(null)
-    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah sementara (Sinkron untuk menerapkan)." })
+    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah (Sinkron untuk menerapkan)." })
   }
 
   const handleClearAllStudents = () => {
@@ -300,7 +328,7 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsClearAllDialogOpen(false)
     toast({ 
-      title: "Kelas Berhasil Dikosongkan", 
+      title: "Kelas Dikosongkan", 
       description: `${currentStudentIds.length} murid ditandai untuk dipindahkan ke tempat sampah.` 
     })
   }
@@ -580,7 +608,7 @@ export default function ClassesPage() {
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Sinkronkan ke Cloud
+              Pembersihan & Sinkronisasi
             </Button>
           )}
           <Button onClick={() => { setEditingClass(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Tambah Rombel</Button>
