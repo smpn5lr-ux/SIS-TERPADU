@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -75,7 +75,6 @@ export default function ClassesPage() {
   const { data: config } = useDoc<any>(settingsRef)
 
   const classesQuery = useMemoFirebase(() => {
-    // PROTEKSI: Tunggu auth untuk menghindari Permission Denied
     if (!db || userLoading || !user) return null
     return query(collection(db, 'classes'), orderBy('name', 'asc'))
   }, [db, user, userLoading])
@@ -124,7 +123,7 @@ export default function ClassesPage() {
       }
     }
     fetchClassStudents()
-  }, [db, selectedClassForStudents?.id, view, userLoading])
+  }, [db, selectedClassForStudents?.id, view, userLoading, isDirty])
 
   useEffect(() => {
     if (serverClasses && !isDirty) {
@@ -167,12 +166,9 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
-      // 1. Pembersihan Data Murid (Audit)
-      // Tarik seluruh ID murid aktif untuk cross-check
       const activeSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)))
       const allActiveIds = new Set(activeSnap.docs.map(d => d.id))
 
-      // 2. Proses Trash
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
@@ -180,9 +176,7 @@ export default function ClassesPage() {
         })
       })
 
-      // 3. Proses Kelas & Pembersihan ID Stale
       localClasses.forEach(lc => {
-        // Hanya simpan ID yang ada di database aktif dan tidak masuk antrian hapus
         const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && allActiveIds.has(id) && !idsToTrash.has(id))));
         
         const lcClean = { 
@@ -199,7 +193,6 @@ export default function ClassesPage() {
         }
       })
 
-      // 4. Hapus Kelas yang tidak ada di draf
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -293,6 +286,15 @@ export default function ClassesPage() {
     toast({ title: "Kelas Dikosongkan", description: `${currentStudentIds.length} murid ditandai untuk dihapus.` })
   }
 
+  const handleDownloadImportTemplate = () => {
+    const data = [["NISN", "Nama Lengkap"]]
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Template Import")
+    XLSX.writeFile(wb, "Template_Import_Siswa_Rombel.xlsx")
+    toast({ title: "Template Import Diunduh" })
+  }
+
   const handleImportEnrollment = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!selectedClassForStudents || !db) return
     const file = e.target.files?.[0]
@@ -318,20 +320,11 @@ export default function ClassesPage() {
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
-          const isDuplicateName = (selectedClassForStudents.students || []).some(id => {
-            const existing = allStudents.find(x => x.id === id);
-            return existing?.fullName.toLowerCase() === s.fullName.toLowerCase();
-          });
+          const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
+          if (isAlreadyInThisClass) return;
 
           if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
             if (matchedIds.includes(s.id)) return;
-            if ((selectedClassForStudents.students || []).includes(s.id)) return;
-            
-            if (isDuplicateName) {
-              toast({ variant: "destructive", title: "Gagal Impor", description: `Nama ${s.fullName} sudah ada di kelas ini.` });
-              return;
-            }
-
             matchedIds.push(s.id)
             matchedApps.push(s)
           }
@@ -436,6 +429,10 @@ export default function ClassesPage() {
             </Button>
             <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2 border-green-500/20 text-green-500 hover:bg-green-500/5">
               <FileSpreadsheet className="w-4 h-4" /> Template Nilai
+            </Button>
+            <div className="h-4 w-px bg-border mx-1 hidden md:block" />
+            <Button variant="outline" onClick={handleDownloadImportTemplate} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+              <FileUp className="w-4 h-4" /> Template Import
             </Button>
             <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
               <Upload className="w-4 h-4" /> Import Daftar Excel
@@ -566,6 +563,7 @@ export default function ClassesPage() {
                   {isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />}
                   Unggah Daftar Excel
                </Button>
+               <Button variant="link" onClick={handleDownloadImportTemplate} className="text-xs">Download Template Excel</Button>
                <p className="text-[10px] text-muted-foreground italic text-center px-4">Pastikan data murid sudah ada di Data Induk.</p>
             </div>
           </DialogContent>
