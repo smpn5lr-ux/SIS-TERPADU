@@ -30,6 +30,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -37,6 +38,7 @@ import * as z from "zod"
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from "@/components/ui/scroll-area"
 import * as XLSX from 'xlsx'
+import Link from 'next/link'
 
 const classFormSchema = z.object({
   name: z.string().min(1, "Nama kelas harus diisi"),
@@ -555,9 +557,15 @@ export default function ClassesPage() {
                         <DropdownMenuItem onClick={() => { setSelectedStudentForDetail(s); setIsDetailOpen(true); }} className="gap-2 cursor-pointer">
                           <FileText className="w-4 h-4 text-primary" /> Lihat Data Lengkap
                         </DropdownMenuItem>
+                        <DropdownMenuItem asChild className="gap-2 cursor-pointer">
+                          <Link href={`/dashboard/students/edit/${s.id}`}>
+                            <Pencil className="w-4 h-4 text-amber-500" /> Edit Biodata
+                          </Link>
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }} className="gap-2 cursor-pointer">
                           <ArrowRightLeft className="w-4 h-4 text-accent" /> Pindah Kelas
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }} className="gap-2 cursor-pointer text-destructive focus:text-destructive">
                           <UserMinus className="w-4 h-4" /> Hapus (Ke Sampah)
                         </DropdownMenuItem>
@@ -632,8 +640,15 @@ export default function ClassesPage() {
                 </div>
               </div>
             )}
-            <DialogFooter>
-              <Button onClick={() => setIsDetailOpen(false)} className="w-full">Tutup</Button>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setIsDetailOpen(false)} className="flex-1">Tutup</Button>
+              {selectedStudentForDetail && (
+                <Button asChild className="flex-1 gap-2">
+                  <Link href={`/dashboard/students/edit/${selectedStudentForDetail.id}`}>
+                    <Pencil className="w-4 h-4" /> Ubah Data
+                  </Link>
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
