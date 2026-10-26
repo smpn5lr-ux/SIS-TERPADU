@@ -30,7 +30,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import * as XLSX from 'xlsx'
 
 const classFormSchema = z.object({
@@ -63,7 +62,6 @@ export default function ClassesPage() {
   // State untuk Pencarian & Tambah Murid Manual
   const [isSearchAddOpen, setIsSearchAddOpen] = useState(false)
   const [studentSearchTerm, setStudentSearchTerm] = useState("")
-  const [searchFilter, setSearchFilter] = useState<'unassigned' | 'all'>('unassigned')
 
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
@@ -111,16 +109,13 @@ export default function ClassesPage() {
   const filteredSearchStudents = useMemo(() => {
     if (!dbStudents) return []
     return dbStudents.filter(s => {
-      const matchesSearch = s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) || 
-                           (s.NISN || "").includes(studentSearchTerm) ||
-                           (s.NIS || "").includes(studentSearchTerm);
-      
-      if (searchFilter === 'unassigned') {
-        return matchesSearch && !studentToClassMap[s.id];
-      }
+      const term = studentSearchTerm.toLowerCase();
+      const matchesSearch = s.fullName.toLowerCase().includes(term) || 
+                           (s.NISN || "").includes(term) ||
+                           (s.NIS || "").includes(term);
       return matchesSearch;
     })
-  }, [dbStudents, studentSearchTerm, searchFilter, studentToClassMap])
+  }, [dbStudents, studentSearchTerm])
 
   const lastFetchedClassId = useRef<string | null>(null);
 
@@ -614,7 +609,7 @@ export default function ClassesPage() {
               <DialogDescription>Menambahkan murid ke Kelas {selectedClassForStudents.name}.</DialogDescription>
             </DialogHeader>
             
-            <div className="p-4 border-b space-y-4">
+            <div className="p-4 border-b">
                <div className="relative">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                  <input 
@@ -624,17 +619,6 @@ export default function ClassesPage() {
                    onChange={(e) => setStudentSearchTerm(e.target.value)}
                  />
                </div>
-               
-               <Tabs value={searchFilter} onValueChange={(v: any) => setSearchFilter(v)} className="w-full">
-                 <TabsList className="grid w-full grid-cols-2 h-9 bg-muted/50 p-1">
-                   <TabsTrigger value="unassigned" className="text-[10px] uppercase font-bold gap-1.5">
-                     <Filter className="w-3 h-3" /> Belum Masuk Kelas
-                   </TabsTrigger>
-                   <TabsTrigger value="all" className="text-[10px] uppercase font-bold gap-1.5">
-                     <Users className="w-3 h-3" /> Semua Murid
-                   </TabsTrigger>
-                 </TabsList>
-               </Tabs>
             </div>
 
             <ScrollArea className="flex-1">
@@ -647,7 +631,7 @@ export default function ClassesPage() {
                 ) : filteredSearchStudents.length === 0 ? (
                   <div className="py-20 text-center flex flex-col items-center gap-4 text-muted-foreground italic text-sm">
                     <X className="w-10 h-10 opacity-10" />
-                    <p>Murid tidak ditemukan atau kriteria filter tidak sesuai.</p>
+                    <p>Murid tidak ditemukan.</p>
                   </div>
                 ) : filteredSearchStudents.map(s => {
                   const isAlreadyInThis = (selectedClassForStudents?.students || []).includes(s.id);
