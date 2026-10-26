@@ -201,13 +201,40 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
         return
       }
 
-      const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')))
-      const students = studentsSnap.docs
-        .map(d => ({ id: d.id, ...d.data() } as Applicant))
-        .filter(s => targetClass.students.includes(s.id))
+      // FIX: Robust fetching of specific students
+      const studentIds = targetClass.students;
+      const students: Applicant[] = [];
+      
+      for (let i = 0; i < studentIds.length; i += 30) {
+        const chunk = studentIds.slice(i, i + 30);
+        const q = query(collection(db, 'applicants'), where('__name__', 'in', chunk));
+        const snap = await getDocs(q);
+        students.push(...snap.docs.map(d => ({ id: d.id, ...d.data() } as Applicant)));
+      }
+
+      const activeStudents = students
+        .filter(s => !s.isDeleted)
         .sort((a, b) => a.fullName.localeCompare(b.fullName))
 
+      if (activeStudents.length === 0) {
+        toast({ variant: "destructive", title: "Gagal", description: "Tidak ada murid aktif ditemukan." })
+        setIsProcessingQR(false)
+        return
+      }
+
       const docPdf = new jsPDF('p', 'mm', 'a4')
+      
+      // Helper for robust QR loading
+      const getQrBase64 = async (id: string) => {
+        const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${id}`;
+        const res = await fetch(url);
+        const blob = await res.blob();
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      };
       
       docPdf.setFontSize(14).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
       docPdf.text(`KARTU QR ABSENSI - KELAS ${className}`, 105, 15, { align: "center" })
@@ -222,18 +249,20 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
       const marginX = 6;
       const marginY = 8;
 
-      students.forEach((s, idx) => {
+      for (const s of activeStudents) {
         docPdf.setDrawColor(230).setLineWidth(0.1).rect(x, y, cardWidth, cardHeight)
         docPdf.setFillColor(brandBlue[0], brandBlue[1], brandBlue[2]).rect(x, y, cardWidth, 6, 'F')
         docPdf.setFontSize(7).setFont("helvetica", "bold").setTextColor(0)
-        const truncatedName = s.fullName.length > 28 ? s.fullName.substring(0, 25) + "..." : s.fullName
+        const truncatedName = s.fullName.length > 25 ? s.fullName.substring(0, 22) + "..." : s.fullName
         docPdf.text(truncatedName.toUpperCase(), x + cardWidth/2, y + 14, { align: "center" })
         docPdf.setFontSize(6).setFont("helvetica", "normal").setTextColor(100)
         docPdf.text(`NISN: ${s.NISN || "-"}`, x + cardWidth/2, y + 19, { align: "center" })
         docPdf.setFontSize(6).setFont("helvetica", "bold").setTextColor(brandBlue[0], brandBlue[1], brandBlue[2])
         docPdf.text(`KELAS: ${className}`, x + cardWidth/2, y + 24, { align: "center" })
-        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${s.id}`
-        docPdf.addImage(qrUrl, 'PNG', x + (cardWidth - 40) / 2, y + 28, 40, 40)
+        
+        const qrBase64 = await getQrBase64(s.id);
+        docPdf.addImage(qrBase64, 'PNG', x + (cardWidth - 40) / 2, y + 28, 40, 40)
+
         docPdf.setFontSize(5).setTextColor(150).text("SCAN UNTUK ABSEN MANDIRI", x + cardWidth/2, y + cardHeight - 4, { align: "center" })
 
         x += cardWidth + marginX;
@@ -246,10 +275,10 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
           y = 15;
           x = 12;
         }
-      })
+      }
       
       docPdf.save(`Kartu_QR_Absensi_${className.replace(/\s+/g, '_')}.pdf`)
-      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan dengan spasi potong yang aman.` })
+      toast({ title: "Unduh Berhasil", description: `Kartu QR Kelas ${className} telah disimpan.` })
       setIsQRDialogOpen(false)
     } catch (e) {
       toast({ variant: "destructive", title: "Kesalahan", description: "Gagal membuat dokumen PDF." })
