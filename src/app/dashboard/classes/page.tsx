@@ -78,7 +78,7 @@ export default function ClassesPage() {
     async function fetchClassStudents() {
       if (!db || !selectedClassForStudents || view !== 'students') return
       
-      // Bersihkan list murid dari ID yang duplikat, null, atau empty
+      // Bersihkan list murid dari ID yang duplikat, null, atau empty secara agresif
       const rawIds = (selectedClassForStudents.students || []).filter(Boolean);
       const studentIds = Array.from(new Set(rawIds));
       
@@ -109,10 +109,8 @@ export default function ClassesPage() {
         setLocalApplicants(sortedResults)
         
         // CLEANUP GHOST DATA & DUPLICATES
-        // Jika hasil yang ditemukan (28) berbeda dengan jumlah ID di array (56), 
-        // atau jika ada ID duplikat, sinkronkan state lokal agar akurat.
         const validIds = sortedResults.map(r => r.id);
-        if (validIds.length !== rawIds.length) {
+        if (validIds.length !== rawIds.length || validIds.length !== studentIds.length) {
           const updatedClass = { 
             ...selectedClassForStudents, 
             students: validIds, 
@@ -120,7 +118,8 @@ export default function ClassesPage() {
           };
           setSelectedClassForStudents(updatedClass);
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c));
-          setIsDirty(true); // Tandai sebagai draf karena ada pembersihan data stale
+          setIsDirty(true); 
+          toast({ title: "Database Dibersihkan", description: "ID ganda atau tidak valid telah dihapus otomatis." });
         }
 
         lastFetchedClassId.current = selectedClassForStudents.id;
@@ -197,7 +196,6 @@ export default function ClassesPage() {
 
     try {
       const nextClasses = localClasses.map(lc => {
-        // Pastikan list students bersih dari duplikat sebelum ke Cloud
         const cleanStudents = Array.from(new Set((lc.students || []).filter(Boolean)));
         const lcClean = { ...lc, students: cleanStudents, currentEnrollment: cleanStudents.length };
 
@@ -237,10 +235,23 @@ export default function ClassesPage() {
       return;
     }
 
+    // CEK DUPLIKAT NAMA ATAU ID
     const currentStudents = selectedClassForStudents.students || []
-    if (currentStudents.includes(student.id)) {
-      toast({ variant: "destructive", title: "Murid sudah ada di kelas ini" })
+    const isIdDuplicate = currentStudents.includes(student.id);
+    const isNameDuplicate = localApplicants.some(a => a.fullName.toLowerCase() === student.fullName.toLowerCase());
+
+    if (isIdDuplicate) {
+      toast({ variant: "destructive", title: "Murid Sudah Ada", description: `${student.fullName} sudah terdaftar di kelas ini.` })
       return
+    }
+
+    if (isNameDuplicate) {
+      toast({ 
+        variant: "destructive", 
+        title: "Peringatan: Nama Sama", 
+        description: `Nama "${student.fullName}" sudah terdeteksi di kelas ini. Pastikan bukan orang yang sama.` 
+      });
+      // Kita tetap izinkan jika ID berbeda (mungkin nama sama tapi orang beda), tapi beri warning keras.
     }
 
     const updatedStudents = Array.from(new Set([...currentStudents, student.id])).filter(Boolean)
@@ -322,18 +333,27 @@ export default function ClassesPage() {
         
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
+        const duplicatesFound: string[] = []
 
         allStudents.forEach(s => {
           if (!s.id.startsWith('temp-') && ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase())))) {
+            if (matchedIds.includes(s.id)) return;
+            
+            // Cek apakah sudah ada di kelas
+            if ((selectedClassForStudents.students || []).includes(s.id)) {
+              duplicatesFound.push(s.fullName);
+              return;
+            }
+
             matchedIds.push(s.id)
             matchedApps.push(s)
           }
         })
 
         if (matchedIds.length === 0) {
-          toast({ variant: "destructive", title: "Tidak Ada Kecocokan", description: "Tidak menemukan murid permanen yang sesuai di database." })
+          toast({ variant: "destructive", title: "Tidak Ada Data Baru", description: duplicatesFound.length > 0 ? "Semua murid di file sudah ada di kelas ini." : "Tidak menemukan murid permanen yang sesuai." })
         } else {
-          const currentIds = new Set(selectedClassForStudents.students || []);
+          const currentIds = new Set((selectedClassForStudents.students || []).filter(Boolean));
           const finalIds = Array.from(new Set([...currentIds, ...matchedIds])).filter(Boolean)
           
           if (finalIds.length > selectedClassForStudents.capacity) {
@@ -347,7 +367,6 @@ export default function ClassesPage() {
           }
           
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-          
           setLocalApplicants(prev => {
             const tableIds = new Set(prev.map(p => p.id))
             const filteredNew = matchedApps.filter(ma => !tableIds.has(ma.id))
@@ -357,6 +376,9 @@ export default function ClassesPage() {
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
           toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditambahkan ke kelas.` })
+          if (duplicatesFound.length > 0) {
+            toast({ variant: "destructive", title: "Duplikat Dilewati", description: `${duplicatesFound.length} murid sudah ada di kelas sebelumnya.` });
+          }
         }
       } catch (err) {
         toast({ variant: "destructive", title: "Error", description: "Terjadi kesalahan saat memproses file." })
@@ -477,19 +499,28 @@ export default function ClassesPage() {
                     <GraduationCap className="w-16 h-16 opacity-5" />
                     <p>Belum ada murid di kelas ini. Gunakan fitur Import atau Tambah Manual.</p>
                   </TableCell></TableRow>
-                ) : localApplicants.map((s, idx) => (
-                  <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
-                    <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
-                    <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
-                    <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
-                    <TableCell className="text-right pr-6">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)}>
-                        <UserMinus className="w-4 h-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                ) : localApplicants.map((s, idx) => {
+                  // Cek apakah ada nama duplikat di list saat ini untuk peringatan visual
+                  const isDuplicateInList = localApplicants.filter(x => x.fullName.toLowerCase() === s.fullName.toLowerCase()).length > 1;
+                  return (
+                    <TableRow key={s.id} className={`hover:bg-muted/10 transition-colors h-14 ${isDuplicateInList ? 'bg-destructive/5' : ''}`}>
+                      <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-foreground">{s.fullName}</span>
+                          {isDuplicateInList && <Badge variant="destructive" className="text-[8px] h-4">DUPLIKAT</Badge>}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
+                      <TableCell className="text-right pr-6">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)}>
+                          <UserMinus className="w-4 h-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </div>
@@ -499,7 +530,7 @@ export default function ClassesPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Import Murid ke Kelas {selectedClassForStudents.name}</DialogTitle>
-              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap untuk memasukkan murid ke rombel ini secara otomatis.</DialogDescription>
+              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap. Sistem akan mengabaikan data yang sudah ada (Anti-Duplikat).</DialogDescription>
             </DialogHeader>
             <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
                <Upload className="w-8 h-8 text-primary" />
@@ -508,7 +539,7 @@ export default function ClassesPage() {
                   {isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />}
                   Unggah Daftar Excel
                </Button>
-               <p className="text-[10px] text-muted-foreground italic">Pastikan data NISN/Nama murid sudah ada di Data Induk.</p>
+               <p className="text-[10px] text-muted-foreground italic text-center px-4">Pastikan data NISN/Nama murid sudah ada di Data Induk.<br/>Duplikat akan dideteksi dan dilewati secara otomatis.</p>
             </div>
           </DialogContent>
         </Dialog>
@@ -570,7 +601,7 @@ export default function ClassesPage() {
                       <CardDescription className="flex items-center justify-between mt-1">
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5" />
-                          <span className={`font-bold ${enrollmentCount > cls.capacity ? 'text-destructive' : 'text-foreground'}`}>
+                          <span className={`font-bold ${enrollmentCount > cls.capacity ? 'text-destructive animate-pulse' : 'text-foreground'}`}>
                             {enrollmentCount}
                           </span> / {cls.capacity} Murid
                         </div>
