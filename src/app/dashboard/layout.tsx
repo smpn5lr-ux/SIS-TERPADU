@@ -89,9 +89,10 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { data: staffData, loading: staffLoading } = useCollection<Staff>(staffQuery)
 
   const classesQuery = useMemoFirebase(() => {
-    if (!db) return null
+    // PROTEKSI: Jangan query kelas sampai auth siap untuk menghindari Permission Denied
+    if (!db || userLoading || !user) return null
     return collection(db, 'classes')
-  }, [db])
+  }, [db, user, userLoading])
   const { data: allClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
   React.useEffect(() => {
@@ -156,7 +157,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // FIX: Fetch specific students in chunks to ensure all are found
       const studentIds = targetClass.students;
       const students: Applicant[] = [];
       
@@ -179,7 +179,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
 
       const docPdf = new jsPDF('p', 'mm', 'a4')
       
-      // Helper for robust QR loading
       const getQrBase64 = async (id: string) => {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${id}`;
         const res = await fetch(url);

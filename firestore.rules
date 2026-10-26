@@ -4,50 +4,58 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // ATURAN KEAMANAN SIS TERPADU
     
-    // Izin untuk seluruh koleksi akademik bagi pengguna terautentikasi
+    // Izin dasar: Pengguna harus terautentikasi untuk menulis data apapun
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     match /journals/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     match /assessments/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     match /classes/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     match /staff/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     match /subjects/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     match /teacherAssignments/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
 
     match /rosterEntries/{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
     
     // Pendaftar (Read publik untuk cek status)
     match /applicants/{document=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated();
     }
     
     // Pengaturan Sistem
     match /settings/{document=**} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isAuthenticated();
     }
 
-    // Fallback
+    match /gradingConfigs/{document=**} {
+      allow read, write: if isAuthenticated();
+    }
+
+    // Fallback keamanan
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isAuthenticated();
     }
   }
 }

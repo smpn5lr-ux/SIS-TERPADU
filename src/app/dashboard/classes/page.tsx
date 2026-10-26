@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
+import { useCollection, useFirestore, useMemoFirebase, useDoc, useUser } from '@/firebase'
 import { collection, doc, updateDoc, writeBatch, query, orderBy, getDocs, where, limit } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -41,6 +41,7 @@ const classFormSchema = z.object({
 })
 
 export default function ClassesPage() {
+  const { user, loading: userLoading } = useUser()
   const [view, setView] = useState<'grid' | 'students'>('grid')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -59,7 +60,6 @@ export default function ClassesPage() {
   const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
-  // Actions states
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState("")
@@ -74,14 +74,18 @@ export default function ClassesPage() {
   const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
   const { data: config } = useDoc<any>(settingsRef)
 
-  const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
+  const classesQuery = useMemoFirebase(() => {
+    // PROTEKSI: Tunggu auth untuk menghindari Permission Denied
+    if (!db || userLoading || !user) return null
+    return query(collection(db, 'classes'), orderBy('name', 'asc'))
+  }, [db, user, userLoading])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
   const lastFetchedClassId = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchClassStudents() {
-      if (!db || !selectedClassForStudents || view !== 'students') return
+      if (!db || !selectedClassForStudents || view !== 'students' || userLoading) return
       
       const rawIds = (selectedClassForStudents.students || []).filter(Boolean);
       const studentIds = Array.from(new Set(rawIds));
@@ -120,7 +124,7 @@ export default function ClassesPage() {
       }
     }
     fetchClassStudents()
-  }, [db, selectedClassForStudents?.id, view])
+  }, [db, selectedClassForStudents?.id, view, userLoading])
 
   useEffect(() => {
     if (serverClasses && !isDirty) {
@@ -163,6 +167,12 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
+      // 1. Pembersihan Data Murid (Audit)
+      // Tarik seluruh ID murid aktif untuk cross-check
+      const activeSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)))
+      const allActiveIds = new Set(activeSnap.docs.map(d => d.id))
+
+      // 2. Proses Trash
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
@@ -170,8 +180,11 @@ export default function ClassesPage() {
         })
       })
 
+      // 3. Proses Kelas & Pembersihan ID Stale
       localClasses.forEach(lc => {
-        const cleanIds = Array.from(new Set((lc.students || []).filter(Boolean)));
+        // Hanya simpan ID yang ada di database aktif dan tidak masuk antrian hapus
+        const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && allActiveIds.has(id) && !idsToTrash.has(id))));
+        
         const lcClean = { 
           ...lc, 
           students: cleanIds, 
@@ -186,6 +199,7 @@ export default function ClassesPage() {
         }
       })
 
+      // 4. Hapus Kelas yang tidak ada di draf
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -193,7 +207,7 @@ export default function ClassesPage() {
       
       setIdsToTrash(new Set())
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data kelas dan murid telah diperbarui." })
+      toast({ title: "Sinkronisasi & Pembersihan Berhasil", description: "Data murid yang 'nyangkut' telah dibersihkan secara otomatis." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
