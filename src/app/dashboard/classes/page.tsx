@@ -354,12 +354,26 @@ export default function ClassesPage() {
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
+        // Peta siswa yang sudah berkelas untuk validasi tingkat
+        const studentGradeMap = new Map<string, number>();
+        localClasses.forEach(c => {
+          (c.students || []).forEach(sid => studentGradeMap.set(sid, c.gradeLevel));
+        });
+
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
+        let skipCount = 0;
 
         allStudents.forEach(s => {
           const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
           if (isAlreadyInThisClass) return;
+
+          // Validasi: Siswa hanya bisa ditarik jika belum berkelas atau di tingkat yang sama
+          const existingGrade = studentGradeMap.get(s.id);
+          if (existingGrade !== undefined && existingGrade !== selectedClassForStudents.gradeLevel) {
+            skipCount++;
+            return;
+          }
 
           const matchNISN = s.NISN && nisnList.includes(s.NISN);
           const matchNIS = s.NIS && nisList.includes(s.NIS);
@@ -373,7 +387,13 @@ export default function ClassesPage() {
         })
 
         if (matchedIds.length === 0) {
-          toast({ variant: "destructive", title: "Tidak Ada Murid Baru", description: "Gunakan template yang benar atau periksa Nama/NISN di Database Utama." })
+          toast({ 
+            variant: "destructive", 
+            title: "Tidak Ada Murid Baru", 
+            description: skipCount > 0 
+              ? `${skipCount} murid dilewati karena sudah terdaftar di tingkat yang berbeda.`
+              : "Gunakan template yang benar atau periksa Nama/NISN di Database Utama." 
+          })
         } else {
           const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
           const updatedClass = {
@@ -386,7 +406,10 @@ export default function ClassesPage() {
           setLocalApplicants(prev => [...prev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
-          toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditarik ke rombel.` })
+          
+          let successMsg = `${matchedIds.length} murid ditarik ke rombel.`;
+          if (skipCount > 0) successMsg += ` (${skipCount} dilewati karena beda tingkat)`;
+          toast({ title: "Import Berhasil", description: successMsg })
         }
       } catch (err) {
         toast({ variant: "destructive", title: "Error" })
@@ -524,11 +547,21 @@ export default function ClassesPage() {
 
         <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
           <DialogContent className="sm:max-w-[400px]">
-            <DialogHeader><DialogTitle>Pindahkan Kelas</DialogTitle><DialogDescription>Pindahkan <strong>{studentToMove?.fullName}</strong> ke rombel lain.</DialogDescription></DialogHeader>
+            <DialogHeader><DialogTitle>Pindahkan Kelas</DialogTitle><DialogDescription>Pindahkan <strong>{studentToMove?.fullName}</strong> ke rombel lain di tingkat yang sama.</DialogDescription></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="space-y-2">
-                 <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Kelas Tujuan</Label>
-                 <Select value={targetClassId} onValueChange={setTargetClassId}><SelectTrigger className="h-12"><SelectValue placeholder="Pilih Rombongan Belajar" /></SelectTrigger><SelectContent>{localClasses.filter(c => c.id !== selectedClassForStudents.id).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(c => (<SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>))}</SelectContent></Select>
+                 <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Kelas Tujuan (Tingkat {selectedClassForStudents.gradeLevel})</Label>
+                 <Select value={targetClassId} onValueChange={setTargetClassId}>
+                   <SelectTrigger className="h-12"><SelectValue placeholder="Pilih Rombongan Belajar" /></SelectTrigger>
+                   <SelectContent>
+                     {localClasses
+                       .filter(c => c.id !== selectedClassForStudents.id && c.gradeLevel === selectedClassForStudents.gradeLevel)
+                       .sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
+                       .map(c => (<SelectItem key={c.id} value={c.id}>Kelas {c.name}</SelectItem>))
+                     }
+                   </SelectContent>
+                 </Select>
+                 <p className="text-[10px] text-muted-foreground italic">Hanya menampilkan kelas pada tingkatan yang sama untuk mencegah campur jenjang.</p>
                </div>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Batal</Button><Button onClick={handleMoveStudent} disabled={!targetClassId}>Proses Pindah</Button></DialogFooter>
@@ -549,7 +582,10 @@ export default function ClassesPage() {
                <Upload className="w-8 h-8 text-primary" />
                <input type="file" ref={enrollmentFileInputRef} onChange={handleImportEnrollment} accept=".xlsx,.xls" className="hidden" />
                <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />} Pilih File Excel</Button>
-               <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
+               <div className="flex flex-col items-center gap-2">
+                  <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
+                  <p className="text-[9px] text-muted-foreground text-center max-w-[250px]">Sistem akan memvalidasi agar tidak terjadi pencampuran siswa antar tingkatan kelas yang berbeda.</p>
+               </div>
             </div>
           </DialogContent>
         </Dialog>
