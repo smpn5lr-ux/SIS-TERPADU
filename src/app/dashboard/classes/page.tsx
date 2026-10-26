@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus, Filter
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import * as XLSX from 'xlsx'
 
 const classFormSchema = z.object({
@@ -59,9 +60,10 @@ export default function ClassesPage() {
   const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
-  // State untuk Pencarian & Tambah Murid Manual (Dari Database Utama)
+  // State untuk Pencarian & Tambah Murid Manual
   const [isSearchAddOpen, setIsSearchAddOpen] = useState(false)
   const [studentSearchTerm, setStudentSearchTerm] = useState("")
+  const [searchFilter, setSearchFilter] = useState<'unassigned' | 'all'>('unassigned')
 
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
@@ -83,6 +85,17 @@ export default function ClassesPage() {
   }, [db, user, userLoading])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
+  // Map untuk melacak murid ada di kelas mana
+  const studentToClassMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    localClasses.forEach(c => {
+      (c.students || []).forEach(sid => {
+        map[sid] = c.name
+      })
+    })
+    return map
+  }, [localClasses])
+
   // Query untuk mencari murid yang akan ditambahkan dari Database Utama
   const applicantsBaseQuery = useMemoFirebase(() => {
     if (!db || !isSearchAddOpen) return null
@@ -90,19 +103,24 @@ export default function ClassesPage() {
       collection(db, 'applicants'), 
       where('isDeleted', '==', false),
       where('admissionStatus', '==', 'accepted'),
-      limit(100)
+      limit(200)
     )
   }, [db, isSearchAddOpen])
   const { data: dbStudents, loading: loadingDbStudents } = useCollection<Applicant>(applicantsBaseQuery)
 
   const filteredSearchStudents = useMemo(() => {
     if (!dbStudents) return []
-    return dbStudents.filter(s => 
-      s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) || 
-      (s.NISN || "").includes(studentSearchTerm) ||
-      (s.NIS || "").includes(studentSearchTerm)
-    )
-  }, [dbStudents, studentSearchTerm])
+    return dbStudents.filter(s => {
+      const matchesSearch = s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) || 
+                           (s.NISN || "").includes(studentSearchTerm) ||
+                           (s.NIS || "").includes(studentSearchTerm);
+      
+      if (searchFilter === 'unassigned') {
+        return matchesSearch && !studentToClassMap[s.id];
+      }
+      return matchesSearch;
+    })
+  }, [dbStudents, studentSearchTerm, searchFilter, studentToClassMap])
 
   const lastFetchedClassId = useRef<string | null>(null);
 
@@ -235,13 +253,28 @@ export default function ClassesPage() {
   const handlePickStudentManual = (s: Applicant) => {
     if (!selectedClassForStudents) return
     
-    // Validasi apakah murid sudah ada (berdasarkan ID atau Nama)
-    const isAlreadyById = (selectedClassForStudents.students || []).includes(s.id);
-    const isAlreadyByName = localApplicants.some(la => la.fullName.toLowerCase() === s.fullName.toLowerCase());
+    const isAlreadyInCurrent = (selectedClassForStudents.students || []).includes(s.id);
+    const existingClass = studentToClassMap[s.id];
 
-    if (isAlreadyById || isAlreadyByName) {
+    if (isAlreadyInCurrent) {
       toast({ variant: "destructive", title: "Murid Sudah Ada", description: `${s.fullName} sudah terdaftar di kelas ini.` })
       return
+    }
+
+    if (existingClass) {
+      toast({ 
+        title: "Konfirmasi Perpindahan", 
+        description: `${s.fullName} akan ditarik dari Kelas ${existingClass} ke Kelas ${selectedClassForStudents.name}.` 
+      })
+      
+      // Hapus dari kelas lama di draf lokal
+      setLocalClasses(prev => prev.map(c => {
+        if (c.name === existingClass) {
+          const updatedStudents = (c.students || []).filter(id => id !== s.id);
+          return { ...c, students: updatedStudents, currentEnrollment: updatedStudents.length };
+        }
+        return c;
+      }));
     }
 
     const updatedIds = Array.from(new Set([...(selectedClassForStudents.students || []), s.id]))
@@ -363,7 +396,6 @@ export default function ClassesPage() {
         const nisList = jsonData.map(row => String(row['NIS'] || '').trim()).filter(Boolean)
         const nameList = jsonData.map(row => String(row['Nama Lengkap'] || row['Nama'] || '').trim().toLowerCase()).filter(Boolean)
 
-        // Tarik data seluruh murid aktif untuk pencocokan
         const q = query(collection(db, 'applicants'), where('isDeleted', '==', false))
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
@@ -381,7 +413,6 @@ export default function ClassesPage() {
             return;
           }
 
-          // Pencocokan multi-kriteria: NISN, NIS, atau Nama Lengkap
           const matchNISN = s.NISN && nisnList.includes(s.NISN);
           const matchNIS = s.NIS && nisList.includes(s.NIS);
           const matchName = s.fullName && nameList.includes(s.fullName.toLowerCase());
@@ -502,7 +533,7 @@ export default function ClassesPage() {
             </Button>
             <div className="h-4 w-px bg-border mx-1 hidden md:block" />
             <Button onClick={() => setIsSearchAddOpen(true)} className="gap-2 bg-primary">
-              <UserPlus className="w-4 h-4" /> Tambah dari Database
+              <UserPlus className="w-4 h-4" /> Tarik Murid Database
             </Button>
             <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
               <Upload className="w-4 h-4" /> Import Excel
@@ -530,7 +561,7 @@ export default function ClassesPage() {
               ) : localApplicants.length === 0 ? (
                 <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                   <GraduationCap className="w-16 h-16 opacity-5" />
-                  <p>Belum ada murid di kelas ini. Gunakan Import Excel atau Tambah dari Database Utama.</p>
+                  <p>Belum ada murid di kelas ini. Gunakan Import Excel atau Tarik Murid dari Database.</p>
                 </TableCell></TableRow>
               ) : localApplicants.map((s, idx) => (
                 <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
@@ -569,17 +600,21 @@ export default function ClassesPage() {
           </Table>
         </div>
 
-        {/* Dialog Cari & Tambah Murid (Dari Database Utama) */}
+        {/* Dialog Cari & Tarik Murid dari Database Utama */}
         <Dialog open={isSearchAddOpen} onOpenChange={setIsSearchAddOpen}>
-          <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden flex flex-col max-h-[85vh]">
+          <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden flex flex-col max-h-[85vh]">
             <DialogHeader className="p-6 pb-2 border-b bg-muted/20">
-              <DialogTitle className="flex items-center gap-2">
-                <UserPlus className="w-5 h-5 text-primary" />
-                Tarik Murid dari Database Utama
-              </DialogTitle>
-              <DialogDescription>Cari murid aktif yang belum masuk rombel ini.</DialogDescription>
+              <div className="flex items-center justify-between">
+                <DialogTitle className="flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-primary" />
+                  Tarik Murid dari Database Utama
+                </DialogTitle>
+                <Badge variant="outline" className="font-mono bg-background">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
+              </div>
+              <DialogDescription>Menambahkan murid ke Kelas {selectedClassForStudents.name}.</DialogDescription>
             </DialogHeader>
-            <div className="p-4 border-b">
+            
+            <div className="p-4 border-b space-y-4">
                <div className="relative">
                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                  <input 
@@ -589,28 +624,59 @@ export default function ClassesPage() {
                    onChange={(e) => setStudentSearchTerm(e.target.value)}
                  />
                </div>
+               
+               <Tabs value={searchFilter} onValueChange={(v: any) => setSearchFilter(v)} className="w-full">
+                 <TabsList className="grid w-full grid-cols-2 h-9 bg-muted/50 p-1">
+                   <TabsTrigger value="unassigned" className="text-[10px] uppercase font-bold gap-1.5">
+                     <Filter className="w-3 h-3" /> Belum Masuk Kelas
+                   </TabsTrigger>
+                   <TabsTrigger value="all" className="text-[10px] uppercase font-bold gap-1.5">
+                     <Users className="w-3 h-3" /> Semua Murid
+                   </TabsTrigger>
+                 </TabsList>
+               </Tabs>
             </div>
+
             <ScrollArea className="flex-1">
               <div className="p-4 space-y-2">
                 {loadingDbStudents ? (
-                  <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                  <div className="py-20 text-center flex flex-col items-center gap-2">
+                    <Loader2 className="animate-spin text-primary" />
+                    <span className="text-xs text-muted-foreground">Menghubungkan ke database...</span>
+                  </div>
                 ) : filteredSearchStudents.length === 0 ? (
-                  <div className="py-20 text-center text-muted-foreground italic text-sm">Murid tidak ditemukan atau sudah terhapus.</div>
+                  <div className="py-20 text-center flex flex-col items-center gap-4 text-muted-foreground italic text-sm">
+                    <X className="w-10 h-10 opacity-10" />
+                    <p>Murid tidak ditemukan atau kriteria filter tidak sesuai.</p>
+                  </div>
                 ) : filteredSearchStudents.map(s => {
-                  const isAlreadyIn = (selectedClassForStudents?.students || []).includes(s.id);
+                  const isAlreadyInThis = (selectedClassForStudents?.students || []).includes(s.id);
+                  const currentClass = studentToClassMap[s.id];
+                  
                   return (
-                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors bg-card/50">
+                    <div key={s.id} className={`flex items-center justify-between p-3 rounded-xl border transition-all hover:shadow-md bg-card/50 ${isAlreadyInThis ? 'border-primary/30 bg-primary/5' : 'hover:bg-muted/30'}`}>
                       <div className="flex flex-col">
-                        <span className="font-bold text-sm">{s.fullName}</span>
+                        <span className="font-bold text-sm flex items-center gap-2">
+                          {s.fullName}
+                          {isAlreadyInThis && <CheckCircle2 className="w-3 h-3 text-primary" />}
+                        </span>
                         <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"} • {s.gender}</span>
+                        <div className="mt-1">
+                           {currentClass ? (
+                             <Badge variant="secondary" className="text-[9px] font-bold py-0 h-5 border-accent/20 text-accent">Rombel: Kelas {currentClass}</Badge>
+                           ) : (
+                             <Badge variant="outline" className="text-[9px] font-bold py-0 h-5 text-green-500 border-green-500/20">Status: Belum Ber-Rombel</Badge>
+                           )}
+                        </div>
                       </div>
                       <Button 
                         size="sm" 
-                        variant={isAlreadyIn ? "outline" : "default"}
-                        disabled={isAlreadyIn}
+                        variant={isAlreadyInThis ? "outline" : "default"}
+                        disabled={isAlreadyInThis}
                         onClick={() => handlePickStudentManual(s)}
+                        className="h-9 px-4 rounded-lg"
                       >
-                        {isAlreadyIn ? "Sudah Ada" : "Pilih Murid"}
+                        {isAlreadyInThis ? "Sudah Ada" : currentClass ? "Pindahkan" : "Pilih Murid"}
                       </Button>
                     </div>
                   )
@@ -618,7 +684,7 @@ export default function ClassesPage() {
               </div>
             </ScrollArea>
             <DialogFooter className="p-4 border-t bg-muted/10">
-               <Button variant="outline" onClick={() => setIsSearchAddOpen(false)} className="w-full">Selesai</Button>
+               <Button variant="outline" onClick={() => setIsSearchAddOpen(false)} className="w-full h-11 font-bold">Selesai Menata Rombel</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
