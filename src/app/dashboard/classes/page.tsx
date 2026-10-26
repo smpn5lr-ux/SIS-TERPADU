@@ -478,7 +478,7 @@ export default function ClassesPage() {
               <Upload className="w-4 h-4" /> Import Excel
             </Button>
             <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5">
-              <Trash className="w-4 h-4" /> Kosongkan Kelas
+              <Trash2 className="w-4 h-4" /> Kosongkan Kelas
             </Button>
           </div>
         </div>
@@ -527,7 +527,7 @@ export default function ClassesPage() {
             <DialogHeader><DialogTitle>Pindahkan Kelas</DialogTitle><DialogDescription>Pindahkan <strong>{studentToMove?.fullName}</strong> ke rombel lain.</DialogDescription></DialogHeader>
             <div className="py-4 space-y-4">
                <div className="space-y-2">
-                 <Label className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest">Pilih Kelas Tujuan</Label>
+                 <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Kelas Tujuan</Label>
                  <Select value={targetClassId} onValueChange={setTargetClassId}><SelectTrigger className="h-12"><SelectValue placeholder="Pilih Rombongan Belajar" /></SelectTrigger><SelectContent>{localClasses.filter(c => c.id !== selectedClassForStudents.id).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(c => (<SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>))}</SelectContent></Select>
                </div>
             </div>
@@ -556,7 +556,10 @@ export default function ClassesPage() {
 
         <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
           <AlertDialogContent>
-            <AlertDialogHeader><AlertDialogTitle>Kosongkan Kelas?</AlertDialogTitle><AlertDialogDescription>Seluruh murid akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah**.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Kosongkan Kelas?</AlertDialogTitle>
+              <AlertDialogDescription>Seluruh murid akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah**.</AlertDialogDescription>
+            </AlertDialogHeader>
             <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
