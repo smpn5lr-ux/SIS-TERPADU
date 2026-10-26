@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
-import { collection, doc, updateDoc, writeBatch, query, orderBy, getDocs, where } from 'firebase/firestore'
+import { collection, doc, updateDoc, writeBatch, query, orderBy, getDocs, where, limit } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -51,7 +51,6 @@ export default function ClassesPage() {
   const [isAddStudentMode, setIsAddStudentMode] = useState(false)
   const [isEditStudentOpen, setIsEditStudentOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
-  const [isExporting, setIsExporting] = useState(false)
   
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForStudents, setSelectedClassForStudents] = useState<Classroom | null>(null)
@@ -64,12 +63,10 @@ export default function ClassesPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false)
 
-  const [isPromotionDialogOpen, setIsPromotionDialogOpen] = useState(false)
-  const [classToPromote, setClassToPromote] = useState<Classroom | null>(null)
-  
   const [studentSearch, setStudentSearch] = useState("")
   const [globalApplicantsForAdd, setGlobalApplicantsForAdd] = useState<Applicant[]>([])
   const [loadingGlobalAdd, setLoadingGlobalAdd] = useState(false)
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false)
   
   const { toast } = useToast()
   const db = useFirestore()
@@ -80,10 +77,10 @@ export default function ClassesPage() {
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
-  // LAZY FETCH: Hanya ambil murid yang benar-benar ada di kelas yang terpilih
+  // FIX: Menggunakan '__name__' untuk query Document ID agar daftar siswa tidak kosong
   useEffect(() => {
     async function fetchClassStudents() {
-      if (!db || !selectedClassForStudents || view !== 'students' || isDirty) return
+      if (!db || !selectedClassForStudents || view !== 'students') return
       
       const studentIds = selectedClassForStudents.students || []
       if (studentIds.length === 0) {
@@ -91,30 +88,46 @@ export default function ClassesPage() {
         return
       }
 
-      // Firestore limits 'in' queries to 30 items. We batch fetch if more.
-      const chunks = [];
-      for (let i = 0; i < studentIds.length; i += 30) {
-        chunks.push(studentIds.slice(i, i + 30));
-      }
+      setIsLoadingStudents(true)
+      try {
+        const chunks = [];
+        for (let i = 0; i < studentIds.length; i += 30) {
+          chunks.push(studentIds.slice(i, i + 30));
+        }
 
-      const results: Applicant[] = [];
-      for (const chunk of chunks) {
-        const q = query(collection(db, 'applicants'), where('id', 'in', chunk));
-        const snap = await getDocs(q);
-        results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
+        const results: Applicant[] = [];
+        for (const chunk of chunks) {
+          // PENTING: Gunakan '__name__' untuk mencari ID dokumen
+          const q = query(collection(db, 'applicants'), where('__name__', 'in', chunk));
+          const snap = await getDocs(q);
+          results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
+        }
+        
+        // Hanya update jika data benar-benar ditemukan atau memang kosong di DB
+        setLocalApplicants(results)
+      } catch (err) {
+        console.error("Gagal mengambil data siswa:", err)
+      } finally {
+        setIsLoadingStudents(false)
       }
-      setLocalApplicants(results)
     }
+    
+    // Jalankan fetch jika tampilan berubah atau kelas berganti
     fetchClassStudents()
-  }, [db, selectedClassForStudents, view, isDirty])
+  }, [db, selectedClassForStudents?.id, view])
 
-  // LAZY FETCH FOR ADD MODE: Ambil murid yang belum masuk kelas manapun (Status accepted)
+  // Ambil murid yang belum masuk kelas manapun (Status accepted)
   useEffect(() => {
     async function fetchAvailableStudents() {
       if (!db || !isAddStudentMode) return
       setLoadingGlobalAdd(true)
       try {
-        const q = query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), where('isDeleted', '==', false), limit(500))
+        const q = query(
+          collection(db, 'applicants'), 
+          where('admissionStatus', '==', 'accepted'), 
+          where('isDeleted', '==', false), 
+          limit(500)
+        )
         const snap = await getDocs(q)
         const apps = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
@@ -191,15 +204,6 @@ export default function ClassesPage() {
     setIsEditStudentOpen(true)
   }
 
-  const onSaveStudentLocal = (values: z.infer<typeof studentEditSchema>) => {
-    if (!editingStudentData) return
-    const updated = { ...editingStudentData, ...values, updatedAt: new Date().toISOString() }
-    setLocalApplicants(prev => prev.map(a => a.id === editingStudentData.id ? updated : a))
-    setIsDirty(true)
-    setIsEditStudentOpen(false)
-    toast({ title: "Biodata Siswa Diperbarui" })
-  }
-
   const handleDeleteTrigger = (cls: Classroom) => {
     setClassToDelete(cls)
     setIsDeleteDialogOpen(true)
@@ -211,20 +215,6 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsDeleteDialogOpen(false)
     setClassToDelete(null)
-  }
-
-  const handleClearAllStudents = () => {
-    if (!selectedClassForStudents) return
-    const updatedClass = {
-      ...selectedClassForStudents,
-      students: [],
-      currentEnrollment: 0
-    }
-    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-    setSelectedClassForStudents(updatedClass)
-    setIsDirty(true)
-    setIsClearAllDialogOpen(false)
-    toast({ title: "Daftar Murid Dikosongkan" })
   }
 
   const handleSyncToCloud = async () => {
@@ -246,11 +236,6 @@ export default function ClassesPage() {
           }
           return lc
         }
-      })
-
-      // Sync applicants if changed locally (e.g. edited name in student table)
-      localApplicants.forEach(la => {
-        batch.update(doc(db, 'applicants', la.id), la as any)
       })
 
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
@@ -295,6 +280,7 @@ export default function ClassesPage() {
       students: updatedStudents,
       currentEnrollment: updatedStudents.length
     }
+    
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setLocalApplicants(prev => {
       if (prev.some(x => x.id === student.id)) return prev
@@ -398,7 +384,9 @@ export default function ClassesPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {currentClassStudents.length === 0 ? (
+                  {isLoadingStudents ? (
+                    <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /> Memuat daftar siswa...</TableCell></TableRow>
+                  ) : currentClassStudents.length === 0 ? (
                     <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                       <GraduationCap className="w-16 h-16 opacity-5" />
                       <p>Belum ada murid di kelas ini.</p>
