@@ -3,14 +3,14 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle, ArrowRightLeft, FileUp, UserPlus
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { useCollection, useFirestore, useMemoFirebase, useDoc, useUser } from '@/firebase'
-import { collection, doc, updateDoc, writeBatch, query, orderBy, getDocs, where, limit } from 'firebase/firestore'
+import { collection, doc, updateDoc, writeBatch, query, getDocs, where, limit, orderBy } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
@@ -30,7 +30,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useToast } from '@/hooks/use-toast'
 import { ScrollArea } from "@/components/ui/scroll-area"
-import Link from 'next/link'
 import * as XLSX from 'xlsx'
 
 const classFormSchema = z.object({
@@ -60,6 +59,10 @@ export default function ClassesPage() {
   const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
 
+  // State untuk Pencarian & Tambah Murid Manual
+  const [isSearchAddOpen, setIsSearchAddOpen] = useState(false)
+  const [studentSearchTerm, setStudentSearchTerm] = useState("")
+
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState("")
@@ -79,6 +82,27 @@ export default function ClassesPage() {
     return query(collection(db, 'classes'), orderBy('name', 'asc'))
   }, [db, user, userLoading])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
+
+  // Query untuk mencari murid yang akan ditambahkan satu per satu
+  const applicantsBaseQuery = useMemoFirebase(() => {
+    if (!db || !isSearchAddOpen) return null
+    return query(
+      collection(db, 'applicants'), 
+      where('isDeleted', '==', false),
+      where('admissionStatus', '==', 'accepted'),
+      limit(100)
+    )
+  }, [db, isSearchAddOpen])
+  const { data: dbStudents, loading: loadingDbStudents } = useCollection<Applicant>(applicantsBaseQuery)
+
+  const filteredSearchStudents = useMemo(() => {
+    if (!dbStudents) return []
+    return dbStudents.filter(s => 
+      s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) || 
+      (s.NISN || "").includes(studentSearchTerm) ||
+      (s.NIS || "").includes(studentSearchTerm)
+    )
+  }, [dbStudents, studentSearchTerm])
 
   const lastFetchedClassId = useRef<string | null>(null);
 
@@ -208,6 +232,28 @@ export default function ClassesPage() {
     }
   }
 
+  const handlePickStudentManual = (s: Applicant) => {
+    if (!selectedClassForStudents) return
+    
+    if ((selectedClassForStudents.students || []).includes(s.id)) {
+      toast({ variant: "destructive", title: "Sudah Ada", description: `${s.fullName} sudah terdaftar di kelas ini.` })
+      return
+    }
+
+    const updatedIds = Array.from(new Set([...(selectedClassForStudents.students || []), s.id]))
+    const updatedClass = {
+      ...selectedClassForStudents,
+      students: updatedIds,
+      currentEnrollment: updatedIds.length
+    }
+
+    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+    setLocalApplicants(prev => [...prev, s].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
+    setSelectedClassForStudents(updatedClass)
+    setIsDirty(true)
+    toast({ title: "Murid Ditambahkan", description: `${s.fullName} masuk ke draf kelas.` })
+  }
+
   const handleMoveStudent = () => {
     if (!selectedClassForStudents || !studentToMove || !targetClassId) return
     
@@ -287,7 +333,7 @@ export default function ClassesPage() {
   }
 
   const handleDownloadImportTemplate = () => {
-    const data = [["NISN", "Nama Lengkap"]]
+    const data = [["NIS", "NISN", "Nama Lengkap", "L/P"]]
     const ws = XLSX.utils.aoa_to_sheet(data)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, "Template Import")
@@ -310,6 +356,7 @@ export default function ClassesPage() {
         const jsonData = XLSX.utils.sheet_to_json(sheet) as any[]
         
         const nisnList = jsonData.map(row => String(row['NISN'] || row['nisn'] || '').trim()).filter(Boolean)
+        const nisList = jsonData.map(row => String(row['NIS'] || row['nis'] || '').trim()).filter(Boolean)
         const nameList = jsonData.map(row => String(row['Nama'] || row['Nama Lengkap'] || '').trim().toLowerCase()).filter(Boolean)
 
         const q = query(collection(db, 'applicants'), where('isDeleted', '==', false))
@@ -323,7 +370,12 @@ export default function ClassesPage() {
           const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
           if (isAlreadyInThisClass) return;
 
-          if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
+          // Pencocokan multi-kriteria: NISN, NIS, atau Nama
+          const matchNISN = s.NISN && nisnList.includes(s.NISN);
+          const matchNIS = s.NIS && nisList.includes(s.NIS);
+          const matchName = s.fullName && nameList.includes(s.fullName.toLowerCase());
+
+          if (matchNISN || matchNIS || matchName) {
             if (matchedIds.includes(s.id)) return;
             matchedIds.push(s.id)
             matchedApps.push(s)
@@ -431,8 +483,8 @@ export default function ClassesPage() {
               <FileSpreadsheet className="w-4 h-4" /> Template Nilai
             </Button>
             <div className="h-4 w-px bg-border mx-1 hidden md:block" />
-            <Button variant="outline" onClick={handleDownloadImportTemplate} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
-              <FileUp className="w-4 h-4" /> Template Import
+            <Button onClick={() => setIsSearchAddOpen(true)} className="gap-2 bg-primary">
+              <UserPlus className="w-4 h-4" /> Tambah Murid (Cari)
             </Button>
             <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
               <Upload className="w-4 h-4" /> Import Daftar Excel
@@ -460,7 +512,7 @@ export default function ClassesPage() {
               ) : localApplicants.length === 0 ? (
                 <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
                   <GraduationCap className="w-16 h-16 opacity-5" />
-                  <p>Belum ada murid di kelas ini. Gunakan fitur Import Excel.</p>
+                  <p>Belum ada murid di kelas ini. Gunakan fitur Tambah Murid atau Import Excel.</p>
                 </TableCell></TableRow>
               ) : localApplicants.map((s, idx) => (
                 <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
@@ -498,6 +550,60 @@ export default function ClassesPage() {
             </TableBody>
           </Table>
         </div>
+
+        {/* Dialog Cari & Tambah Murid Manual */}
+        <Dialog open={isSearchAddOpen} onOpenChange={setIsSearchAddOpen}>
+          <DialogContent className="sm:max-w-[550px] p-0 overflow-hidden flex flex-col max-h-[85vh]">
+            <DialogHeader className="p-6 pb-2 border-b bg-muted/20">
+              <DialogTitle className="flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-primary" />
+                Tambah Murid ke Kelas
+              </DialogTitle>
+              <DialogDescription>Cari murid dari database utama untuk dimasukkan ke rombel ini.</DialogDescription>
+            </DialogHeader>
+            <div className="p-4 border-b">
+               <div className="relative">
+                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                 <Input 
+                   placeholder="Cari Nama, NIS, atau NISN..." 
+                   className="pl-9"
+                   value={studentSearchTerm}
+                   onChange={(e) => setStudentSearchTerm(e.target.value)}
+                 />
+               </div>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-4 space-y-2">
+                {loadingDbStudents ? (
+                  <div className="py-20 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+                ) : filteredSearchStudents.length === 0 ? (
+                  <div className="py-20 text-center text-muted-foreground italic">Murid tidak ditemukan.</div>
+                ) : filteredSearchStudents.map(s => {
+                  const isAlreadyIn = (selectedClassForStudents?.students || []).includes(s.id);
+                  return (
+                    <div key={s.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-sm">{s.fullName}</span>
+                        <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"} • {s.gender}</span>
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant={isAlreadyIn ? "outline" : "default"}
+                        disabled={isAlreadyIn}
+                        onClick={() => handlePickStudentManual(s)}
+                      >
+                        {isAlreadyIn ? "Sudah Ada" : "Pilih Murid"}
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            </ScrollArea>
+            <DialogFooter className="p-4 border-t bg-muted/10">
+               <Button variant="outline" onClick={() => setIsSearchAddOpen(false)} className="w-full">Selesai</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
           <DialogContent className="sm:max-w-[400px]">
@@ -554,7 +660,7 @@ export default function ClassesPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Import Murid ke Kelas {selectedClassForStudents.name}</DialogTitle>
-              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap.</DialogDescription>
+              <DialogDescription>Gunakan Excel berisi kolom NIS, NISN, atau Nama Lengkap.</DialogDescription>
             </DialogHeader>
             <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
                <Upload className="w-8 h-8 text-primary" />
@@ -564,7 +670,7 @@ export default function ClassesPage() {
                   Unggah Daftar Excel
                </Button>
                <Button variant="link" onClick={handleDownloadImportTemplate} className="text-xs">Download Template Excel</Button>
-               <p className="text-[10px] text-muted-foreground italic text-center px-4">Pastikan data murid sudah ada di Data Induk.</p>
+               <p className="text-[10px] text-muted-foreground italic text-center px-4">Sistem akan otomatis mencocokkan identitas murid dengan database utama.</p>
             </div>
           </DialogContent>
         </Dialog>
