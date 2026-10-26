@@ -50,6 +50,8 @@ export default function ClassesPage() {
   const [isDirty, setIsDirty] = useState(false)
   const [localClasses, setLocalClasses] = useState<Classroom[]>([])
   const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
+  const [idsToTrash, setIdsToTrash] = useState<Set<string>>(new Set())
+  
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false)
@@ -128,7 +130,7 @@ export default function ClassesPage() {
       }
     }
     fetchClassStudents()
-  }, [db, selectedClassForStudents?.id, view])
+  }, [db, selectedClassForStudents?.id, view, isDirty])
 
   useEffect(() => {
     if (serverClasses && !isDirty) {
@@ -172,6 +174,15 @@ export default function ClassesPage() {
     const batch = writeBatch(db)
 
     try {
+      // 1. Process ids marked for trash
+      idsToTrash.forEach(id => {
+        batch.update(doc(db, 'applicants', id), { 
+          isDeleted: true, 
+          deletedAt: new Date().toISOString() 
+        })
+      })
+
+      // 2. Process classes
       const nextClasses = localClasses.map(lc => {
         const cleanStudents = Array.from(new Set((lc.students || []).filter(Boolean)));
         const lcClean = { ...lc, students: cleanStudents, currentEnrollment: cleanStudents.length };
@@ -195,8 +206,9 @@ export default function ClassesPage() {
 
       await batch.commit()
       setLocalClasses(nextClasses)
+      setIdsToTrash(new Set())
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil" })
+      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh perubahan data rombel dan status murid diperbarui." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
@@ -245,6 +257,10 @@ export default function ClassesPage() {
   const handleRemoveStudentFromClass = () => {
     if (!selectedClassForStudents || !studentToRemove) return
     const studentId = studentToRemove.id
+    
+    // Mark for trash when synced
+    setIdsToTrash(prev => new Set([...prev, studentId]))
+    
     const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
     const updatedClass = {
       ...selectedClassForStudents,
@@ -257,11 +273,21 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsRemoveConfirmOpen(false)
     setStudentToRemove(null)
-    toast({ title: "Murid Dikeluarkan" })
+    toast({ title: "Murid Dihapus", description: "Murid dipindahkan ke tempat sampah sementara (Sinkron untuk menerapkan)." })
   }
 
   const handleClearAllStudents = () => {
     if (!selectedClassForStudents) return
+    
+    const currentStudentIds = selectedClassForStudents.students || []
+    
+    // Add all current students in this class to IDs marked for Trash
+    setIdsToTrash(prev => {
+      const next = new Set(prev)
+      currentStudentIds.forEach(id => next.add(id))
+      return next
+    })
+    
     const updatedClass = {
       ...selectedClassForStudents,
       students: [],
@@ -272,7 +298,10 @@ export default function ClassesPage() {
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
     setIsClearAllDialogOpen(false)
-    toast({ title: "Kelas Berhasil Dikosongkan" })
+    toast({ 
+      title: "Kelas Berhasil Dikosongkan", 
+      description: `${currentStudentIds.length} murid ditandai untuk dipindahkan ke tempat sampah.` 
+    })
   }
 
   const handleImportEnrollment = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -485,15 +514,15 @@ export default function ClassesPage() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-destructive" /> Konfirmasi Penghapusan
+                <AlertCircle className="w-5 h-5 text-destructive" /> Konfirmasi Penghapusan Murid
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Apakah Anda yakin ingin menghapus <strong>{studentToRemove?.fullName}</strong> dari rombel ini agar benar-benar tidak terdata lagi di kelas {selectedClassForStudents.name}?
+                Apakah Anda yakin ingin menghapus <strong>{studentToRemove?.fullName}</strong>? Murid ini akan dikeluarkan dari kelas dan <strong>dipindahkan ke Tempat Sampah</strong> sistem.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => setStudentToRemove(null)}>Batal</AlertDialogCancel>
-              <AlertDialogAction onClick={handleRemoveStudentFromClass} className="bg-destructive">Ya, Hapus Sekarang</AlertDialogAction>
+              <AlertDialogAction onClick={handleRemoveStudentFromClass} className="bg-destructive">Ya, Pindahkan ke Sampah</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -519,12 +548,16 @@ export default function ClassesPage() {
         <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas?</AlertDialogTitle>
-              <AlertDialogDescription>Tindakan ini akan mengeluarkan seluruh murid dari kelas {selectedClassForStudents.name}.</AlertDialogDescription>
+              <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas & Hapus Murid?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tindakan ini akan mengeluarkan seluruh murid dari kelas {selectedClassForStudents.name} dan **memindahkan seluruh datanya ke Tempat Sampah**.
+                <br /><br />
+                Murid tersebut tidak akan lagi terdaftar sebagai "Murid Aktif" di Dashboard. Apakah Anda yakin?
+              </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Batal</AlertDialogCancel>
-              <AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan</AlertDialogAction>
+              <AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan & Pindah ke Sampah</AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
