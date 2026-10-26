@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect, useMemo, useRef } from 'react'
@@ -71,13 +72,21 @@ export default function ClassesPage() {
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
+  // Tracker untuk mencegah over-fetching saat mode edit/import
+  const lastFetchedClassId = useRef<string | null>(null);
+
   useEffect(() => {
     async function fetchClassStudents() {
       if (!db || !selectedClassForStudents || view !== 'students') return
       
+      // JANGAN Fetch dari server jika kita baru saja mengimport data (Dirty) 
+      // dan list murid sudah terisi di localApplicants. Ini mencegah timpaan data kosong.
+      if (lastFetchedClassId.current === selectedClassForStudents.id && isDirty) return;
+
       const studentIds = selectedClassForStudents.students || []
       if (studentIds.length === 0) {
         setLocalApplicants([])
+        lastFetchedClassId.current = selectedClassForStudents.id;
         return
       }
 
@@ -96,6 +105,7 @@ export default function ClassesPage() {
         }
         
         setLocalApplicants(results)
+        lastFetchedClassId.current = selectedClassForStudents.id;
       } catch (err) {
         console.error("Gagal mengambil data siswa:", err)
       } finally {
@@ -110,17 +120,14 @@ export default function ClassesPage() {
       if (!db || !isAddStudentMode) return
       setLoadingGlobalAdd(true)
       try {
-        // Ambil SEMUA murid aktif (accepted) tanpa filter rombel agar bisa dipilih bebas
         const q = query(
           collection(db, 'applicants'), 
-          where('admissionStatus', '==', 'accepted'), 
+          where('admissionStatus', 'in', ['accepted', 'graduated']), 
           where('isDeleted', '==', false), 
           limit(2000)
         )
         const snap = await getDocs(q)
         const apps = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
-        
-        // Urutkan berdasarkan nama
         setGlobalApplicantsForAdd(apps.sort((a,b) => a.fullName.localeCompare(b.fullName)))
       } catch (e) {
         console.error(e)
@@ -185,6 +192,7 @@ export default function ClassesPage() {
         }
       })
 
+      // Hanya hapus jika kelas tersebut ada di server tapi sudah tidak ada di localClasses
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -220,7 +228,6 @@ export default function ClassesPage() {
     })
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
-    toast({ title: "Murid Ditambahkan", description: `${student.fullName} berhasil masuk ke draf rombel.` })
   }
 
   const handleRemoveStudentFromClass = (studentId: string) => {
@@ -275,7 +282,8 @@ export default function ClassesPage() {
           return
         }
 
-        const q = query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), where('isDeleted', '==', false))
+        // Ambil semua murid aktif untuk pencocokan
+        const q = query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated']), where('isDeleted', '==', false))
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
@@ -298,12 +306,16 @@ export default function ClassesPage() {
             students: finalIds,
             currentEnrollment: finalIds.length
           }
+          
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+          
+          // Penting: Update localApplicants agar UI langsung berubah sebelum sync
           setLocalApplicants(prev => {
             const currentIds = new Set(prev.map(p => p.id))
             const filteredNew = matchedApps.filter(ma => !currentIds.has(ma.id))
             return [...prev, ...filteredNew].sort((a,b) => a.fullName.localeCompare(b.fullName))
           })
+          
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
           toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditambahkan ke kelas.` })
@@ -343,7 +355,7 @@ export default function ClassesPage() {
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => { setView('grid'); setEditingClass(null); setIsAddStudentMode(false); }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
+            <button onClick={() => { setView('grid'); setEditingClass(null); setIsAddStudentMode(false); lastFetchedClassId.current = null; }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-3xl font-headline font-bold">Kelas {selectedClassForStudents.name}</h1>
@@ -408,7 +420,7 @@ export default function ClassesPage() {
             </div>
             <div className="p-4 bg-muted/20 border-t flex items-center gap-2">
                <Info className="w-3 h-3 text-muted-foreground" />
-               <p className="text-[9px] text-muted-foreground italic">Anda dapat memilih murid dari kelas manapun. Satu murid bisa masuk ke beberapa rombel jika diperlukan untuk plotting data sementara.</p>
+               <p className="text-[9px] text-muted-foreground italic">Daftar ini mencakup seluruh murid aktif. Satu murid bisa masuk ke beberapa rombel sementara untuk plotting data.</p>
             </div>
           </div>
         ) : (
@@ -453,7 +465,7 @@ export default function ClassesPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Import Murid ke Kelas {selectedClassForStudents.name}</DialogTitle>
-              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap untuk memasukkan murid ke rombel ini.</DialogDescription>
+              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap untuk memasukkan murid ke rombel ini secara otomatis.</DialogDescription>
             </DialogHeader>
             <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
                <Upload className="w-8 h-8 text-primary" />
@@ -462,6 +474,7 @@ export default function ClassesPage() {
                   {isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />}
                   Unggah Daftar Excel
                </Button>
+               <p className="text-[10px] text-muted-foreground italic">Pastikan data NISN/Nama murid sudah ada di Data Induk.</p>
             </div>
           </DialogContent>
         </Dialog>
@@ -470,7 +483,7 @@ export default function ClassesPage() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas?</AlertDialogTitle>
-              <AlertDialogDescription>Tindakan ini akan mengeluarkan <strong>seluruh murid</strong> dari kelas {selectedClassForStudents.name}. Data profil murid tetap aman di Data Induk.</AlertDialogDescription>
+              <AlertDialogDescription>Tindakan ini akan mengeluarkan <strong>seluruh murid</strong> dari kelas {selectedClassForStudents.name}. Data profil murid tetap aman di Data Induk Siswa.</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Batal</AlertDialogCancel>
