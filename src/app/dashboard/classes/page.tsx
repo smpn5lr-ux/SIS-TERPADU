@@ -72,23 +72,22 @@ export default function ClassesPage() {
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
-  // Tracker untuk mencegah over-fetching saat mode edit/import
   const lastFetchedClassId = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchClassStudents() {
       if (!db || !selectedClassForStudents || view !== 'students') return
       
-      // JANGAN Fetch dari server jika kita baru saja mengimport data (Dirty) 
-      // dan list murid sudah terisi di localApplicants. Ini mencegah timpaan data kosong.
-      if (lastFetchedClassId.current === selectedClassForStudents.id && isDirty) return;
-
-      const studentIds = selectedClassForStudents.students || []
+      // Bersihkan list murid dari ID yang null/empty
+      const studentIds = (selectedClassForStudents.students || []).filter(Boolean)
+      
       if (studentIds.length === 0) {
         setLocalApplicants([])
         lastFetchedClassId.current = selectedClassForStudents.id;
         return
       }
+
+      if (lastFetchedClassId.current === selectedClassForStudents.id && isDirty) return;
 
       setIsLoadingStudents(true)
       try {
@@ -104,7 +103,18 @@ export default function ClassesPage() {
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        setLocalApplicants(results)
+        // Urutkan alfabetis
+        const sortedResults = results.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
+        setLocalApplicants(sortedResults)
+        
+        // Update hitungan jika ada data "hantu" (ID yang ada di kelas tapi tidak ada di applicants)
+        if (sortedResults.length !== studentIds.length && !isDirty) {
+          const validIds = sortedResults.map(r => r.id);
+          const updatedClass = { ...selectedClassForStudents, students: validIds, currentEnrollment: validIds.length };
+          setSelectedClassForStudents(updatedClass);
+          setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c));
+        }
+
         lastFetchedClassId.current = selectedClassForStudents.id;
       } catch (err) {
         console.error("Gagal mengambil data siswa:", err)
@@ -128,7 +138,7 @@ export default function ClassesPage() {
         )
         const snap = await getDocs(q)
         const apps = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
-        setGlobalApplicantsForAdd(apps.sort((a,b) => a.fullName.localeCompare(b.fullName)))
+        setGlobalApplicantsForAdd(apps.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
       } catch (e) {
         console.error(e)
       } finally {
@@ -178,21 +188,24 @@ export default function ClassesPage() {
 
     try {
       const nextClasses = localClasses.map(lc => {
+        // Pastikan list students bersih
+        const cleanStudents = Array.from(new Set((lc.students || []).filter(Boolean)));
+        const lcClean = { ...lc, students: cleanStudents, currentEnrollment: cleanStudents.length };
+
         if (lc.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'classes'))
-          const { id, ...data } = lc
+          const { id, ...data } = lcClean
           batch.set(newRef, { ...data, id: newRef.id })
-          return { ...lc, id: newRef.id }
+          return { ...lcClean, id: newRef.id }
         } else {
           const serverVer = serverClasses.find(sc => sc.id === lc.id)
-          if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(lc)) {
-            batch.update(doc(db, 'classes', lc.id), lc as any)
+          if (serverVer && JSON.stringify(serverVer) !== JSON.stringify(lcClean)) {
+            batch.update(doc(db, 'classes', lc.id), lcClean as any)
           }
-          return lc
+          return lcClean
         }
       })
 
-      // Hanya hapus jika kelas tersebut ada di server tapi sudah tidak ada di localClasses
       const classesToDelete = serverClasses.filter(sc => !localClasses.some(lc => lc.id === sc.id))
       classesToDelete.forEach(c => batch.delete(doc(db, 'classes', c.id)))
 
@@ -209,12 +222,25 @@ export default function ClassesPage() {
 
   const handleAddStudentToClass = (student: Applicant) => {
     if (!selectedClassForStudents) return
+    
+    // Cegah ID sementara masuk ke kelas
+    if (student.id.startsWith('temp-')) {
+      toast({ variant: "destructive", title: "Gagal", description: "Sinkronkan data murid di Data Induk terlebih dahulu." });
+      return;
+    }
+
     const currentStudents = selectedClassForStudents.students || []
     if (currentStudents.includes(student.id)) {
       toast({ variant: "destructive", title: "Murid sudah ada di kelas ini" })
       return
     }
-    const updatedStudents = Array.from(new Set([...currentStudents, student.id]))
+
+    const updatedStudents = Array.from(new Set([...currentStudents, student.id])).filter(Boolean)
+    
+    if (updatedStudents.length > selectedClassForStudents.capacity) {
+      toast({ variant: "destructive", title: "Kapasitas Penuh", description: `Maksimal ${selectedClassForStudents.capacity} murid.` });
+    }
+
     const updatedClass = {
       ...selectedClassForStudents,
       students: updatedStudents,
@@ -224,7 +250,7 @@ export default function ClassesPage() {
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setLocalApplicants(prev => {
       if (prev.some(x => x.id === student.id)) return prev
-      return [...prev, student].sort((a,b) => a.fullName.localeCompare(b.fullName))
+      return [...prev, student].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""))
     })
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
@@ -232,7 +258,7 @@ export default function ClassesPage() {
 
   const handleRemoveStudentFromClass = (studentId: string) => {
     if (!selectedClassForStudents) return
-    const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
+    const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId && id)
     const updatedClass = {
       ...selectedClassForStudents,
       students: updatedStudents,
@@ -282,7 +308,6 @@ export default function ClassesPage() {
           return
         }
 
-        // Ambil semua murid aktif untuk pencocokan
         const q = query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated']), where('isDeleted', '==', false))
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
@@ -291,16 +316,21 @@ export default function ClassesPage() {
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
-          if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
+          if (!s.id.startsWith('temp-') && ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase())))) {
             matchedIds.push(s.id)
             matchedApps.push(s)
           }
         })
 
         if (matchedIds.length === 0) {
-          toast({ variant: "destructive", title: "Tidak Ada Kecocokan", description: "Tidak menemukan murid yang sesuai di database." })
+          toast({ variant: "destructive", title: "Tidak Ada Kecocokan", description: "Tidak menemukan murid permanen yang sesuai di database." })
         } else {
-          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
+          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds])).filter(Boolean)
+          
+          if (finalIds.length > selectedClassForStudents.capacity) {
+            toast({ variant: "destructive", title: "Melebihi Kapasitas", description: `Total ${finalIds.length} murid, sementara kapasitas hanya ${selectedClassForStudents.capacity}.` });
+          }
+
           const updatedClass = {
             ...selectedClassForStudents,
             students: finalIds,
@@ -309,11 +339,10 @@ export default function ClassesPage() {
           
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
           
-          // Penting: Update localApplicants agar UI langsung berubah sebelum sync
           setLocalApplicants(prev => {
             const currentIds = new Set(prev.map(p => p.id))
             const filteredNew = matchedApps.filter(ma => !currentIds.has(ma.id))
-            return [...prev, ...filteredNew].sort((a,b) => a.fullName.localeCompare(b.fullName))
+            return [...prev, ...filteredNew].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""))
           })
           
           setSelectedClassForStudents(updatedClass)
@@ -347,7 +376,7 @@ export default function ClassesPage() {
 
   if (view === 'students' && selectedClassForStudents) {
     const stats = {
-      total: selectedClassForStudents.students?.length || 0,
+      total: localApplicants.length,
       male: localApplicants.filter(s => s.gender === 'Laki-laki').length,
       female: localApplicants.filter(s => s.gender === 'Perempuan').length
     }
@@ -362,7 +391,7 @@ export default function ClassesPage() {
                 <Badge variant="outline" className="font-mono">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
               </div>
               <div className="flex items-center gap-3 mt-1">
-                 <span className="text-xs text-muted-foreground font-bold">TOTAL: {stats.total} SISWA</span>
+                 <span className="text-xs text-muted-foreground font-bold">DAFTAR AKTIF: {stats.total} SISWA</span>
                  <Separator orientation="vertical" className="h-3" />
                  <span className="text-[10px] text-primary uppercase font-bold">L: {stats.male} • P: {stats.female}</span>
               </div>
@@ -377,7 +406,7 @@ export default function ClassesPage() {
             </Button>
             <Button onClick={() => setIsAddStudentMode(!isAddStudentMode)} className="gap-2 bg-primary">
               {isAddStudentMode ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-              {isAddStudentMode ? "Tutup Seleksi" : "Tambah dari Komputer"}
+              {isAddStudentMode ? "Tutup Seleksi" : "Tambah 1 per 1"}
             </Button>
           </div>
         </div>
@@ -387,7 +416,7 @@ export default function ClassesPage() {
             <div className="p-4 border-b bg-primary/5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                  <Search className="w-4 h-4 text-primary" />
-                 <h3 className="font-bold text-xs uppercase text-primary tracking-widest">Pilih Murid Aktif untuk Ditambahkan</h3>
+                 <h3 className="font-bold text-xs uppercase text-primary tracking-widest">Pilih Murid Aktif</h3>
               </div>
               <div className="relative w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -400,9 +429,9 @@ export default function ClassesPage() {
               ) : globalApplicantsForAdd.length === 0 ? (
                 <div className="col-span-full py-12 text-center text-muted-foreground italic">Tidak ada murid aktif ditemukan di database.</div>
               ) : globalApplicantsForAdd
-                .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
+                .filter(s => (s.fullName || "").toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
                 .map(s => {
-                  const alreadyInThisClass = selectedClassForStudents.students?.includes(s.id);
+                  const alreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
                   return (
                     <div key={s.id} className={`flex items-center justify-between p-4 rounded-xl border border-border/40 bg-card transition-all group ${alreadyInThisClass ? 'opacity-50 grayscale' : 'hover:bg-primary/5'}`}>
                        <div className="flex flex-col">
@@ -417,10 +446,6 @@ export default function ClassesPage() {
                     </div>
                   )
                 })}
-            </div>
-            <div className="p-4 bg-muted/20 border-t flex items-center gap-2">
-               <Info className="w-3 h-3 text-muted-foreground" />
-               <p className="text-[9px] text-muted-foreground italic">Daftar ini mencakup seluruh murid aktif. Satu murid bisa masuk ke beberapa rombel sementara untuk plotting data.</p>
             </div>
           </div>
         ) : (
@@ -524,8 +549,9 @@ export default function ClassesPage() {
               <div className="h-px bg-border flex-1"></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {groupedClasses[level].sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => {
+              {groupedClasses[level].sort((a,b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
+                const enrollmentCount = (cls.students || []).filter(Boolean).length;
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
                     <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => { setClassToDelete(cls); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
@@ -534,7 +560,9 @@ export default function ClassesPage() {
                       <CardDescription className="flex items-center justify-between mt-1">
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5" />
-                          <span className="font-bold text-foreground">{cls.students?.length || 0}</span> / {cls.capacity} Murid
+                          <span className={`font-bold ${enrollmentCount > cls.capacity ? 'text-destructive' : 'text-foreground'}`}>
+                            {enrollmentCount}
+                          </span> / {cls.capacity} Murid
                         </div>
                       </CardDescription>
                     </CardHeader>
