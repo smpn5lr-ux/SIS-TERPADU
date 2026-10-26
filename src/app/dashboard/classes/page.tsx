@@ -78,8 +78,9 @@ export default function ClassesPage() {
     async function fetchClassStudents() {
       if (!db || !selectedClassForStudents || view !== 'students') return
       
-      // Bersihkan list murid dari ID yang null/empty
-      const studentIds = (selectedClassForStudents.students || []).filter(Boolean)
+      // Bersihkan list murid dari ID yang duplikat, null, atau empty
+      const rawIds = (selectedClassForStudents.students || []).filter(Boolean);
+      const studentIds = Array.from(new Set(rawIds));
       
       if (studentIds.length === 0) {
         setLocalApplicants([])
@@ -107,12 +108,19 @@ export default function ClassesPage() {
         const sortedResults = results.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
         setLocalApplicants(sortedResults)
         
-        // Update hitungan jika ada data "hantu" (ID yang ada di kelas tapi tidak ada di applicants)
-        if (sortedResults.length !== studentIds.length && !isDirty) {
-          const validIds = sortedResults.map(r => r.id);
-          const updatedClass = { ...selectedClassForStudents, students: validIds, currentEnrollment: validIds.length };
+        // CLEANUP GHOST DATA & DUPLICATES
+        // Jika hasil yang ditemukan (28) berbeda dengan jumlah ID di array (56), 
+        // atau jika ada ID duplikat, sinkronkan state lokal agar akurat.
+        const validIds = sortedResults.map(r => r.id);
+        if (validIds.length !== rawIds.length) {
+          const updatedClass = { 
+            ...selectedClassForStudents, 
+            students: validIds, 
+            currentEnrollment: validIds.length 
+          };
           setSelectedClassForStudents(updatedClass);
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c));
+          setIsDirty(true); // Tandai sebagai draf karena ada pembersihan data stale
         }
 
         lastFetchedClassId.current = selectedClassForStudents.id;
@@ -160,14 +168,15 @@ export default function ClassesPage() {
   })
 
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
+    const cleanStudents = Array.from(new Set((editingClass?.students || []).filter(Boolean)));
     const classData = {
       id: editingClass ? editingClass.id : `temp-${Date.now()}`,
       name: values.name.trim(),
       gradeLevel: parseInt(values.gradeLevel),
       homeroomTeacher: values.homeroomTeacher?.trim() || "",
       capacity: parseInt(values.capacity),
-      students: editingClass?.students || [],
-      currentEnrollment: (editingClass?.students || []).length
+      students: cleanStudents,
+      currentEnrollment: cleanStudents.length
     } as Classroom
 
     if (editingClass) {
@@ -188,7 +197,7 @@ export default function ClassesPage() {
 
     try {
       const nextClasses = localClasses.map(lc => {
-        // Pastikan list students bersih
+        // Pastikan list students bersih dari duplikat sebelum ke Cloud
         const cleanStudents = Array.from(new Set((lc.students || []).filter(Boolean)));
         const lcClean = { ...lc, students: cleanStudents, currentEnrollment: cleanStudents.length };
 
@@ -223,7 +232,6 @@ export default function ClassesPage() {
   const handleAddStudentToClass = (student: Applicant) => {
     if (!selectedClassForStudents) return
     
-    // Cegah ID sementara masuk ke kelas
     if (student.id.startsWith('temp-')) {
       toast({ variant: "destructive", title: "Gagal", description: "Sinkronkan data murid di Data Induk terlebih dahulu." });
       return;
@@ -325,7 +333,8 @@ export default function ClassesPage() {
         if (matchedIds.length === 0) {
           toast({ variant: "destructive", title: "Tidak Ada Kecocokan", description: "Tidak menemukan murid permanen yang sesuai di database." })
         } else {
-          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds])).filter(Boolean)
+          const currentIds = new Set(selectedClassForStudents.students || []);
+          const finalIds = Array.from(new Set([...currentIds, ...matchedIds])).filter(Boolean)
           
           if (finalIds.length > selectedClassForStudents.capacity) {
             toast({ variant: "destructive", title: "Melebihi Kapasitas", description: `Total ${finalIds.length} murid, sementara kapasitas hanya ${selectedClassForStudents.capacity}.` });
@@ -340,8 +349,8 @@ export default function ClassesPage() {
           setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
           
           setLocalApplicants(prev => {
-            const currentIds = new Set(prev.map(p => p.id))
-            const filteredNew = matchedApps.filter(ma => !currentIds.has(ma.id))
+            const tableIds = new Set(prev.map(p => p.id))
+            const filteredNew = matchedApps.filter(ma => !tableIds.has(ma.id))
             return [...prev, ...filteredNew].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""))
           })
           
@@ -551,7 +560,8 @@ export default function ClassesPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {groupedClasses[level].sort((a,b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})).map(cls => {
                 const isTemp = cls.id.startsWith('temp-')
-                const enrollmentCount = (cls.students || []).filter(Boolean).length;
+                // Deduplikasi ID untuk tampilan yang akurat di kartu
+                const enrollmentCount = Array.from(new Set((cls.students || []).filter(Boolean))).length;
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
                     <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => { setClassToDelete(cls); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
