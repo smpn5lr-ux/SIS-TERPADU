@@ -106,29 +106,30 @@ export default function ClassesPage() {
   }, [db, selectedClassForStudents?.id, view])
 
   useEffect(() => {
-    async function fetchAvailableStudents() {
+    async function fetchActiveStudents() {
       if (!db || !isAddStudentMode) return
       setLoadingGlobalAdd(true)
       try {
+        // Ambil SEMUA murid aktif (accepted) tanpa filter rombel agar bisa dipilih bebas
         const q = query(
           collection(db, 'applicants'), 
           where('admissionStatus', '==', 'accepted'), 
           where('isDeleted', '==', false), 
-          limit(1000)
+          limit(2000)
         )
         const snap = await getDocs(q)
         const apps = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
-        const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
-        setGlobalApplicantsForAdd(apps.filter(a => !assignedIds.has(a.id)))
+        // Urutkan berdasarkan nama
+        setGlobalApplicantsForAdd(apps.sort((a,b) => a.fullName.localeCompare(b.fullName)))
       } catch (e) {
         console.error(e)
       } finally {
         setLoadingGlobalAdd(false)
       }
     }
-    fetchAvailableStudents()
-  }, [db, isAddStudentMode, localClasses])
+    fetchActiveStudents()
+  }, [db, isAddStudentMode])
 
   useEffect(() => {
     if (serverClasses && !isDirty) {
@@ -202,7 +203,7 @@ export default function ClassesPage() {
     if (!selectedClassForStudents) return
     const currentStudents = selectedClassForStudents.students || []
     if (currentStudents.includes(student.id)) {
-      toast({ title: "Murid sudah ada di kelas ini" })
+      toast({ variant: "destructive", title: "Murid sudah ada di kelas ini" })
       return
     }
     const updatedStudents = Array.from(new Set([...currentStudents, student.id]))
@@ -215,11 +216,11 @@ export default function ClassesPage() {
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
     setLocalApplicants(prev => {
       if (prev.some(x => x.id === student.id)) return prev
-      return [...prev, student]
+      return [...prev, student].sort((a,b) => a.fullName.localeCompare(b.fullName))
     })
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
-    toast({ title: "Murid Ditambahkan" })
+    toast({ title: "Murid Ditambahkan", description: `${student.fullName} berhasil masuk ke draf rombel.` })
   }
 
   const handleRemoveStudentFromClass = (studentId: string) => {
@@ -231,6 +232,7 @@ export default function ClassesPage() {
       currentEnrollment: updatedStudents.length
     }
     setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+    setLocalApplicants(prev => prev.filter(a => a.id !== studentId))
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
     toast({ title: "Murid Dikeluarkan" })
@@ -273,18 +275,14 @@ export default function ClassesPage() {
           return
         }
 
-        // Ambil semua murid aktif yang belum punya kelas
         const q = query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), where('isDeleted', '==', false))
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
-        const assignedIds = new Set(localClasses.filter(c => c.id !== selectedClassForStudents.id).flatMap(c => c.students || []))
-        const available = allStudents.filter(s => !assignedIds.has(s.id))
-
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
 
-        available.forEach(s => {
+        allStudents.forEach(s => {
           if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
             matchedIds.push(s.id)
             matchedApps.push(s)
@@ -304,7 +302,7 @@ export default function ClassesPage() {
           setLocalApplicants(prev => {
             const currentIds = new Set(prev.map(p => p.id))
             const filteredNew = matchedApps.filter(ma => !currentIds.has(ma.id))
-            return [...prev, ...filteredNew]
+            return [...prev, ...filteredNew].sort((a,b) => a.fullName.localeCompare(b.fullName))
           })
           setSelectedClassForStudents(updatedClass)
           setIsDirty(true)
@@ -377,7 +375,7 @@ export default function ClassesPage() {
             <div className="p-4 border-b bg-primary/5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                  <Search className="w-4 h-4 text-primary" />
-                 <h3 className="font-bold text-xs uppercase text-primary tracking-widest">Pilih Murid Aktif yang Belum Punya Kelas</h3>
+                 <h3 className="font-bold text-xs uppercase text-primary tracking-widest">Pilih Murid Aktif untuk Ditambahkan</h3>
               </div>
               <div className="relative w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -388,18 +386,29 @@ export default function ClassesPage() {
               {loadingGlobalAdd ? (
                 <div className="col-span-full py-12 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
               ) : globalApplicantsForAdd.length === 0 ? (
-                <div className="col-span-full py-12 text-center text-muted-foreground italic">Semua murid aktif sudah masuk ke rombel.</div>
+                <div className="col-span-full py-12 text-center text-muted-foreground italic">Tidak ada murid aktif ditemukan di database.</div>
               ) : globalApplicantsForAdd
                 .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
-                .map(s => (
-                <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-primary/5 border border-border/40 bg-card transition-all group">
-                   <div className="flex flex-col">
-                     <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
-                     <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"}</span>
-                   </div>
-                   <Button size="sm" variant="ghost" className="h-8 px-4 text-primary hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s)}>Pilih <Plus className="w-3 h-3 ml-1" /></Button>
-                </div>
-              ))}
+                .map(s => {
+                  const alreadyInThisClass = selectedClassForStudents.students?.includes(s.id);
+                  return (
+                    <div key={s.id} className={`flex items-center justify-between p-4 rounded-xl border border-border/40 bg-card transition-all group ${alreadyInThisClass ? 'opacity-50 grayscale' : 'hover:bg-primary/5'}`}>
+                       <div className="flex flex-col">
+                         <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
+                         <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"}</span>
+                       </div>
+                       {alreadyInThisClass ? (
+                         <Badge variant="outline" className="text-[8px] bg-green-500/10 text-green-500">Sudah Ada</Badge>
+                       ) : (
+                         <Button size="sm" variant="ghost" className="h-8 px-4 text-primary hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s)}>Pilih <Plus className="w-3 h-3 ml-1" /></Button>
+                       )}
+                    </div>
+                  )
+                })}
+            </div>
+            <div className="p-4 bg-muted/20 border-t flex items-center gap-2">
+               <Info className="w-3 h-3 text-muted-foreground" />
+               <p className="text-[9px] text-muted-foreground italic">Anda dapat memilih murid dari kelas manapun. Satu murid bisa masuk ke beberapa rombel jika diperlukan untuk plotting data sementara.</p>
             </div>
           </div>
         ) : (
