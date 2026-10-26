@@ -1,9 +1,9 @@
 
 "use client"
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, UserPlus, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, UserPlus, Search, CloudUpload, CloudOff, RefreshCw, Info, UserMinus, X, GraduationCap, ArrowLeft, ChevronRight, School, Trash, Printer, FileText, FileSpreadsheet, Download, Upload, AlertCircle
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -38,23 +38,14 @@ const classFormSchema = z.object({
   capacity: z.string().min(1, "Kapasitas harus diisi"),
 })
 
-const studentEditSchema = z.object({
-  fullName: z.string().min(2, "Nama minimal 2 karakter"),
-  NIS: z.string().optional(),
-  NISN: z.string().optional(),
-  gender: z.enum(['Laki-laki', 'Perempuan']),
-})
-
 export default function ClassesPage() {
   const [view, setView] = useState<'grid' | 'students'>('grid')
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isAddStudentMode, setIsAddStudentMode] = useState(false)
-  const [isEditStudentOpen, setIsEditStudentOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   
   const [editingClass, setEditingClass] = useState<Classroom | null>(null)
   const [selectedClassForStudents, setSelectedClassForStudents] = useState<Classroom | null>(null)
-  const [editingStudentData, setEditingStudentData] = useState<Applicant | null>(null)
   
   const [isDirty, setIsDirty] = useState(false)
   const [localClasses, setLocalClasses] = useState<Classroom[]>([])
@@ -62,6 +53,8 @@ export default function ClassesPage() {
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [isClearAllDialogOpen, setIsClearAllDialogOpen] = useState(false)
+  const [isImportEnrollmentOpen, setIsImportEnrollmentOpen] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
 
   const [studentSearch, setStudentSearch] = useState("")
   const [globalApplicantsForAdd, setGlobalApplicantsForAdd] = useState<Applicant[]>([])
@@ -70,6 +63,7 @@ export default function ClassesPage() {
   
   const { toast } = useToast()
   const db = useFirestore()
+  const enrollmentFileInputRef = useRef<HTMLInputElement>(null)
 
   const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
   const { data: config } = useDoc<any>(settingsRef)
@@ -77,7 +71,6 @@ export default function ClassesPage() {
   const classesQuery = useMemoFirebase(() => db ? query(collection(db, 'classes'), orderBy('name', 'asc')) : null, [db])
   const { data: serverClasses, loading: loadingClasses } = useCollection<Classroom>(classesQuery)
 
-  // FIX: Menggunakan '__name__' untuk query Document ID agar daftar siswa tidak kosong
   useEffect(() => {
     async function fetchClassStudents() {
       if (!db || !selectedClassForStudents || view !== 'students') return
@@ -97,13 +90,11 @@ export default function ClassesPage() {
 
         const results: Applicant[] = [];
         for (const chunk of chunks) {
-          // PENTING: Gunakan '__name__' untuk mencari ID dokumen
           const q = query(collection(db, 'applicants'), where('__name__', 'in', chunk));
           const snap = await getDocs(q);
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        // Hanya update jika data benar-benar ditemukan atau memang kosong di DB
         setLocalApplicants(results)
       } catch (err) {
         console.error("Gagal mengambil data siswa:", err)
@@ -111,12 +102,9 @@ export default function ClassesPage() {
         setIsLoadingStudents(false)
       }
     }
-    
-    // Jalankan fetch jika tampilan berubah atau kelas berganti
     fetchClassStudents()
   }, [db, selectedClassForStudents?.id, view])
 
-  // Ambil murid yang belum masuk kelas manapun (Status accepted)
   useEffect(() => {
     async function fetchAvailableStudents() {
       if (!db || !isAddStudentMode) return
@@ -126,12 +114,11 @@ export default function ClassesPage() {
           collection(db, 'applicants'), 
           where('admissionStatus', '==', 'accepted'), 
           where('isDeleted', '==', false), 
-          limit(500)
+          limit(1000)
         )
         const snap = await getDocs(q)
         const apps = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
-        // Filter yang benar-benar belum punya kelas
         const assignedIds = new Set(localClasses.flatMap(c => c.students || []))
         setGlobalApplicantsForAdd(apps.filter(a => !assignedIds.has(a.id)))
       } catch (e) {
@@ -154,32 +141,15 @@ export default function ClassesPage() {
     defaultValues: { name: "", gradeLevel: "7", homeroomTeacher: "", capacity: "32" },
   })
 
-  const studentEditForm = useForm<z.infer<typeof studentEditSchema>>({
-    resolver: zodResolver(studentEditSchema),
-    defaultValues: { fullName: "", NIS: "", NISN: "", gender: "Laki-laki" },
-  })
-
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
-    const normalizedName = values.name.toLowerCase().trim();
-    const isDuplicate = localClasses.some(c => 
-      c.name.toLowerCase().trim() === normalizedName && 
-      (!editingClass || c.id !== editingClass.id)
-    );
-
-    if (isDuplicate) {
-      toast({ variant: "destructive", title: "Gagal Menyimpan", description: `Kelas "${values.name}" sudah terdaftar.` });
-      return;
-    }
-
-    const uniqueStudents = Array.from(new Set(editingClass?.students || []));
     const classData = {
       id: editingClass ? editingClass.id : `temp-${Date.now()}`,
       name: values.name.trim(),
       gradeLevel: parseInt(values.gradeLevel),
       homeroomTeacher: values.homeroomTeacher?.trim() || "",
       capacity: parseInt(values.capacity),
-      students: uniqueStudents,
-      currentEnrollment: uniqueStudents.length
+      students: editingClass?.students || [],
+      currentEnrollment: (editingClass?.students || []).length
     } as Classroom
 
     if (editingClass) {
@@ -191,30 +161,6 @@ export default function ClassesPage() {
     setIsDirty(true)
     setIsDialogOpen(false)
     toast({ title: "Perubahan Disimpan di Buffer" })
-  }
-
-  const handleEditStudent = (student: Applicant) => {
-    setEditingStudentData(student)
-    studentEditForm.reset({
-      fullName: student.fullName,
-      NIS: student.NIS || "",
-      NISN: student.NISN,
-      gender: student.gender
-    })
-    setIsEditStudentOpen(true)
-  }
-
-  const handleDeleteTrigger = (cls: Classroom) => {
-    setClassToDelete(cls)
-    setIsDeleteDialogOpen(true)
-  }
-
-  const executeDeleteLocal = () => {
-    if (!classToDelete) return
-    setLocalClasses(prev => prev.filter(c => c.id !== classToDelete.id))
-    setIsDirty(true)
-    setIsDeleteDialogOpen(false)
-    setClassToDelete(null)
   }
 
   const handleSyncToCloud = async () => {
@@ -251,21 +197,6 @@ export default function ClassesPage() {
       setIsSyncing(false)
     }
   }
-
-  const currentClassStudents = useMemo(() => {
-    if (!selectedClassForStudents || !localApplicants) return []
-    const studentIds = new Set(selectedClassForStudents.students || [])
-    return localApplicants
-      .filter(a => studentIds.has(a.id) && !a.isDeleted)
-      .sort((a, b) => a.fullName.localeCompare(b.fullName))
-  }, [selectedClassForStudents, localApplicants])
-
-  const classGenderStats = useMemo(() => {
-    const total = currentClassStudents.length
-    const male = currentClassStudents.filter(s => s.gender === 'Laki-laki').length
-    const female = total - male
-    return { total, male, female }
-  }, [currentClassStudents])
 
   const handleAddStudentToClass = (student: Applicant) => {
     if (!selectedClassForStudents) return
@@ -305,6 +236,91 @@ export default function ClassesPage() {
     toast({ title: "Murid Dikeluarkan" })
   }
 
+  const handleClearAllStudents = () => {
+    if (!selectedClassForStudents) return
+    const updatedClass = {
+      ...selectedClassForStudents,
+      students: [],
+      currentEnrollment: 0
+    }
+    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+    setLocalApplicants([])
+    setSelectedClassForStudents(updatedClass)
+    setIsDirty(true)
+    setIsClearAllDialogOpen(false)
+    toast({ title: "Kelas Berhasil Dikosongkan" })
+  }
+
+  const handleImportEnrollment = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!selectedClassForStudents || !db) return
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsImporting(true)
+    const reader = new FileReader()
+    reader.onload = async (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheet = workbook.Sheets[workbook.SheetNames[0]]
+        const jsonData = XLSX.utils.sheet_to_json(sheet) as any[]
+        
+        const nisnList = jsonData.map(row => String(row['NISN'] || row['nisn'] || '').trim()).filter(Boolean)
+        const nameList = jsonData.map(row => String(row['Nama'] || row['Nama Lengkap'] || '').trim().toLowerCase()).filter(Boolean)
+
+        if (nisnList.length === 0 && nameList.length === 0) {
+          toast({ variant: "destructive", title: "Format Salah", description: "Kolom NISN atau Nama tidak ditemukan." })
+          return
+        }
+
+        // Ambil semua murid aktif yang belum punya kelas
+        const q = query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted'), where('isDeleted', '==', false))
+        const snap = await getDocs(q)
+        const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
+        
+        const assignedIds = new Set(localClasses.filter(c => c.id !== selectedClassForStudents.id).flatMap(c => c.students || []))
+        const available = allStudents.filter(s => !assignedIds.has(s.id))
+
+        const matchedIds: string[] = []
+        const matchedApps: Applicant[] = []
+
+        available.forEach(s => {
+          if ((s.NISN && nisnList.includes(s.NISN)) || (s.fullName && nameList.includes(s.fullName.toLowerCase()))) {
+            matchedIds.push(s.id)
+            matchedApps.push(s)
+          }
+        })
+
+        if (matchedIds.length === 0) {
+          toast({ variant: "destructive", title: "Tidak Ada Kecocokan", description: "Tidak menemukan murid yang sesuai di database." })
+        } else {
+          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
+          const updatedClass = {
+            ...selectedClassForStudents,
+            students: finalIds,
+            currentEnrollment: finalIds.length
+          }
+          setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+          setLocalApplicants(prev => {
+            const currentIds = new Set(prev.map(p => p.id))
+            const filteredNew = matchedApps.filter(ma => !currentIds.has(ma.id))
+            return [...prev, ...filteredNew]
+          })
+          setSelectedClassForStudents(updatedClass)
+          setIsDirty(true)
+          toast({ title: "Import Berhasil", description: `${matchedIds.length} murid ditambahkan ke kelas.` })
+        }
+      } catch (err) {
+        toast({ variant: "destructive", title: "Error", description: "Terjadi kesalahan saat memproses file." })
+      } finally {
+        setIsImporting(false)
+        setIsImportEnrollmentOpen(false)
+        if (enrollmentFileInputRef.current) enrollmentFileInputRef.current.value = ''
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
   const groupedClasses = useMemo(() => {
     const groups: Record<number, Classroom[]> = {}
     localClasses.forEach(cls => {
@@ -320,6 +336,11 @@ export default function ClassesPage() {
   if (loadingClasses && !localClasses.length) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
 
   if (view === 'students' && selectedClassForStudents) {
+    const stats = {
+      total: selectedClassForStudents.students?.length || 0,
+      male: localApplicants.filter(s => s.gender === 'Laki-laki').length,
+      female: localApplicants.filter(s => s.gender === 'Perempuan').length
+    }
     return (
       <div className="space-y-6 animate-in fade-in duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -327,97 +348,127 @@ export default function ClassesPage() {
             <button onClick={() => { setView('grid'); setEditingClass(null); setIsAddStudentMode(false); }} className="p-2 hover:bg-muted border rounded-full transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-3xl font-headline font-bold">Daftar Murid: Kelas {selectedClassForStudents.name}</h1>
+                <h1 className="text-3xl font-headline font-bold">Kelas {selectedClassForStudents.name}</h1>
                 <Badge variant="outline" className="font-mono">Tingkat {selectedClassForStudents.gradeLevel}</Badge>
               </div>
-              <div className="flex items-center gap-3 mt-3">
-                 <Badge className="bg-primary/10 text-primary border-primary/20 gap-1.5 py-1 px-3">
-                   <Users className="w-3.5 h-3.5" /> TOTAL: {classGenderStats.total}
-                 </Badge>
+              <div className="flex items-center gap-3 mt-1">
+                 <span className="text-xs text-muted-foreground font-bold">TOTAL: {stats.total} SISWA</span>
+                 <Separator orientation="vertical" className="h-3" />
+                 <span className="text-[10px] text-primary uppercase font-bold">L: {stats.male} • P: {stats.female}</span>
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setIsImportEnrollmentOpen(true)} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
+              <FileSpreadsheet className="w-4 h-4" /> Import Excel
+            </Button>
+            <Button variant="outline" onClick={() => setIsClearAllDialogOpen(true)} className="gap-2 text-destructive border-destructive/20 hover:bg-destructive/5">
+              <Trash className="w-4 h-4" /> Kosongkan Kelas
+            </Button>
             <Button onClick={() => setIsAddStudentMode(!isAddStudentMode)} className="gap-2 bg-primary">
               {isAddStudentMode ? <X className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-              {isAddStudentMode ? "Batal Tambah" : "Tambah Murid"}
+              {isAddStudentMode ? "Tutup Seleksi" : "Tambah dari Komputer"}
             </Button>
           </div>
         </div>
 
         {isAddStudentMode ? (
-          <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm animate-in slide-in-from-top-4 duration-300">
-            <div className="p-4 border-b bg-accent/5 flex items-center justify-between">
-              <h3 className="font-bold text-xs uppercase text-accent tracking-widest flex items-center gap-2"><Plus className="w-3 h-3" /> Pilih Murid untuk Masuk Kelas</h3>
+          <div className="bg-card border-2 border-primary/20 rounded-2xl overflow-hidden shadow-xl animate-in slide-in-from-top-4 duration-300">
+            <div className="p-4 border-b bg-primary/5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                 <Search className="w-4 h-4 text-primary" />
+                 <h3 className="font-bold text-xs uppercase text-primary tracking-widest">Pilih Murid Aktif yang Belum Punya Kelas</h3>
+              </div>
               <div className="relative w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input placeholder="Cari Nama/NISN..." className="pl-9 bg-background" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
+                <Input placeholder="Cari Nama/NISN..." className="pl-9 bg-background h-9 text-xs" value={studentSearch} onChange={e => setStudentSearch(e.target.value)} />
               </div>
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[600px] overflow-y-auto">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto">
               {loadingGlobalAdd ? (
                 <div className="col-span-full py-12 text-center"><Loader2 className="animate-spin mx-auto text-primary" /></div>
+              ) : globalApplicantsForAdd.length === 0 ? (
+                <div className="col-span-full py-12 text-center text-muted-foreground italic">Semua murid aktif sudah masuk ke rombel.</div>
               ) : globalApplicantsForAdd
                 .filter(s => s.fullName.toLowerCase().includes(studentSearch.toLowerCase()) || (s.NISN || "").includes(studentSearch))
                 .map(s => (
-                <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-muted/50 border border-border/40 bg-muted/20 transition-all group">
+                <div key={s.id} className="flex items-center justify-between p-4 rounded-xl hover:bg-primary/5 border border-border/40 bg-card transition-all group">
                    <div className="flex flex-col">
                      <span className="text-sm font-bold group-hover:text-primary transition-colors">{s.fullName}</span>
                      <span className="text-[10px] text-muted-foreground font-mono">NISN: {s.NISN || "-"}</span>
                    </div>
-                   <Button size="sm" variant="outline" className="h-8 px-4 text-primary border-primary/20 hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s)}>Pilih <ChevronRight className="w-3 h-3 ml-1" /></Button>
+                   <Button size="sm" variant="ghost" className="h-8 px-4 text-primary hover:bg-primary hover:text-white text-[10px] font-bold" onClick={() => handleAddStudentToClass(s)}>Pilih <Plus className="w-3 h-3 ml-1" /></Button>
                 </div>
               ))}
             </div>
           </div>
         ) : (
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-muted/50 border-b">
-                  <TableRow>
-                    <TableHead className="w-16 text-center font-bold">No</TableHead>
-                    <TableHead className="font-bold w-[120px]">NISN</TableHead>
-                    <TableHead className="font-bold">Nama Murid</TableHead>
-                    <TableHead className="font-bold">Status</TableHead>
-                    <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
+            <Table>
+              <TableHeader className="bg-muted/50 border-b">
+                <TableRow>
+                  <TableHead className="w-16 text-center font-bold">No</TableHead>
+                  <TableHead className="font-bold w-[150px]">NISN</TableHead>
+                  <TableHead className="font-bold">Nama Murid</TableHead>
+                  <TableHead className="font-bold">L/P</TableHead>
+                  <TableHead className="text-right font-bold pr-8">Aksi</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoadingStudents ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /> Memuat daftar siswa...</TableCell></TableRow>
+                ) : localApplicants.length === 0 ? (
+                  <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
+                    <GraduationCap className="w-16 h-16 opacity-5" />
+                    <p>Belum ada murid di kelas ini. Gunakan fitur Import atau Tambah Manual.</p>
+                  </TableCell></TableRow>
+                ) : localApplicants.map((s, idx) => (
+                  <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-14">
+                    <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
+                    <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
+                    <TableCell className="text-xs">{s.gender === 'Laki-laki' ? 'L' : 'P'}</TableCell>
+                    <TableCell className="text-right pr-6">
+                      <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)}>
+                        <UserMinus className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {isLoadingStudents ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /> Memuat daftar siswa...</TableCell></TableRow>
-                  ) : currentClassStudents.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center py-32 text-muted-foreground italic flex flex-col items-center gap-4">
-                      <GraduationCap className="w-16 h-16 opacity-5" />
-                      <p>Belum ada murid di kelas ini.</p>
-                    </TableCell></TableRow>
-                  ) : currentClassStudents.map((s, idx) => (
-                    <TableRow key={s.id} className="hover:bg-muted/10 transition-colors h-16">
-                      <TableCell className="text-center font-mono text-xs text-muted-foreground">{idx + 1}</TableCell>
-                      <TableCell className="font-mono text-xs text-muted-foreground">{s.NISN || "-"}</TableCell>
-                      <TableCell className="font-bold text-sm text-foreground">{s.fullName}</TableCell>
-                      <TableCell>
-                        <Badge className="bg-green-500/10 text-green-500 border-green-500/20 text-[10px] py-0.5 px-3 font-bold gap-1.5">
-                          AKTIF
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full" asChild title="Lihat Detail">
-                            <Link href={`/dashboard/applicants/${s.id}`}><Search className="w-4 h-4" /></Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full text-destructive hover:bg-destructive/5" onClick={() => handleRemoveStudentFromClass(s.id)} title="Hapus dari Kelas">
-                            <UserMinus className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
+
+        <Dialog open={isImportEnrollmentOpen} onOpenChange={setIsImportEnrollmentOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Import Murid ke Kelas {selectedClassForStudents.name}</DialogTitle>
+              <DialogDescription>Gunakan Excel berisi kolom NISN atau Nama Lengkap untuk memasukkan murid ke rombel ini.</DialogDescription>
+            </DialogHeader>
+            <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
+               <Upload className="w-8 h-8 text-primary" />
+               <input type="file" ref={enrollmentFileInputRef} onChange={handleImportEnrollment} accept=".xlsx,.xls" className="hidden" />
+               <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>
+                  {isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />}
+                  Unggah Daftar Excel
+               </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-destructive" /> Kosongkan Kelas?</AlertDialogTitle>
+              <AlertDialogDescription>Tindakan ini akan mengeluarkan <strong>seluruh murid</strong> dari kelas {selectedClassForStudents.name}. Data profil murid tetap aman di Data Induk.</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Batal</AlertDialogCancel>
+              <AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     )
   }
@@ -455,9 +506,9 @@ export default function ClassesPage() {
                 const isTemp = cls.id.startsWith('temp-')
                 return (
                   <Card key={cls.id} className={`border-border/50 relative group transition-all hover:border-primary/50 shadow-sm hover:shadow-md ${isTemp ? 'bg-amber-500/5 border-dashed border-2' : ''}`}>
-                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => handleDeleteTrigger(cls)}><Trash2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="absolute top-2 right-2 text-destructive opacity-0 group-hover:opacity-100 hover:bg-destructive/10" onClick={() => { setClassToDelete(cls); setIsDeleteDialogOpen(true); }}><Trash2 className="w-4 h-4" /></Button>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-xl">Kelas {cls.name} {isTemp && <RefreshCw className="w-4 h-4 text-amber-500 animate-spin" />}</CardTitle>
+                      <CardTitle className="flex items-center gap-2 text-xl">Kelas {cls.name}</CardTitle>
                       <CardDescription className="flex items-center justify-between mt-1">
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5" />
@@ -471,10 +522,10 @@ export default function ClassesPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-2 pt-2">
                         <Button variant="outline" className="w-full text-xs gap-2 border-primary/20 hover:bg-primary/5" onClick={() => { setEditingClass(cls); form.reset({...cls, gradeLevel: cls.gradeLevel.toString(), capacity: cls.capacity.toString()}); setIsDialogOpen(true); }}>
-                          <Pencil className="w-3.5 h-3.5" /> Edit Kelas
+                          <Pencil className="w-3.5 h-3.5" /> Edit
                         </Button>
                         <Button variant="default" className="w-full text-xs gap-2 bg-primary shadow-lg shadow-primary/20" onClick={() => { setSelectedClassForStudents(cls); setView('students'); }}>
-                          <Users className="w-3.5 h-3.5" /> Daftar Murid
+                          <Users className="w-3.5 h-3.5" /> Murid
                         </Button>
                       </div>
                     </CardContent>
@@ -514,10 +565,10 @@ export default function ClassesPage() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">Hapus Rombel?</AlertDialogTitle>
+            <AlertDialogTitle>Hapus Rombel?</AlertDialogTitle>
             <AlertDialogDescription>Tindakan ini menghapus draf kelas Anda. Murid di dalamnya akan dikeluarkan dari rombel tapi data profil mereka tetap aman di Data Induk.</AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Kelas</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalClasses(prev => prev.filter(c => c.id !== classToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Hapus</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

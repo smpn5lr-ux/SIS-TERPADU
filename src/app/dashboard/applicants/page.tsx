@@ -1,9 +1,9 @@
 
 "use client"
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { 
-  Search, Plus, Loader2, Pencil, Trash2, CloudUpload, CloudOff, RefreshCw, Eye
+  Search, Plus, Loader2, Pencil, Trash2, CloudUpload, CloudOff, RefreshCw, Eye, FileSpreadsheet, Upload
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -40,6 +40,7 @@ import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase
 import { collection, query, orderBy, doc, writeBatch, limit } from 'firebase/firestore'
 import { Applicant } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
+import * as XLSX from 'xlsx'
 
 const formSchema = z.object({
   registrationSequence: z.string().min(1, "No. Urut harus diisi"),
@@ -76,12 +77,15 @@ export default function ApplicantsPage() {
   const [editingApplicant, setEditingApplicant] = useState<Applicant | null>(null)
   const [applicantToDelete, setApplicantToDelete] = useState<Applicant | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
   
   const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
   const [isDirty, setIsDirty] = useState(false)
 
   const { toast } = useToast()
   const db = useFirestore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -101,7 +105,7 @@ export default function ApplicantsPage() {
 
   const applicantsQuery = useMemoFirebase(() => {
     if (!db) return null
-    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(500))
+    return query(collection(db, 'applicants'), orderBy('createdAt', 'desc'), limit(1000))
   }, [db])
 
   const { data: serverApplicants, loading } = useCollection<Applicant>(applicantsQuery)
@@ -141,8 +145,8 @@ export default function ApplicantsPage() {
       id: editingApplicant ? editingApplicant.id : `temp-${Date.now()}`,
       registrationSequence: seq,
       registrationNumber: regNumber,
-      verificationStatus: editingApplicant?.verificationStatus || 'Belum Diverifikasi',
-      admissionStatus: editingApplicant?.admissionStatus || 'pending',
+      verificationStatus: editingApplicant?.verificationStatus || 'Lengkap',
+      admissionStatus: editingApplicant?.admissionStatus || 'accepted',
       createdAt: editingApplicant?.createdAt || new Date().toISOString(),
       isDeleted: false
     } as Applicant
@@ -158,19 +162,63 @@ export default function ApplicantsPage() {
     toast({ title: "Perubahan Disimpan di Buffer" })
   }
 
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setIsImporting(true)
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        const workbook = XLSX.read(data, { type: 'array' })
+        const sheetName = workbook.SheetNames[0]
+        const worksheet = workbook.Sheets[sheetName]
+        const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[]
+
+        const newApps: Applicant[] = jsonData.map((row, idx) => {
+          const gender = row['Jenis Kelamin'] === 'P' || row['Jenis Kelamin'] === 'Perempuan' ? 'Perempuan' : 'Laki-laki'
+          const seq = localApplicants.length + idx + 1
+          return {
+            id: `temp-${Date.now()}-${idx}`,
+            fullName: row['Nama Lengkap'] || row['Nama'] || 'Tanpa Nama',
+            NISN: String(row['NISN'] || ''),
+            NIK: String(row['NIK'] || ''),
+            gender: gender,
+            registrationSequence: seq,
+            registrationNumber: `REG-IMP-${seq}`,
+            verificationStatus: 'Lengkap',
+            admissionStatus: 'accepted',
+            applicationPath: 'Zonasi',
+            originSchool: row['Sekolah Asal'] || '-',
+            createdAt: new Date().toISOString(),
+            isDeleted: false
+          } as Applicant
+        })
+
+        setLocalApplicants(prev => [...newApps, ...prev])
+        setIsDirty(true)
+        setIsImportOpen(false)
+        toast({ title: "Import Berhasil", description: `${newApps.length} murid ditambahkan ke draf.` })
+      } catch (err) {
+        toast({ variant: "destructive", title: "Gagal Import", description: "Format file tidak dikenali." })
+      } finally {
+        setIsImporting(false)
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
   const handleSyncToCloud = async () => {
     if (!db || !serverApplicants) return
     setIsSyncing(true)
     const batch = writeBatch(db)
     try {
-      // PERBAIKAN: Jangan hard-delete data dari database
-      // Data yang dihapus dari localApplicants ditandai sebagai isDeleted: true
       const serverIdsInLocal = new Set(localApplicants.map(la => la.id))
       
       serverApplicants.forEach(sa => {
         if (!serverIdsInLocal.has(sa.id)) {
-          // Jika ada di server tapi tidak di local, artinya user menghapus dari daftar local
-          // Tandai sebagai isDeleted daripada batch.delete
           batch.update(doc(db, 'applicants', sa.id), { 
             isDeleted: true, 
             deletedAt: new Date().toISOString() 
@@ -210,29 +258,37 @@ export default function ApplicantsPage() {
              {isDirty && <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20 animate-pulse">Draf Belum Sinkron</Badge>}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}
-              Sinkronkan
+              Sinkronkan ke Cloud
             </Button>
           )}
-          <Button onClick={() => { setEditingApplicant(null); form.reset(); setIsDialogOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Calon Murid Baru</Button>
+          <Button variant="outline" onClick={() => setIsImportOpen(true)} className="gap-2 border-primary/30 text-primary">
+            <FileSpreadsheet className="w-4 h-4" /> Import Excel
+          </Button>
+          <Button onClick={() => { setEditingApplicant(null); form.reset(); setIsDialogOpen(true); }} className="gap-2 shadow-lg shadow-primary/20">
+            <Plus className="w-4 h-4" /> Tambah Manual
+          </Button>
         </div>
       </div>
 
       <div className="bg-card border border-border/50 rounded-xl overflow-hidden shadow-sm">
-        <div className="p-4 border-b border-border/50">
-          <div className="relative max-w-sm">
+        <div className="p-4 border-b border-border/50 flex flex-col md:flex-row items-center gap-4">
+          <div className="relative flex-1 w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input placeholder="Cari Nama/NIS/NISN..." className="pl-9 bg-muted/20" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/10 px-3 py-2 rounded-lg border">
+             <Info className="w-3.5 h-3.5" /> Total Murid di Draf: <strong>{filteredApplicants.length}</strong>
           </div>
         </div>
         <Table>
           <TableHeader className="bg-primary/5">
             <TableRow>
               <TableHead className="font-bold text-primary w-[60px]">No</TableHead>
-              <TableHead className="font-bold text-primary w-[120px]">NIS</TableHead>
+              <TableHead className="font-bold text-primary w-[120px]">NIS/NISN</TableHead>
               <TableHead className="font-bold text-primary">Nama Lengkap</TableHead>
               <TableHead className="font-bold text-primary">Asal Sekolah</TableHead>
               <TableHead className="font-bold text-primary">Status</TableHead>
@@ -249,7 +305,12 @@ export default function ApplicantsPage() {
               return (
                 <TableRow key={a.id} className={isTemp ? 'bg-amber-500/5' : ''}>
                   <TableCell className="text-xs text-muted-foreground">{idx + 1}</TableCell>
-                  <TableCell className="font-mono text-xs font-bold text-primary">{a.NIS || "-"}</TableCell>
+                  <TableCell className="font-mono text-xs font-bold text-primary">
+                    <div className="flex flex-col">
+                      <span>{a.NIS || "-"}</span>
+                      <span className="text-accent">{a.NISN || "-"}</span>
+                    </div>
+                  </TableCell>
                   <TableCell className="font-medium">{a.fullName}</TableCell>
                   <TableCell className="text-sm">{a.originSchool || "-"}</TableCell>
                   <TableCell><Badge variant="outline" className="text-[10px] uppercase font-bold">{a.verificationStatus}</Badge></TableCell>
@@ -266,6 +327,32 @@ export default function ApplicantsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>Import Murid Massal</DialogTitle>
+            <DialogDescription>Gunakan file Excel (.xlsx) dengan kolom: Nama Lengkap, NISN, NIK, Jenis Kelamin (L/P), Sekolah Asal.</DialogDescription>
+          </DialogHeader>
+          <div className="py-6 flex flex-col items-center justify-center border-2 border-dashed rounded-xl bg-muted/5 gap-4">
+             <div className="bg-primary/10 p-4 rounded-full">
+                <Upload className="w-8 h-8 text-primary" />
+             </div>
+             <div className="text-center">
+                <p className="text-sm font-bold">Pilih File Excel</p>
+                <p className="text-xs text-muted-foreground mt-1">Hanya mendukung format .xlsx atau .xls</p>
+             </div>
+             <input type="file" ref={fileInputRef} onChange={handleImportExcel} accept=".xlsx,.xls" className="hidden" />
+             <Button onClick={() => fileInputRef.current?.click()} disabled={isImporting} className="gap-2">
+                {isImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4" />}
+                Pilih File Sekarang
+             </Button>
+          </div>
+          <DialogFooter className="text-center sm:text-center text-[10px] text-muted-foreground italic">
+            Data akan masuk ke Buffer. Pastikan Anda menekan tombol "Sinkronkan" untuk menyimpan ke cloud.
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-hidden flex flex-col p-0">
@@ -339,7 +426,7 @@ export default function ApplicantsPage() {
                   <TabsContent value="ortu" className="space-y-4">
                     <div className="space-y-4">
                       <div className="p-3 bg-muted/20 rounded-lg border">
-                        <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-2 text-primary"><User className="w-3 h-3" /> Data Ayah</h4>
+                        <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-2 text-primary"><Eye className="w-3 h-3" /> Data Ayah</h4>
                         <div className="grid grid-cols-2 gap-3">
                           <FormField control={form.control} name="fatherName" render={({ field }) => (
                             <FormItem><FormLabel>Nama Ayah</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
@@ -350,7 +437,7 @@ export default function ApplicantsPage() {
                         </div>
                       </div>
                       <div className="p-3 bg-muted/20 rounded-lg border">
-                        <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-2 text-pink-500"><User className="w-3 h-3" /> Data Ibu</h4>
+                        <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-2 text-pink-500"><Eye className="w-3 h-3" /> Data Ibu</h4>
                         <div className="grid grid-cols-2 gap-3">
                           <FormField control={form.control} name="motherName" render={({ field }) => (
                             <FormItem><FormLabel>Nama Ibu</FormLabel><FormControl><Input {...field} value={field.value || ""} /></FormControl></FormItem>
