@@ -120,7 +120,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     const assessmentsSnap = await getDocs(query(collection(db, 'assessments'), where('assignmentId', 'in', assignmentIds)))
     const assessments = assessmentsSnap.docs.map(d => d.data() as Assessment).filter(a => a.semester === parseInt(selectedSemester))
 
-    const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', '==', 'accepted')))
+    const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated'])))
     const allStudents = studentsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Applicant))
 
     const classesSnap = await getDocs(collection(db, 'classes'))
@@ -143,7 +143,10 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     if (!data) return
     const journalData = data.journals.map(j => {
       const asg = data.assignments.find(a => a.id === j.assignmentId)
-      
+      // Gunakan nama kelas asli dari database 'classes' agar selalu sinkron
+      const targetClass = data.allClasses.find(c => c.id === asg?.classId)
+      const displayClassName = targetClass ? targetClass.name : asg?.className || "-"
+
       let formattedDate = j.date
       if (j.date && j.date.includes('-')) {
         const parts = j.date.split('-')
@@ -154,7 +157,7 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
 
       return { 
         "Mapel": asg?.subjectName, 
-        "Kelas": asg?.className, 
+        "Kelas": displayClassName, 
         "Pertemuan": j.meetingNumber, 
         "Tgl": formattedDate, 
         "Metode": j.teachingMethod || "-",
@@ -172,15 +175,28 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
     if (!data) return
     const wb = XLSX.utils.book_new()
     const processedClassIds = new Set<string>()
+    const processedSheetNames = new Set<string>()
+
     data.assignments.forEach(asg => {
       if (processedClassIds.has(asg.classId)) return
       processedClassIds.add(asg.classId)
+      
       const targetClass = data.allClasses.find(c => c.id === asg.classId)
-      const classStudents = data.allStudents.filter(s => targetClass?.students?.includes(s.id))
+      if (!targetClass) return
+
+      const classStudents = data.allStudents.filter(s => targetClass.students?.includes(s.id))
       const ws = XLSX.utils.json_to_sheet(classStudents.map((s, i) => ({ "No": i+1, "Nama": s.fullName, "NISN": s.NISN })))
-      XLSX.utils.book_append_sheet(wb, ws, `Kelas ${asg.className}`.substring(0, 30))
+      
+      // Pastikan nama sheet unik dan tidak duplikat di file Excel
+      let sheetName = `Kelas ${targetClass.name}`.substring(0, 31)
+      if (processedSheetNames.has(sheetName)) {
+        sheetName = `${sheetName.substring(0, 27)} (${asg.classId.substring(0, 2)})`
+      }
+      processedSheetNames.add(sheetName)
+      
+      XLSX.utils.book_append_sheet(wb, ws, sheetName)
     })
-    XLSX.writeFile(wb, "Daftar_Murid.xlsx")
+    XLSX.writeFile(wb, `Daftar_Siswa_Sem${selectedSemester}.xlsx`)
   }
 
   const handleDownloadSpecificClassQR = async (classId: string, className: string) => {
@@ -201,7 +217,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
         return
       }
 
-      // FIX: Robust fetching of specific students
       const studentIds = targetClass.students;
       const students: Applicant[] = [];
       
@@ -224,7 +239,6 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
 
       const docPdf = new jsPDF('p', 'mm', 'a4')
       
-      // Helper for robust QR loading
       const getQrBase64 = async (id: string) => {
         const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${id}`;
         const res = await fetch(url);

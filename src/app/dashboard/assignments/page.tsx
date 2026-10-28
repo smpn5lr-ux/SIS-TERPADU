@@ -197,6 +197,26 @@ export default function TeacherAssignmentsPage() {
       return
     }
     
+    // VALIDASI DUPLIKASI: Cek apakah guru sudah punya mapel tersebut di kelas terpilih
+    const duplicates = selectedClassIds.filter(cid => {
+      return localAssignments.some(la => 
+        la.teacherId === selectedTeacherId && 
+        la.classId === cid && 
+        la.subjectId === selectedSubjectId &&
+        (!editingAssignment || la.id !== editingAssignment.id)
+      )
+    })
+
+    if (duplicates.length > 0) {
+      const dupeClassNames = duplicates.map(cid => sortedClasses.find(c => c.id === cid)?.name).join(", ")
+      toast({ 
+        variant: "destructive", 
+        title: "Penugasan Ganda", 
+        description: `Guru sudah memiliki mata pelajaran ini di kelas: ${dupeClassNames}` 
+      })
+      return
+    }
+    
     const teacher = sortedTeachers.find(t => t.id === selectedTeacherId)
     const subject = sortedSubjects.find(s => s.id === selectedSubjectId)
     const jpNum = parseInt(totalJP) || 0
@@ -262,7 +282,13 @@ export default function TeacherAssignmentsPage() {
 
       localAssignments.forEach(la => {
         const cls = classes?.find(c => c.id === la.classId)
-        const updatedLa = { ...la, className: cls ? cls.name : la.className }
+        // PROTEKSI: Pastikan nama kelas selalu sinkron dengan database utama saat simpan
+        const updatedLa = { 
+          ...la, 
+          className: cls ? cls.name : la.className,
+          teacherName: staff?.find(s => s.id === la.teacherId)?.fullName || la.teacherName,
+          subjectName: subjects?.find(s => s.id === la.subjectId)?.name || la.subjectName
+        }
 
         if (la.id.startsWith('temp-')) {
           const newRef = doc(collection(db, 'teacherAssignments'))
@@ -278,7 +304,7 @@ export default function TeacherAssignmentsPage() {
 
       await batch.commit()
       setIsDirty(false)
-      toast({ title: "Sinkronisasi Berhasil" })
+      toast({ title: "Sinkronisasi Berhasil", description: "Seluruh data penugasan dan nama rombel telah diperbarui." })
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal Sinkronisasi" })
     } finally {
