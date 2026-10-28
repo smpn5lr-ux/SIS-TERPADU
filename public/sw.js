@@ -1,3 +1,4 @@
+
 const CACHE_NAME = 'sis-terpadu-v2';
 const urlsToCache = [
   '/',
@@ -9,7 +10,11 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        return cache.addAll(urlsToCache);
+        // Menggunakan Promise.allSettled agar jika satu file gagal (misal icon hilang), 
+        // service worker tetap bisa terinstall dan aplikasi tetap installable.
+        return Promise.allSettled(
+          urlsToCache.map(url => cache.add(url))
+        );
       })
       .then(() => self.skipWaiting())
   );
@@ -33,6 +38,9 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
+  // Hanya proses request dari origin yang sama
+  if (!event.request.url.startsWith(self.location.origin)) return;
+
   event.respondWith(
     caches.match(event.request)
       .then((response) => {
@@ -54,6 +62,7 @@ self.addEventListener('fetch', (event) => {
             return networkResponse;
           })
           .catch(() => {
+            // Fallback offline untuk navigasi utama
             if (event.request.mode === 'navigate') {
               return caches.match('/');
             }
