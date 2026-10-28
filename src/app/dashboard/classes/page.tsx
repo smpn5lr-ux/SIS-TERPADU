@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { 
-  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, Info, UserMinus, X, GraduationCap, ArrowLeft, School, Download, Upload, AlertCircle, ArrowRightLeft, UserPlus, ShieldAlert, FileSpreadsheet, MoreVertical, FileText, Home, User
+  Users, Trash2, Plus, Pencil, Loader2, CheckCircle2, Search, CloudUpload, CloudOff, Info, UserMinus, X, GraduationCap, ArrowLeft, School, Download, Upload, AlertCircle, ArrowRightLeft, UserPlus, ShieldAlert, FileSpreadsheet, MoreVertical, FileText, Home, User as UserIcon
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -82,7 +82,10 @@ export default function ClassesPage() {
   const db = useFirestore()
   const enrollmentFileInputRef = useRef<HTMLInputElement>(null)
 
-  const settingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
+  const settingsRef = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return doc(db, 'settings', 'system')
+  }, [db, user, userLoading])
   const { data: config } = useDoc<any>(settingsRef)
 
   const classesQuery = useMemoFirebase(() => {
@@ -365,25 +368,12 @@ export default function ClassesPage() {
         const snap = await getDocs(q)
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
-        const studentGradeMap = new Map<string, number>();
-        localClasses.forEach(c => {
-          (c.students || []).forEach(sid => studentGradeMap.set(sid, c.gradeLevel));
-        });
-
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
-        let skipCount = 0;
 
         allStudents.forEach(s => {
           const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
           if (isAlreadyInThisClass) return;
-
-          const existingGrade = studentGradeMap.get(s.id);
-          // Jika murid terdaftar di tingkat yang berbeda, lewati.
-          if (existingGrade !== undefined && existingGrade !== selectedClassForStudents.gradeLevel) {
-            skipCount++;
-            return;
-          }
 
           const matchNISN = s.NISN && nisnList.includes(s.NISN);
           const matchNIS = s.NIS && nisList.includes(s.NIS);
@@ -400,26 +390,41 @@ export default function ClassesPage() {
           toast({ 
             variant: "destructive", 
             title: "Tidak Ada Murid Baru", 
-            description: skipCount > 0 
-              ? `${skipCount} murid dilewati karena masih terdaftar di tingkat kelas yang berbeda (Pastikan sudah dikosongkan & Klik SINKRON).`
-              : "Gunakan template yang benar atau periksa Nama/NISN di Database Utama." 
+            description: "Gunakan template yang benar atau periksa apakah Nama/NISN sudah terdaftar di Database Utama." 
           })
         } else {
-          const finalIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]))
-          const updatedClass = {
+          // AUTO-TRANSFER: Murid dipindahkan otomatis dari rombel manapun di draf
+          const matchedIdsSet = new Set(matchedIds);
+          
+          setLocalClasses(prev => prev.map(c => {
+            if (c.id === selectedClassForStudents.id) {
+              const currentIdsSet = new Set((c.students || []).filter(Boolean));
+              matchedIds.forEach(id => currentIdsSet.add(id));
+              const finalIds = Array.from(currentIdsSet);
+              return { ...c, students: finalIds, currentEnrollment: finalIds.length };
+            } else {
+              const otherIds = (c.students || []).filter(id => !matchedIdsSet.has(id));
+              return { ...c, students: otherIds, currentEnrollment: otherIds.length };
+            }
+          }));
+
+          setLocalApplicants(prev => {
+             const filteredPrev = prev.filter(a => !matchedIdsSet.has(a.id));
+             return [...filteredPrev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
+          });
+
+          const newCurrentIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]));
+          setSelectedClassForStudents({
             ...selectedClassForStudents,
-            students: finalIds,
-            currentEnrollment: finalIds.length
-          }
-          
-          setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-          setLocalApplicants(prev => [...prev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || "")))
-          setSelectedClassForStudents(updatedClass)
+            students: newCurrentIds,
+            currentEnrollment: newCurrentIds.length
+          });
+
           setIsDirty(true)
-          
-          let successMsg = `${matchedIds.length} murid ditarik ke rombel.`;
-          if (skipCount > 0) successMsg += ` (${skipCount} dilewati karena bentrok tingkat)`;
-          toast({ title: "Import Berhasil", description: successMsg })
+          toast({ 
+            title: "Berhasil Diimpor", 
+            description: `${matchedIds.length} murid berhasil dimasukkan. Sistem telah melakukan pemindahan otomatis dari rombel lain jika terdeteksi.` 
+          })
         }
       } catch (err) {
         toast({ variant: "destructive", title: "Error" })
@@ -613,7 +618,7 @@ export default function ClassesPage() {
 
                   <div className="space-y-2">
                     <Label className="text-[10px] font-bold uppercase text-muted-foreground flex items-center gap-2">
-                      <User className="w-3 h-3 text-accent" /> Data Orang Tua
+                      <Users className="w-3 h-3 text-accent" /> Data Orang Tua
                     </Label>
                     <div className="grid grid-cols-2 gap-3">
                        <div className="bg-muted/30 p-3 rounded-lg border">
@@ -695,7 +700,7 @@ export default function ClassesPage() {
                   <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
                   <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 max-w-[320px]">
                      <p className="text-[9px] text-amber-700 text-center leading-relaxed">
-                       <strong>PENTING:</strong> Murid yang sedang terdaftar di kelas tingkat lain (misal tingkat 8) tidak akan ditarik ke tingkat 7. Gunakan tombol "Audit Database" jika ingin mereset relasi murid.
+                       <strong>AUTO-TRANSFER:</strong> Jika murid terdeteksi ada di kelas lain (meskipun beda tingkat), sistem akan memindahkannya secara otomatis ke kelas ini.
                      </p>
                   </div>
                </div>
@@ -807,7 +812,7 @@ export default function ClassesPage() {
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader><AlertDialogTitle>Hapus Rombel?</AlertDialogTitle><AlertDialogDescription>Tindakan ini menghapus draf kelas Anda dari sistem.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalClasses(prev => prev.filter(c => c.id !== classToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Hapus</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={() => { setLocalClasses(prev => prev.filter(c => c.id !== classToDelete?.id)); setIsDirty(true); setIsDeleteDialogOpen(false); }} className="bg-destructive">Ya, Hapus</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
