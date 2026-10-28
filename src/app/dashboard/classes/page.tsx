@@ -372,17 +372,15 @@ export default function ClassesPage() {
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
-          const isAlreadyInThisClass = (selectedClassForStudents.students || []).includes(s.id);
-          if (isAlreadyInThisClass) return;
-
           const matchNISN = s.NISN && nisnList.includes(s.NISN);
           const matchNIS = s.NIS && nisList.includes(s.NIS);
           const matchName = s.fullName && nameList.includes(s.fullName.toLowerCase());
 
           if (matchNISN || matchNIS || matchName) {
-            if (matchedIds.includes(s.id)) return;
-            matchedIds.push(s.id)
-            matchedApps.push(s)
+            if (!matchedIds.includes(s.id)) {
+              matchedIds.push(s.id)
+              matchedApps.push(s)
+            }
           }
         })
 
@@ -393,9 +391,9 @@ export default function ClassesPage() {
             description: "Gunakan template yang benar atau periksa apakah Nama/NISN sudah terdaftar di Database Utama." 
           })
         } else {
-          // AUTO-TRANSFER: Murid dipindahkan otomatis dari rombel manapun di draf
           const matchedIdsSet = new Set(matchedIds);
           
+          // AUTO-TRANSFER: Loop over all classes and remove these IDs, then add to current class
           setLocalClasses(prev => prev.map(c => {
             if (c.id === selectedClassForStudents.id) {
               const currentIdsSet = new Set((c.students || []).filter(Boolean));
@@ -414,11 +412,11 @@ export default function ClassesPage() {
           });
 
           const newCurrentIds = Array.from(new Set([...(selectedClassForStudents.students || []), ...matchedIds]));
-          setSelectedClassForStudents({
-            ...selectedClassForStudents,
+          setSelectedClassForStudents(prev => prev ? {
+            ...prev,
             students: newCurrentIds,
             currentEnrollment: newCurrentIds.length
-          });
+          } : null);
 
           setIsDirty(true)
           toast({ 
@@ -427,7 +425,7 @@ export default function ClassesPage() {
           })
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error" })
+        toast({ variant: "destructive", title: "Error", description: "Terjadi kesalahan saat memproses file." })
       } finally {
         setIsImporting(false)
         setIsImportEnrollmentOpen(false)
