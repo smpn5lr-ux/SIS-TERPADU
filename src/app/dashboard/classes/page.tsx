@@ -125,7 +125,7 @@ export default function ClassesPage() {
           results.push(...snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant)));
         }
         
-        const validResults = results.filter(r => !r.isDeleted);
+        const validResults = results.filter(r => !r.isDeleted || idsToTrash.has(r.id) === false);
         const sortedResults = validResults.sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
         
         setLocalApplicants(sortedResults)
@@ -360,44 +360,54 @@ export default function ClassesPage() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(sheet) as any[]
         
-        const nisnList = jsonData.map(row => String(row['NISN'] || '').trim().replace('.0', '')).filter(Boolean)
-        const nisList = jsonData.map(row => String(row['NIS'] || '').trim().replace('.0', '')).filter(Boolean)
-        const nameList = jsonData.map(row => String(row['Nama Lengkap'] || row['Nama'] || '').trim().toLowerCase()).filter(Boolean)
+        // Match columns with logic for NIS, NISN, and Name
+        const rows = jsonData.map(row => ({
+          nisn: String(row['NISN'] || '').trim().replace('.0', ''),
+          nis: String(row['NIS'] || '').trim().replace('.0', ''),
+          name: String(row['Nama Lengkap'] || row['Nama'] || '').trim().toLowerCase()
+        })).filter(r => r.nisn || r.nis || r.name)
 
-        // Query SEMUA murid, termasuk yang dihapus (Trash)
+        if (rows.length === 0) {
+          toast({ variant: "destructive", title: "Data Tidak Ditemukan", description: "Pastikan kolom NISN/Nama sesuai template." })
+          setIsImporting(false)
+          return
+        }
+
+        // Query ALL students (including trash)
         const snap = await getDocs(collection(db, 'applicants'))
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
 
-        allStudents.forEach(s => {
-          const sNISN = String(s.NISN || '').trim();
-          const sNIS = String(s.NIS || '').trim();
-          const sName = String(s.fullName || '').trim().toLowerCase();
+        rows.forEach(row => {
+          const match = allStudents.find(s => {
+            const sNISN = String(s.NISN || '').trim();
+            const sNIS = String(s.NIS || '').trim();
+            const sName = String(s.fullName || '').trim().toLowerCase();
 
-          const matchNISN = sNISN && nisnList.includes(sNISN);
-          const matchNIS = sNIS && nisList.includes(sNIS);
-          const matchName = sName && nameList.includes(sName);
+            // prioritized matching: NISN -> NIS -> Name
+            return (row.nisn && sNISN === row.nisn) || 
+                   (row.nis && sNIS === row.nis) || 
+                   (row.name && sName === row.name);
+          });
 
-          if (matchNISN || matchNIS || matchName) {
-            if (!matchedIds.includes(s.id)) {
-              matchedIds.push(s.id)
-              matchedApps.push({ ...s, isDeleted: false }) // Pulihkan status aktif
-            }
+          if (match && !matchedIds.includes(match.id)) {
+            matchedIds.push(match.id);
+            matchedApps.push({ ...match, isDeleted: false }); // Auto-Restore if it was in trash
           }
-        })
+        });
 
         if (matchedIds.length === 0) {
           toast({ 
             variant: "destructive", 
-            title: "Tidak Ada Murid Baru", 
-            description: "Gunakan template yang benar atau periksa apakah Nama/NISN sudah terdaftar di Database Utama." 
+            title: "Pencocokan Gagal", 
+            description: "Data Excel tidak ditemukan di Database Utama. Periksa NISN/Nama." 
           })
         } else {
           const matchedIdsSet = new Set(matchedIds);
           
-          // AUTO-TRANSFER: Cabut dari kelas lama, pindahkan ke kelas ini
+          // AUTO-TRANSFER: Remove from any other class in local state
           setLocalClasses(prev => prev.map(c => {
             if (c.id === selectedClassForStudents.id) {
               const currentIdsSet = new Set((c.students || []).filter(Boolean));
@@ -422,7 +432,7 @@ export default function ClassesPage() {
             currentEnrollment: newCurrentIds.length
           } : null);
 
-          // Hapus dari daftar antrean penghapusan jika ada
+          // Restore from trash queue
           setIdsToTrash(prev => {
              const next = new Set(prev);
              matchedIds.forEach(id => next.delete(id));
@@ -431,12 +441,12 @@ export default function ClassesPage() {
 
           setIsDirty(true)
           toast({ 
-            title: "Berhasil Diimpor", 
-            description: `${matchedIds.length} murid berhasil dimasukkan. Murid yang sebelumnya terhapus atau berada di kelas lain telah dipindahkan secara otomatis.` 
+            title: "Import Selesai", 
+            description: `${matchedIds.length} murid berhasil dimasukkan. Sistem otomatis mencabut murid dari rombel lama dan memulihkan data dari sampah.` 
           })
         }
       } catch (err) {
-        toast({ variant: "destructive", title: "Error", description: "Terjadi kesalahan saat memproses file." })
+        toast({ variant: "destructive", title: "Gagal Proses", description: "Kesalahan memproses file Excel." })
       } finally {
         setIsImporting(false)
         setIsImportEnrollmentOpen(false)
@@ -719,10 +729,7 @@ export default function ClassesPage() {
 
         <AlertDialog open={isClearAllDialogOpen} onOpenChange={setIsClearAllDialogOpen}>
           <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Kosongkan Kelas?</AlertDialogTitle>
-              <AlertDialogDescription>Seluruh murid akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah**.</AlertDialogDescription>
-            </AlertDialogHeader>
+            <AlertDialogHeader><AlertDialogTitle>Kosongkan Kelas?</AlertDialogTitle><AlertDialogDescription>Seluruh murid akan dikeluarkan dari rombel dan dipindahkan ke **Tempat Sampah**.</AlertDialogDescription></AlertDialogHeader>
             <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleClearAllStudents} className="bg-destructive">Ya, Kosongkan</AlertDialogAction></AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
@@ -813,7 +820,7 @@ export default function ClassesPage() {
 
       <AlertDialog open={isAuditDialogOpen} onOpenChange={setIsAuditDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini akan memindahkan setiap murid yang **TIDAK terdaftar di rombel manapun** ke Tempat Sampah.<br/><br/><strong>Sangat disarankan:</strong> Jika Anda baru saja mengosongkan draf kelas, klik tombol SINKRON terlebih dahulu sebelum menjalankan audit ini agar data cloud sinkron.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><ShieldAlert className="w-5 h-5 text-destructive" /><AlertDialogTitle>Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini memindahkan murid tanpa rombel ke Tempat Sampah.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive">Ya, Bersihkan</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
