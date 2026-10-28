@@ -59,7 +59,7 @@ import {
 } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
+import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase'
 import { collection, addDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { TeacherAssignment, Staff, Classroom, Subject } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
@@ -67,6 +67,7 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from '@/components/ui/separator'
 
 export default function TeacherAssignmentsPage() {
+  const { user, loading: userLoading } = useUser()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingAssignment, setEditingAssignment] = useState<TeacherAssignment | null>(null)
@@ -85,10 +86,25 @@ export default function TeacherAssignmentsPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState("")
   const [totalJP, setTotalJP] = useState("2")
 
-  const assignmentsQuery = useMemoFirebase(() => db ? collection(db, 'teacherAssignments') : null, [db])
-  const staffQuery = useMemoFirebase(() => db ? collection(db, 'staff') : null, [db])
-  const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
-  const subjectsQuery = useMemoFirebase(() => db ? collection(db, 'subjects') : null, [db])
+  const assignmentsQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'teacherAssignments')
+  }, [db, user, userLoading])
+
+  const staffQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'staff')
+  }, [db, user, userLoading])
+
+  const classesQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'classes')
+  }, [db, user, userLoading])
+
+  const subjectsQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'subjects')
+  }, [db, user, userLoading])
 
   const { data: serverAssignments, loading: loadingA } = useCollection<TeacherAssignment>(assignmentsQuery)
   const { data: staff } = useCollection<Staff>(staffQuery)
@@ -197,7 +213,6 @@ export default function TeacherAssignmentsPage() {
       return
     }
     
-    // VALIDASI DUPLIKASI: Cek apakah guru sudah punya mapel tersebut di kelas terpilih
     const duplicates = selectedClassIds.filter(cid => {
       return localAssignments.some(la => 
         la.teacherId === selectedTeacherId && 
@@ -282,7 +297,6 @@ export default function TeacherAssignmentsPage() {
 
       localAssignments.forEach(la => {
         const cls = classes?.find(c => c.id === la.classId)
-        // PROTEKSI: Pastikan nama kelas selalu sinkron dengan database utama saat simpan
         const updatedLa = { 
           ...la, 
           className: cls ? cls.name : la.className,
@@ -340,7 +354,7 @@ export default function TeacherAssignmentsPage() {
       </div>
 
       <div className="space-y-4">
-        {loadingA ? (
+        {loadingA || userLoading ? (
           <div className="text-center py-12"><Loader2 className="animate-spin mx-auto text-primary" /></div>
         ) : groupedAssignments.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground italic bg-card border rounded-xl">Belum ada penugasan guru.</div>

@@ -12,13 +12,14 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { useFirestore, useMemoFirebase, useDoc } from "@/firebase"
+import { useFirestore, useMemoFirebase, useDoc, useUser } from "@/firebase"
 import { collection, query, limit, doc, getCountFromServer, where } from "firebase/firestore"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
 
 export default function OverviewPage() {
   const db = useFirestore()
+  const { user, loading: userLoading } = useUser()
   const [counts, setCounts] = useState({
     classes: 0,
     staff: 0,
@@ -28,15 +29,15 @@ export default function OverviewPage() {
   const [loadingCounts, setLoadingCounts] = useState(true)
 
   const settingsRef = useMemoFirebase(() => {
-    if (!db) return null
+    if (!db || userLoading || !user) return null
     return doc(db, 'settings', 'system')
-  }, [db])
+  }, [db, user, userLoading])
 
   const { data: config, loading: loadingConfig } = useDoc<any>(settingsRef)
 
   useEffect(() => {
     async function fetchCounts() {
-      if (!db) return
+      if (!db || userLoading || !user) return
       setLoadingCounts(true)
       try {
         const [clsSnap, staffSnap, subSnap, stdSnap] = await Promise.all([
@@ -59,7 +60,7 @@ export default function OverviewPage() {
       }
     }
     fetchCounts()
-  }, [db])
+  }, [db, user, userLoading])
 
   const academicStats = [
     { name: 'Total Rombel', value: counts.classes, icon: School, color: 'text-primary', bg: 'bg-primary/10', href: '/dashboard/classes' },
@@ -68,7 +69,7 @@ export default function OverviewPage() {
     { name: 'Murid Aktif', value: counts.activeStudents, icon: Users, color: 'text-green-500', bg: 'bg-green-500/10', href: '/dashboard/students' },
   ]
 
-  const loading = loadingCounts || loadingConfig
+  const loading = loadingCounts || loadingConfig || userLoading
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">

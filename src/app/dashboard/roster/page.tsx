@@ -80,7 +80,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion"
-import { useCollection, useFirestore, useMemoFirebase, useDoc } from '@/firebase'
+import { useCollection, useFirestore, useMemoFirebase, useDoc, useUser } from '@/firebase'
 import { collection, query, doc, setDoc, writeBatch } from 'firebase/firestore'
 import { RosterEntry, Staff, Classroom, Subject, TeacherAssignment, RosterConfig, GlobalActivity, DailyBreak } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
@@ -114,6 +114,7 @@ const getEntryColor = (teacherId: string, subjectId: string = "") => {
 };
 
 export default function RosterManagementPage() {
+  const { user, loading: userLoading } = useUser()
   const db = useFirestore()
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("builder")
@@ -134,13 +135,40 @@ export default function RosterManagementPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [entryToDeleteId, setEntryToDeleteId] = useState<string | null>(null)
 
-  const rosterQuery = useMemoFirebase(() => db ? collection(db, 'rosterEntries') : null, [db])
-  const assignmentsQuery = useMemoFirebase(() => db ? collection(db, 'teacherAssignments') : null, [db])
-  const classesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
-  const subjectsQuery = useMemoFirebase(() => db ? collection(db, 'subjects') : null, [db])
-  const staffQuery = useMemoFirebase(() => db ? collection(db, 'staff') : null, [db])
-  const configRef = useMemoFirebase(() => db ? doc(db, 'settings', 'roster') : null, [db])
-  const systemSettingsRef = useMemoFirebase(() => db ? doc(db, 'settings', 'system') : null, [db])
+  const rosterQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'rosterEntries')
+  }, [db, user, userLoading])
+
+  const assignmentsQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'teacherAssignments')
+  }, [db, user, userLoading])
+
+  const classesQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'classes')
+  }, [db, user, userLoading])
+
+  const subjectsQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'subjects')
+  }, [db, user, userLoading])
+
+  const staffQuery = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return collection(db, 'staff')
+  }, [db, user, userLoading])
+
+  const configRef = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return doc(db, 'settings', 'roster')
+  }, [db, user, userLoading])
+
+  const systemSettingsRef = useMemoFirebase(() => {
+    if (!db || userLoading || !user) return null
+    return doc(db, 'settings', 'system')
+  }, [db, user, userLoading])
 
   const { data: serverEntries, loading: loadingR } = useCollection<RosterEntry>(rosterQuery)
   const { data: assignments } = useCollection<TeacherAssignment>(assignmentsQuery)
@@ -302,7 +330,6 @@ export default function RosterManagementPage() {
 
     const targetEntry = localEntries.find(ent => ent.day === targetDay && ent.period === targetPeriod && ent.classId === targetClassId);
 
-    // Conflict Check Source Guru at Target Slot
     const sourceGuruConflict = localEntries.find(ent => 
       ent.day === targetDay && 
       ent.period === targetPeriod && 
@@ -320,7 +347,6 @@ export default function RosterManagementPage() {
       return;
     }
 
-    // Conflict Check Target Guru at Source Slot (if swapping)
     if (targetEntry) {
       const targetGuruConflict = localEntries.find(ent => 
         ent.day === sourceDay && 
@@ -643,7 +669,7 @@ export default function RosterManagementPage() {
     } catch (e) { toast({ variant: "destructive", title: "Gagal unduh" }); } finally { setIsExportingCoded(false); }
   };
 
-  if (loadingR || loadingConfigDoc || loadingClasses) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
+  if (loadingR || loadingConfigDoc || loadingClasses || userLoading) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
   const totalNeededJP = workloadStats.reduce((sum, w) => sum + (w.totalJP || 0), 0);
   const totalScheduledJP = workloadStats.reduce((sum, w) => sum + w.scheduled, 0);
 

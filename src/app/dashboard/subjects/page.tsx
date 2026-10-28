@@ -60,7 +60,7 @@ import { Label } from "@/components/ui/label"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
+import { useCollection, useFirestore, useMemoFirebase, useUser } from '@/firebase'
 import { collection, addDoc, doc, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore'
 import { Subject } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
@@ -73,6 +73,7 @@ const subjectSchema = z.object({
 })
 
 export default function SubjectsPage() {
+  const { user, loading: userLoading } = useUser()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -87,9 +88,9 @@ export default function SubjectsPage() {
   const db = useFirestore()
 
   const subjectsQuery = useMemoFirebase(() => {
-    if (!db) return null
+    if (!db || userLoading || !user) return null
     return collection(db, 'subjects')
-  }, [db])
+  }, [db, user, userLoading])
 
   const { data: serverSubjects, loading } = useCollection<Subject>(subjectsQuery)
 
@@ -109,7 +110,6 @@ export default function SubjectsPage() {
   })
 
   const handleSaveLocal = (values: z.infer<typeof subjectSchema>) => {
-    // Validasi Duplikasi berdasarkan Nama atau Kode (case insensitive)
     const normalizedName = values.name.toLowerCase().trim();
     const normalizedCode = values.code.toLowerCase().trim();
     
@@ -240,7 +240,7 @@ export default function SubjectsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && !localSubjects.length ? (
+            {loading || userLoading ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20"><Loader2 className="animate-spin mx-auto text-primary" /></TableCell></TableRow>
             ) : sortedSubjects.length === 0 ? (
               <TableRow><TableCell colSpan={4} className="text-center py-20 text-muted-foreground italic">Belum ada mata pelajaran.</TableCell></TableRow>
