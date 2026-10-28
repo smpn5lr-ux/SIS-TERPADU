@@ -331,7 +331,7 @@ export default function ClassesPage() {
     setSelectedClassForStudents(updatedClass)
     setIsDirty(true)
     setIsClearAllDialogOpen(false)
-    toast({ title: "Kelas Dikosongkan" })
+    toast({ title: "Kelas Dikosongkan di Draf" })
   }
 
   const handleDownloadImportTemplate = () => {
@@ -379,6 +379,7 @@ export default function ClassesPage() {
           if (isAlreadyInThisClass) return;
 
           const existingGrade = studentGradeMap.get(s.id);
+          // Jika murid terdaftar di tingkat yang berbeda, lewati.
           if (existingGrade !== undefined && existingGrade !== selectedClassForStudents.gradeLevel) {
             skipCount++;
             return;
@@ -400,7 +401,7 @@ export default function ClassesPage() {
             variant: "destructive", 
             title: "Tidak Ada Murid Baru", 
             description: skipCount > 0 
-              ? `${skipCount} murid dilewati karena sudah terdaftar di tingkat yang berbeda.`
+              ? `${skipCount} murid dilewati karena masih terdaftar di tingkat kelas yang berbeda (Pastikan sudah dikosongkan & Klik SINKRON).`
               : "Gunakan template yang benar atau periksa Nama/NISN di Database Utama." 
           })
         } else {
@@ -417,7 +418,7 @@ export default function ClassesPage() {
           setIsDirty(true)
           
           let successMsg = `${matchedIds.length} murid ditarik ke rombel.`;
-          if (skipCount > 0) successMsg += ` (${skipCount} dilewati karena beda tingkat)`;
+          if (skipCount > 0) successMsg += ` (${skipCount} dilewati karena bentrok tingkat)`;
           toast({ title: "Import Berhasil", description: successMsg })
         }
       } catch (err) {
@@ -692,7 +693,11 @@ export default function ClassesPage() {
                <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />} Pilih File Excel</Button>
                <div className="flex flex-col items-center gap-2">
                   <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
-                  <p className="text-[9px] text-muted-foreground text-center max-w-[250px]">Sistem akan memvalidasi agar tidak terjadi pencampuran siswa antar tingkatan kelas yang berbeda.</p>
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 max-w-[320px]">
+                     <p className="text-[9px] text-amber-700 text-center leading-relaxed">
+                       <strong>PENTING:</strong> Murid yang sedang terdaftar di kelas tingkat lain (misal tingkat 8) tidak akan ditarik ke tingkat 7. Gunakan tombol "Audit Database" jika ingin mereset relasi murid.
+                     </p>
+                  </div>
                </div>
             </div>
           </DialogContent>
@@ -794,7 +799,7 @@ export default function ClassesPage() {
 
       <AlertDialog open={isAuditDialogOpen} onOpenChange={setIsAuditDialogOpen}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini akan memindahkan setiap murid yang **TIDAK terdaftar di rombel manapun** ke Tempat Sampah.<br/><br/>Tujuannya agar angka di Dasbor hanya menampilkan data riil murid yang sudah memiliki kelas.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini akan memindahkan setiap murid yang **TIDAK terdaftar di rombel manapun** ke Tempat Sampah.<br/><br/><strong>Sangat disarankan:</strong> Jika Anda baru saja mengosongkan draf kelas, klik tombol SINKRON terlebih dahulu sebelum menjalankan audit ini agar data cloud sinkron.</AlertDialogDescription></AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive">Ya, Bersihkan</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
