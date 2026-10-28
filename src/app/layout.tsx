@@ -1,4 +1,3 @@
-
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
@@ -49,6 +48,7 @@ export default function RootLayout({
         <link rel="icon" href={ICON_URL} />
         <link rel="shortcut icon" href={ICON_URL} />
         <link rel="apple-touch-icon" href={ICON_URL} />
+        <link rel="manifest" href="/manifest" />
         
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
