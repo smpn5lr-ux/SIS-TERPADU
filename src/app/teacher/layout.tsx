@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -51,6 +50,7 @@ import { Staff, TeacherAssignment, Journal, Assessment, Applicant, Classroom } f
 import { useToast } from "@/hooks/use-toast"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import * as XLSX from 'xlsx'
+import { InstallPWA, InstallPWABanner } from "@/components/InstallPWA"
 
 function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -412,12 +412,16 @@ function TeacherLayoutContent({ children }: { children: React.ReactNode }) {
               <SidebarTrigger className="lg:hidden" />
               <h2 className="font-bold text-sm">Selamat Datang, {user?.displayName}</h2>
             </div>
+            <div className="flex items-center gap-4">
+              <InstallPWA />
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto p-6 bg-background/50">
             <React.Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="animate-spin text-primary" /></div>}>
               {children}
             </React.Suspense>
           </main>
+          <InstallPWABanner />
         </SidebarInset>
       </div>
 

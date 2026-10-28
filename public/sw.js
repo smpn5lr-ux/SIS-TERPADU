@@ -1,12 +1,10 @@
-
-const CACHE_NAME = 'sis-terpadu-cache-v1';
+const CACHE_NAME = 'sis-terpadu-v2';
 const urlsToCache = [
   '/',
   '/login',
   '/icon-logo.png'
 ];
 
-// Install Service Worker
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -16,29 +14,31 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate and clean old caches
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    caches.match(event.request)
+      .then((response) => {
+        // Cache hit - return response
+        if (response) {
+          return response;
+        }
+        return fetch(event.request);
+      }
+    )
+  );
+});
+
 self.addEventListener('activate', (event) => {
+  const cacheWhitelist = [CACHE_NAME];
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheWhitelist.indexOf(cacheName) === -1) {
             return caches.delete(cacheName);
           }
         })
       );
     })
   );
-});
-
-// Fetch Strategy: Network First, falling back to cache
-self.addEventListener('fetch', (event) => {
-  // Hanya tangani permintaan navigasi atau file statis penting
-  if (event.request.mode === 'navigate' || event.request.destination === 'image') {
-    event.respondWith(
-      fetch(event.request).catch(() => {
-        return caches.match(event.request);
-      })
-    );
-  }
 });

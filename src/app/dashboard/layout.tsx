@@ -1,4 +1,3 @@
-
 "use client"
 
 import * as React from "react"
@@ -57,6 +56,7 @@ import { doc, collection, query, where, getDocs } from "firebase/firestore"
 import { useToast } from "@/hooks/use-toast"
 import { Staff, Classroom, Applicant } from "@/lib/types"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { InstallPWA, InstallPWABanner } from "@/components/InstallPWA"
 
 function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -89,7 +89,6 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
   const { data: staffData, loading: staffLoading } = useCollection<Staff>(staffQuery)
 
   const classesQuery = useMemoFirebase(() => {
-    // PROTEKSI: Jangan query kelas sampai auth siap untuk menghindari Permission Denied
     if (!db || userLoading || !user) return null
     return collection(db, 'classes')
   }, [db, user, userLoading])
@@ -389,6 +388,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
           </div>
           
           <div className="flex items-center gap-4">
+            <InstallPWA />
             <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
               <Bell className="w-5 h-5" />
               <span className="absolute top-2 right-2 w-2 h-2 bg-destructive rounded-full border-2 border-background"></span>
@@ -422,6 +422,7 @@ function DashboardLayoutContent({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto p-6 bg-background/50">
           {children}
         </main>
+        <InstallPWABanner />
       </SidebarInset>
 
       <Dialog open={isQRDialogOpen} onOpenChange={setIsQRDialogOpen}>
