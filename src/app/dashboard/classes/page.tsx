@@ -236,7 +236,7 @@ export default function ClassesPage() {
       })
 
       localClasses.forEach(lc => {
-        const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && allActiveIds.has(id) && !idsToTrash.has(id))));
+        const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && (allActiveIds.has(id) || !idsToTrash.has(id)))));
         
         const lcClean = { 
           ...lc, 
@@ -360,26 +360,30 @@ export default function ClassesPage() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(sheet) as any[]
         
-        const nisnList = jsonData.map(row => String(row['NISN'] || '').trim()).filter(Boolean)
-        const nisList = jsonData.map(row => String(row['NIS'] || '').trim()).filter(Boolean)
+        const nisnList = jsonData.map(row => String(row['NISN'] || '').trim().replace('.0', '')).filter(Boolean)
+        const nisList = jsonData.map(row => String(row['NIS'] || '').trim().replace('.0', '')).filter(Boolean)
         const nameList = jsonData.map(row => String(row['Nama Lengkap'] || row['Nama'] || '').trim().toLowerCase()).filter(Boolean)
 
-        const q = query(collection(db, 'applicants'), where('isDeleted', '==', false))
-        const snap = await getDocs(q)
+        // Query SEMUA murid, termasuk yang dihapus (Trash)
+        const snap = await getDocs(collection(db, 'applicants'))
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
         const matchedIds: string[] = []
         const matchedApps: Applicant[] = []
 
         allStudents.forEach(s => {
-          const matchNISN = s.NISN && nisnList.includes(s.NISN);
-          const matchNIS = s.NIS && nisList.includes(s.NIS);
-          const matchName = s.fullName && nameList.includes(s.fullName.toLowerCase());
+          const sNISN = String(s.NISN || '').trim();
+          const sNIS = String(s.NIS || '').trim();
+          const sName = String(s.fullName || '').trim().toLowerCase();
+
+          const matchNISN = sNISN && nisnList.includes(sNISN);
+          const matchNIS = sNIS && nisList.includes(sNIS);
+          const matchName = sName && nameList.includes(sName);
 
           if (matchNISN || matchNIS || matchName) {
             if (!matchedIds.includes(s.id)) {
               matchedIds.push(s.id)
-              matchedApps.push(s)
+              matchedApps.push({ ...s, isDeleted: false }) // Pulihkan status aktif
             }
           }
         })
@@ -393,7 +397,7 @@ export default function ClassesPage() {
         } else {
           const matchedIdsSet = new Set(matchedIds);
           
-          // AUTO-TRANSFER: Loop over all classes and remove these IDs, then add to current class
+          // AUTO-TRANSFER: Cabut dari kelas lama, pindahkan ke kelas ini
           setLocalClasses(prev => prev.map(c => {
             if (c.id === selectedClassForStudents.id) {
               const currentIdsSet = new Set((c.students || []).filter(Boolean));
@@ -418,10 +422,17 @@ export default function ClassesPage() {
             currentEnrollment: newCurrentIds.length
           } : null);
 
+          // Hapus dari daftar antrean penghapusan jika ada
+          setIdsToTrash(prev => {
+             const next = new Set(prev);
+             matchedIds.forEach(id => next.delete(id));
+             return next;
+          });
+
           setIsDirty(true)
           toast({ 
             title: "Berhasil Diimpor", 
-            description: `${matchedIds.length} murid berhasil dimasukkan. Sistem telah melakukan pemindahan otomatis dari rombel lain jika terdeteksi.` 
+            description: `${matchedIds.length} murid berhasil dimasukkan. Murid yang sebelumnya terhapus atau berada di kelas lain telah dipindahkan secara otomatis.` 
           })
         }
       } catch (err) {
@@ -698,7 +709,7 @@ export default function ClassesPage() {
                   <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
                   <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 max-w-[320px]">
                      <p className="text-[9px] text-amber-700 text-center leading-relaxed">
-                       <strong>AUTO-TRANSFER:</strong> Jika murid terdeteksi ada di kelas lain (meskipun beda tingkat), sistem akan memindahkannya secara otomatis ke kelas ini.
+                       <strong>PEMULIHAN OTOMATIS:</strong> Sistem akan mencari murid di seluruh database (termasuk yang sudah terhapus) dan memasukkannya kembali ke rombel ini.
                      </p>
                   </div>
                </div>
