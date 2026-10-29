@@ -578,7 +578,7 @@ function TeachingJournalPageContent() {
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{allVisibleStudents.length})</CardTitle>
-                  <CardDescription>Siswa utama di atas, siswa gabungan & tamu di bawah.</CardDescription>
+                  <CardDescription>Daftar absensi siswa di rombel ini.</CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
@@ -593,7 +593,7 @@ function TeachingJournalPageContent() {
                         <TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow>
                       </TableHeader>
                       <TableBody>
-                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA UTAMA KELAS {assignment?.className}</TableCell></TableRow>
+                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA UTAMA ROMBEL {assignment?.className}</TableCell></TableRow>
                         {primaryStudents.map(s => (
                           <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
                             <TableCell className="pl-6"><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
@@ -604,22 +604,22 @@ function TeachingJournalPageContent() {
 
                         {(guestInThisClass.length > 0 || mergedStudents.length > 0) && (
                           <>
-                            <TableRow className="bg-accent/10 hover:bg-accent/10"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-accent uppercase tracking-widest px-6">SISWA GABUNGAN (GUEST)</TableCell></TableRow>
+                            <TableRow className="bg-accent/10 hover:bg-accent/10 border-t-2 border-accent/30"><TableCell colSpan={2} className="py-3 text-[11px] font-black text-accent uppercase tracking-[0.2em] px-6">DAFTAR SISWA GABUNGAN (GUEST)</TableCell></TableRow>
                             {[...guestInThisClass, ...mergedStudents].map(s => {
                                const homeClass = allClasses?.find(c => c.id === s.homeClassId);
                                return (
-                                <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors bg-accent/[0.02]">
+                                <TableRow key={s.id} className="h-16 hover:bg-muted/5 transition-colors bg-accent/[0.04]">
                                   <TableCell className="pl-6">
                                     <div className="flex flex-col">
                                       <span className="text-sm font-bold text-accent">{s.fullName}</span>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 mt-1">
                                          <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
-                                         {homeClass && <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">ASAL KELAS {homeClass.name}</Badge>}
+                                         {homeClass && <Badge variant="outline" className="text-[8px] h-4 px-2 border-accent/40 text-accent uppercase font-black bg-white/50">ASAL KELAS {homeClass.name}</Badge>}
                                       </div>
                                     </div>
                                   </TableCell>
                                   <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
-                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-accent text-white border-accent scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-10 h-10 rounded-xl text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-accent text-white border-accent scale-110 shadow-lg' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
                                 </TableRow>
                                )
                             })}
