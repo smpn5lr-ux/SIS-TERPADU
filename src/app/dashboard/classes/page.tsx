@@ -61,6 +61,7 @@ export default function ClassesPage() {
   const [localClasses, setLocalClasses] = useState<Classroom[]>([])
   const [localApplicants, setLocalApplicants] = useState<Applicant[]>([])
   const [idsToTrash, setIdsToTrash] = useState<Set<string>>(new Set())
+  const [studentUpdates, setStudentUpdates] = useState<Record<string, any>>({})
   
   const [classToDelete, setClassToDelete] = useState<Classroom | null>(null)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
@@ -113,6 +114,7 @@ export default function ClassesPage() {
         return
       }
 
+      // Jangan fetch ulang jika ID kelas sama dan data sudah ada di draf
       if (lastFetchedClassId.current === selectedClassForStudents.id && localApplicants.length > 0 && isDirty) return;
 
       setIsLoadingStudents(true)
@@ -232,6 +234,7 @@ export default function ClassesPage() {
       const activeSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)))
       const allActiveIds = new Set(activeSnap.docs.map(d => d.id))
 
+      // Sync Trash
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
@@ -239,6 +242,12 @@ export default function ClassesPage() {
         })
       })
 
+      // Sync Student Updates (Home Class Moving)
+      Object.entries(studentUpdates).forEach(([id, updates]) => {
+        batch.update(doc(db, 'applicants', id), updates)
+      })
+
+      // Sync Classes
       localClasses.forEach(lc => {
         const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && (allActiveIds.has(id) || !idsToTrash.has(id)))));
         
@@ -261,6 +270,7 @@ export default function ClassesPage() {
 
       await batch.commit()
       setIdsToTrash(new Set())
+      setStudentUpdates({})
       setIsDirty(false)
       toast({ title: "Sinkronisasi Berhasil" })
     } catch (e) {
@@ -276,31 +286,41 @@ export default function ClassesPage() {
     const targetClass = localClasses.find(c => c.id === targetClassId)
     if (!targetClass) return
 
-    const sourceClassUpdated = {
-      ...selectedClassForStudents,
-      students: (selectedClassForStudents.students || []).filter(id => id !== studentToMove.id),
-      currentEnrollment: Math.max(0, (selectedClassForStudents.currentEnrollment || 1) - 1)
-    }
-
-    const targetClassUpdated = {
-      ...targetClass,
-      students: Array.from(new Set([...(targetClass.students || []), studentToMove.id])),
-      currentEnrollment: (targetClass.students?.length || 0) + 1
-    }
-
-    setLocalClasses(prev => prev.map(c => {
-      if (c.id === sourceClassUpdated.id) return sourceClassUpdated
-      if (c.id === targetClassUpdated.id) return targetClassUpdated
-      return c
-    }))
-
-    setLocalApplicants(prev => prev.filter(a => a.id !== studentToMove.id))
-    setSelectedClassForStudents(sourceClassUpdated)
-    setIsDirty(true)
+    // Tutup dialog terlebih dahulu untuk mencegah freeze UI pada Radix
     setIsMoveDialogOpen(false)
-    setStudentToMove(null)
-    setTargetClassId("")
-    toast({ title: "Siswa Dipindahkan" })
+
+    setTimeout(() => {
+      const sourceClassUpdated = {
+        ...selectedClassForStudents,
+        students: (selectedClassForStudents.students || []).filter(id => id !== studentToMove.id),
+        currentEnrollment: Math.max(0, (selectedClassForStudents.currentEnrollment || 1) - 1)
+      }
+
+      const targetClassUpdated = {
+        ...targetClass,
+        students: Array.from(new Set([...(targetClass.students || []), studentToMove.id])),
+        currentEnrollment: (targetClass.students?.length || 0) + 1
+      }
+
+      setLocalClasses(prev => prev.map(c => {
+        if (c.id === sourceClassUpdated.id) return sourceClassUpdated
+        if (c.id === targetClassUpdated.id) return targetClassUpdated
+        return c
+      }))
+
+      // Rekam update rombel utama siswa agar tersimpan permanen saat sinkron
+      setStudentUpdates(prev => ({
+        ...prev,
+        [studentToMove.id]: { ...prev[studentToMove.id], homeClassId: targetClassId }
+      }))
+
+      setLocalApplicants(prev => prev.filter(a => a.id !== studentToMove.id))
+      setSelectedClassForStudents(sourceClassUpdated)
+      setIsDirty(true)
+      setStudentToMove(null)
+      setTargetClassId("")
+      toast({ title: "Siswa Dipindahkan", description: `${studentToMove.fullName} dipindah ke Kelas ${targetClass.name}` })
+    }, 100);
   }
 
   const handleJoinStudent = () => {
@@ -314,60 +334,71 @@ export default function ClassesPage() {
       return
     }
 
-    const targetClassUpdated = {
-      ...targetClass,
-      students: Array.from(new Set([...(targetClass.students || []), studentToJoin.id])),
-      currentEnrollment: (targetClass.students?.length || 0) + 1
-    }
-
-    setLocalClasses(prev => prev.map(c => {
-      if (c.id === targetClassUpdated.id) return targetClassUpdated
-      return c
-    }))
-
-    setIsDirty(true)
     setIsJoinDialogOpen(false)
-    setStudentToJoin(null)
-    setTargetJoinClassId("")
-    toast({ title: "Siswa Digabungkan", description: `${studentToJoin.fullName} sekarang juga terdaftar di Kelas ${targetClass.name}` })
+
+    setTimeout(() => {
+      const targetClassUpdated = {
+        ...targetClass,
+        students: Array.from(new Set([...(targetClass.students || []), studentToJoin.id])),
+        currentEnrollment: (targetClass.students?.length || 0) + 1
+      }
+
+      setLocalClasses(prev => prev.map(c => {
+        if (c.id === targetClassUpdated.id) return targetClassUpdated
+        return c
+      }))
+
+      setIsDirty(true)
+      setStudentToJoin(null)
+      setTargetJoinClassId("")
+      toast({ title: "Siswa Digabungkan", description: `${studentToJoin.fullName} kini ikut belajar di Kelas ${targetClass.name}` })
+    }, 100);
   }
 
   const handleRemoveStudentFromClass = () => {
     if (!selectedClassForStudents || !studentToRemove) return
     const studentId = studentToRemove.id
-    setIdsToTrash(prev => new Set([...prev, studentId]))
     
-    const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
-    const updatedClass = {
-      ...selectedClassForStudents,
-      students: updatedStudents,
-      currentEnrollment: updatedStudents.length
-    }
-    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-    setLocalApplicants(prev => prev.filter(a => a.id !== studentId))
-    setSelectedClassForStudents(updatedClass)
-    setIsDirty(true)
     setIsRemoveConfirmOpen(false)
-    setStudentToRemove(null)
-    toast({ title: "Siswa Dihapus ke Tempat Sampah" })
+
+    setTimeout(() => {
+      setIdsToTrash(prev => new Set([...prev, studentId]))
+      
+      const updatedStudents = (selectedClassForStudents.students || []).filter(id => id !== studentId)
+      const updatedClass = {
+        ...selectedClassForStudents,
+        students: updatedStudents,
+        currentEnrollment: updatedStudents.length
+      }
+      setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+      setLocalApplicants(prev => prev.filter(a => a.id !== studentId))
+      setSelectedClassForStudents(updatedClass)
+      setIsDirty(true)
+      setStudentToRemove(null)
+      toast({ title: "Siswa Dihapus ke Tempat Sampah" })
+    }, 100);
   }
 
   const handleClearAllStudents = () => {
     if (!selectedClassForStudents) return
     const currentStudentIds = selectedClassForStudents.students || []
-    setIdsToTrash(prev => {
-      const next = new Set(prev)
-      currentStudentIds.forEach(id => next.add(id))
-      return next
-    })
     
-    const updatedClass = { ...selectedClassForStudents, students: [], currentEnrollment: 0 }
-    setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
-    setLocalApplicants([])
-    setSelectedClassForStudents(updatedClass)
-    setIsDirty(true)
     setIsClearAllDialogOpen(false)
-    toast({ title: "Kelas Dikosongkan di Draf" })
+
+    setTimeout(() => {
+      setIdsToTrash(prev => {
+        const next = new Set(prev)
+        currentStudentIds.forEach(id => next.add(id))
+        return next
+      })
+      
+      const updatedClass = { ...selectedClassForStudents, students: [], currentEnrollment: 0 }
+      setLocalClasses(prev => prev.map(c => c.id === updatedClass.id ? updatedClass : c))
+      setLocalApplicants([])
+      setSelectedClassForStudents(updatedClass)
+      setIsDirty(true)
+      toast({ title: "Kelas Dikosongkan di Draf" })
+    }, 100);
   }
 
   const handleDownloadImportTemplate = () => {
@@ -448,6 +479,13 @@ export default function ClassesPage() {
             }
           }));
 
+          // Catat perubahan homeClassId untuk seluruh siswa yang diimpor
+          const newStudentUpdates = { ...studentUpdates }
+          matchedIds.forEach(id => {
+            newStudentUpdates[id] = { ...newStudentUpdates[id], homeClassId: selectedClassForStudents.id, isDeleted: false }
+          })
+          setStudentUpdates(newStudentUpdates)
+
           setLocalApplicants(prev => {
              const filteredPrev = prev.filter(a => !matchedIdsSet.has(a.id));
              return [...filteredPrev, ...matchedApps].sort((a,b) => (a.fullName || "").localeCompare(b.fullName || ""));
@@ -469,7 +507,7 @@ export default function ClassesPage() {
           setIsDirty(true)
           toast({ 
             title: "Import Selesai", 
-            description: `${matchedIds.length} murid berhasil dimasukkan. Sistem otomatis mencabut murid dari rombel lama dan memulihkan data dari sampah.` 
+            description: `${matchedIds.length} murid berhasil dimasukkan.` 
           })
         }
       } catch (err) {
