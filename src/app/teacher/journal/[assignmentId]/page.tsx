@@ -140,15 +140,30 @@ function TeachingJournalPageContent() {
     mergedClassIds: []
   })
 
+  // Logika Pemisahan Siswa Gabungan
+  const studentsInThisClass = useMemo(() => {
+    if (!allAcceptedStudents || !classroom?.students) return []
+    return allAcceptedStudents.filter(s => classroom.students.includes(s.id) && !s.isDeleted)
+  }, [allAcceptedStudents, classroom])
+
+  const primaryStudents = useMemo(() => {
+    return studentsInThisClass.filter(s => {
+       // Murid utama: Hanya ada di rombel ini
+       const otherClasses = allClasses?.filter(c => c.id !== classroom?.id && c.students?.includes(s.id))
+       return !otherClasses || otherClasses.length === 0
+    }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+  }, [studentsInThisClass, allClasses, classroom])
+
+  const guestInThisClass = useMemo(() => {
+    return studentsInThisClass.filter(s => {
+       // Murid tamu di rombel ini: Terdaftar juga di rombel lain
+       const otherClasses = allClasses?.filter(c => c.id !== classroom?.id && c.students?.includes(s.id))
+       return otherClasses && otherClasses.length > 0
+    }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+  }, [studentsInThisClass, allClasses, classroom])
+
   const mergedStudents = useMemo(() => {
     if (!allAcceptedStudents || !newJournal.mergedClassIds || !allClasses) return []
-    const mergedIds = new Set<string>()
-    newJournal.mergedClassIds.forEach(cid => {
-      const cls = allClasses.find(c => c.id === cid)
-      if (cls?.students) cls.students.forEach(sid => mergedIds.add(id))
-    })
-    
-    // Only return students from merged classes that are NOT in the main class
     return allAcceptedStudents
       .filter(s => {
         const isInMerged = newJournal.mergedClassIds?.some(cid => {
@@ -161,14 +176,7 @@ function TeachingJournalPageContent() {
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [allAcceptedStudents, newJournal.mergedClassIds, allClasses, classroom])
 
-  const mainStudents = useMemo(() => {
-    if (!allAcceptedStudents || !classroom?.students) return []
-    return allAcceptedStudents
-      .filter(s => classroom.students.includes(s.id) && !s.isDeleted)
-      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
-  }, [allAcceptedStudents, classroom])
-
-  const allVisibleStudents = useMemo(() => [...mainStudents, ...mergedStudents], [mainStudents, mergedStudents])
+  const allVisibleStudents = useMemo(() => [...primaryStudents, ...guestInThisClass, ...mergedStudents], [primaryStudents, guestInThisClass, mergedStudents])
 
   const studentsRef = useRef<Applicant[]>([])
   useEffect(() => {
@@ -274,7 +282,7 @@ function TeachingJournalPageContent() {
     if (scannerRef.current && scannerRef.current.isScanning) {
       await scannerRef.current.stop();
     }
-    setActiveView(editingJournalId || newJournal.id?.startsWith('temp-') ? 'form' : 'list');
+    setActiveView(editingJournalId || (newJournal.id && newJournal.id.startsWith('temp-')) ? 'form' : 'list');
   };
 
   const handleScanSuccess = (studentId: string) => {
@@ -362,9 +370,7 @@ function TeachingJournalPageContent() {
         }
       })
 
-      // Update assessments only for main students to keep logic consistent
-      // Merged students will have their attendance calculated from THEIR own primary journals
-      mainStudents.forEach(s => {
+      primaryStudents.forEach(s => {
         const totalMeetings = localJournals.length
         const attendances = localJournals.filter(j => j.attendanceDetail?.[s.id] === 'H').length
         const attendancePercent = totalMeetings > 0 ? Math.round((attendances / totalMeetings) * 100) : 100
@@ -475,7 +481,7 @@ function TeachingJournalPageContent() {
                  <div className="p-4 sm:p-6 space-y-3">
                     {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
                        const s = allVisibleStudents.find(x => x.id === id);
-                       const isMerged = mergedStudents.some(ms => ms.id === id);
+                       const isMerged = !primaryStudents.some(ms => ms.id === id);
                        return (
                          <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isMerged ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
                             <div className="flex items-center gap-4">
@@ -573,7 +579,7 @@ function TeachingJournalPageContent() {
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{allVisibleStudents.length})</CardTitle>
-                  <CardDescription>Siswa utama di atas, siswa gabungan di bagian bawah.</CardDescription>
+                  <CardDescription>Siswa utama di atas, siswa tamu & gabungan di bawah.</CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
@@ -589,7 +595,7 @@ function TeachingJournalPageContent() {
                       </TableHeader>
                       <TableBody>
                         <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA KELAS {assignment?.className}</TableCell></TableRow>
-                        {mainStudents.map(s => (
+                        {primaryStudents.map(s => (
                           <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
                             <TableCell className="pl-6"><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
                             <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
@@ -597,11 +603,11 @@ function TeachingJournalPageContent() {
                           </TableRow>
                         ))}
 
-                        {mergedStudents.length > 0 && (
+                        {(guestInThisClass.length > 0 || mergedStudents.length > 0) && (
                           <>
                             <TableRow className="bg-accent/10 hover:bg-accent/10"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-accent uppercase tracking-widest px-6">SISWA GABUNGAN (GUEST)</TableCell></TableRow>
-                            {mergedStudents.map(s => {
-                               const guestClass = allClasses?.find(c => c.students?.includes(s.id));
+                            {[...guestInThisClass, ...mergedStudents].map(s => {
+                               const guestClass = allClasses?.find(c => c.students?.includes(s.id) && c.id !== classroom?.id);
                                return (
                                 <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors bg-accent/[0.02]">
                                   <TableCell className="pl-6">
@@ -609,7 +615,7 @@ function TeachingJournalPageContent() {
                                       <span className="text-sm font-bold text-accent">{s.fullName}</span>
                                       <div className="flex items-center gap-2">
                                          <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
-                                         <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">KELAS {guestClass?.name}</Badge>
+                                         {guestClass && <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">KELAS {guestClass.name}</Badge>}
                                       </div>
                                     </div>
                                   </TableCell>
@@ -713,7 +719,6 @@ function TeachingJournalPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {journals.map((j) => {
               const isTemp = j.id.startsWith('temp-')
-              const studentCount = (mainStudents.length + (j.mergedClassIds?.length || 0) * 30); // Approximate
               const attendCount = Object.values(j.attendanceDetail || {}).filter(v => v === 'H').length;
               return (
                 <Card key={j.id} className={`border-border/50 overflow-hidden bg-card/40 backdrop-blur-sm group hover:border-primary/50 transition-all ${isTemp ? 'border-dashed border-2 border-amber-500/30 bg-amber-500/5' : ''}`}>

@@ -71,6 +71,10 @@ export default function ClassesPage() {
   const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [studentToMove, setStudentToMove] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState("")
+
+  const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false)
+  const [studentToJoin, setStudentToJoin] = useState<Applicant | null>(null)
+  const [targetJoinClassId, setTargetJoinClassId] = useState("")
   
   const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] = useState(false)
   const [studentToRemove, setStudentToRemove] = useState<Applicant | null>(null)
@@ -299,6 +303,35 @@ export default function ClassesPage() {
     toast({ title: "Siswa Dipindahkan" })
   }
 
+  const handleJoinStudent = () => {
+    if (!selectedClassForStudents || !studentToJoin || !targetJoinClassId) return
+    
+    const targetClass = localClasses.find(c => c.id === targetJoinClassId)
+    if (!targetClass) return
+
+    if (targetClass.students?.includes(studentToJoin.id)) {
+      toast({ variant: "destructive", title: "Siswa sudah terdaftar", description: "Siswa ini sudah ada di rombel tujuan." })
+      return
+    }
+
+    const targetClassUpdated = {
+      ...targetClass,
+      students: Array.from(new Set([...(targetClass.students || []), studentToJoin.id])),
+      currentEnrollment: (targetClass.students?.length || 0) + 1
+    }
+
+    setLocalClasses(prev => prev.map(c => {
+      if (c.id === targetClassUpdated.id) return targetClassUpdated
+      return c
+    }))
+
+    setIsDirty(true)
+    setIsJoinDialogOpen(false)
+    setStudentToJoin(null)
+    setTargetJoinClassId("")
+    toast({ title: "Siswa Digabungkan", description: `${studentToJoin.fullName} sekarang juga terdaftar di Kelas ${targetClass.name}` })
+  }
+
   const handleRemoveStudentFromClass = () => {
     if (!selectedClassForStudents || !studentToRemove) return
     const studentId = studentToRemove.id
@@ -360,7 +393,6 @@ export default function ClassesPage() {
         const sheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(sheet) as any[]
         
-        // Match columns with logic for NIS, NISN, and Name
         const rows = jsonData.map(row => ({
           nisn: String(row['NISN'] || '').trim().replace('.0', ''),
           nis: String(row['NIS'] || '').trim().replace('.0', ''),
@@ -373,7 +405,6 @@ export default function ClassesPage() {
           return
         }
 
-        // Query ALL students (including trash)
         const snap = await getDocs(collection(db, 'applicants'))
         const allStudents = snap.docs.map(d => ({ ...d.data(), id: d.id } as Applicant))
         
@@ -385,8 +416,6 @@ export default function ClassesPage() {
             const sNISN = String(s.NISN || '').trim();
             const sNIS = String(s.NIS || '').trim();
             const sName = String(s.fullName || '').trim().toLowerCase();
-
-            // prioritized matching: NISN -> NIS -> Name
             return (row.nisn && sNISN === row.nisn) || 
                    (row.nis && sNIS === row.nis) || 
                    (row.name && sName === row.name);
@@ -394,7 +423,7 @@ export default function ClassesPage() {
 
           if (match && !matchedIds.includes(match.id)) {
             matchedIds.push(match.id);
-            matchedApps.push({ ...match, isDeleted: false }); // Auto-Restore if it was in trash
+            matchedApps.push({ ...match, isDeleted: false });
           }
         });
 
@@ -407,7 +436,6 @@ export default function ClassesPage() {
         } else {
           const matchedIdsSet = new Set(matchedIds);
           
-          // AUTO-TRANSFER: Remove from any other class in local state
           setLocalClasses(prev => prev.map(c => {
             if (c.id === selectedClassForStudents.id) {
               const currentIdsSet = new Set((c.students || []).filter(Boolean));
@@ -432,7 +460,6 @@ export default function ClassesPage() {
             currentEnrollment: newCurrentIds.length
           } : null);
 
-          // Restore from trash queue
           setIdsToTrash(prev => {
              const next = new Set(prev);
              matchedIds.forEach(id => next.delete(id));
@@ -590,6 +617,9 @@ export default function ClassesPage() {
                         <DropdownMenuItem onClick={() => { setStudentToMove(s); setIsMoveDialogOpen(true); }} className="gap-2 cursor-pointer">
                           <ArrowRightLeft className="w-4 h-4 text-accent" /> Pindah Kelas
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => { setStudentToJoin(s); setIsJoinDialogOpen(true); }} className="gap-2 cursor-pointer">
+                          <UserPlus className="w-4 h-4 text-green-500" /> Gabung ke Kelas
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => { setStudentToRemove(s); setIsRemoveConfirmOpen(true); }} className="gap-2 cursor-pointer text-destructive focus:text-destructive">
                           <UserMinus className="w-4 h-4" /> Hapus (Ke Sampah)
@@ -698,6 +728,28 @@ export default function ClassesPage() {
                </div>
             </div>
             <DialogFooter><Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Batal</Button><Button onClick={handleMoveStudent} disabled={!targetClassId}>Proses Pindah</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader><DialogTitle>Gabungkan ke Rombel Lain</DialogTitle><DialogDescription>Daftarkan <strong>{studentToJoin?.fullName}</strong> ke rombel lain (Siswa akan terdaftar di kedua kelas).</DialogDescription></DialogHeader>
+            <div className="py-4 space-y-4">
+               <div className="space-y-2">
+                 <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Rombel Tujuan</Label>
+                 <Select value={targetJoinClassId} onValueChange={setTargetJoinClassId}>
+                   <SelectTrigger className="h-12"><SelectValue placeholder="Pilih Rombongan Belajar" /></SelectTrigger>
+                   <SelectContent>
+                     {localClasses
+                       .filter(c => c.id !== selectedClassForStudents?.id)
+                       .sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true}))
+                       .map(c => (<SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>))
+                     }
+                   </SelectContent>
+                 </Select>
+               </div>
+            </div>
+            <DialogFooter><Button variant="outline" onClick={() => setIsJoinDialogOpen(false)}>Batal</Button><Button onClick={handleJoinStudent} disabled={!targetJoinClassId}>Proses Gabung</Button></DialogFooter>
           </DialogContent>
         </Dialog>
 
