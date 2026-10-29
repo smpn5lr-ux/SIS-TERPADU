@@ -423,7 +423,7 @@ export default function ClassesPage() {
 
           if (match && !matchedIds.includes(match.id)) {
             matchedIds.push(match.id);
-            matchedApps.push({ ...match, isDeleted: false });
+            matchedApps.push({ ...match, isDeleted: false, homeClassId: selectedClassForStudents.id });
           }
         });
 

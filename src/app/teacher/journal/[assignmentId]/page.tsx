@@ -140,28 +140,27 @@ function TeachingJournalPageContent() {
     mergedClassIds: []
   })
 
-  // Logika Pemisahan Siswa Gabungan
+  // Identifikasi siswa di rombel ini
   const studentsInThisClass = useMemo(() => {
     if (!allAcceptedStudents || !classroom?.students) return []
     return allAcceptedStudents.filter(s => classroom.students.includes(s.id) && !s.isDeleted)
   }, [allAcceptedStudents, classroom])
 
+  // Murid Utama: Yang menjadikan rombel ini sebagai rumah (homeClassId)
   const primaryStudents = useMemo(() => {
     return studentsInThisClass.filter(s => {
-       // Murid utama: Hanya ada di rombel ini
-       const otherClasses = allClasses?.filter(c => c.id !== classroom?.id && c.students?.includes(s.id))
-       return !otherClasses || otherClasses.length === 0
+       return !s.homeClassId || s.homeClassId === classroom?.id
     }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
-  }, [studentsInThisClass, allClasses, classroom])
+  }, [studentsInThisClass, classroom])
 
+  // Murid Tamu/Gabungan di rombel ini: Terdaftar di sini tapi homeClassId-nya di kelas lain
   const guestInThisClass = useMemo(() => {
     return studentsInThisClass.filter(s => {
-       // Murid tamu di rombel ini: Terdaftar juga di rombel lain
-       const otherClasses = allClasses?.filter(c => c.id !== classroom?.id && c.students?.includes(s.id))
-       return otherClasses && otherClasses.length > 0
+       return s.homeClassId && s.homeClassId !== classroom?.id
     }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
-  }, [studentsInThisClass, allClasses, classroom])
+  }, [studentsInThisClass, classroom])
 
+  // Murid dari rombel lain yang digabung via tombol "Gabung Rombel" di form
   const mergedStudents = useMemo(() => {
     if (!allAcceptedStudents || !newJournal.mergedClassIds || !allClasses) return []
     return allAcceptedStudents
@@ -481,23 +480,23 @@ function TeachingJournalPageContent() {
                  <div className="p-4 sm:p-6 space-y-3">
                     {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
                        const s = allVisibleStudents.find(x => x.id === id);
-                       const isMerged = !primaryStudents.some(ms => ms.id === id);
+                       const isGuest = s?.homeClassId && s.homeClassId !== classroom?.id;
                        return (
-                         <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isMerged ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
+                         <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isGuest ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
                             <div className="flex items-center gap-4">
-                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isMerged ? 'bg-accent/20 text-accent' : 'bg-primary/10 text-primary'}`}>
+                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isGuest ? 'bg-accent/20 text-accent' : 'bg-primary/10 text-primary'}`}>
                                   {s?.fullName?.charAt(0)}
                                </div>
                                <div className="flex flex-col">
                                  <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{s?.fullName}</span>
                                  <div className="flex items-center gap-2">
                                     <span className="text-[10px] text-muted-foreground font-mono">{s?.NISN}</span>
-                                    {isMerged && <Badge className="bg-accent h-4 text-[7px] px-1 uppercase">Siswa Gabungan</Badge>}
+                                    {isGuest && <Badge className="bg-accent h-4 text-[7px] px-1 uppercase">Siswa Gabungan</Badge>}
                                  </div>
                                </div>
                             </div>
-                            <div className={`p-2 rounded-full border ${isMerged ? 'bg-accent/20 border-accent/30' : 'bg-green-500/10 border-green-500/20'}`}>
-                               <Check className={`w-4 h-4 ${isMerged ? 'text-accent' : 'text-green-500'}`} />
+                            <div className={`p-2 rounded-full border ${isGuest ? 'bg-accent/20 border-accent/30' : 'bg-green-500/10 border-green-500/20'}`}>
+                               <Check className={`w-4 h-4 ${isGuest ? 'text-accent' : 'text-green-500'}`} />
                             </div>
                          </div>
                        )
@@ -579,7 +578,7 @@ function TeachingJournalPageContent() {
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{allVisibleStudents.length})</CardTitle>
-                  <CardDescription>Siswa utama di atas, siswa tamu & gabungan di bawah.</CardDescription>
+                  <CardDescription>Siswa utama di atas, siswa gabungan & tamu di bawah.</CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
@@ -594,7 +593,7 @@ function TeachingJournalPageContent() {
                         <TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow>
                       </TableHeader>
                       <TableBody>
-                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA KELAS {assignment?.className}</TableCell></TableRow>
+                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA UTAMA KELAS {assignment?.className}</TableCell></TableRow>
                         {primaryStudents.map(s => (
                           <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
                             <TableCell className="pl-6"><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
@@ -607,7 +606,7 @@ function TeachingJournalPageContent() {
                           <>
                             <TableRow className="bg-accent/10 hover:bg-accent/10"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-accent uppercase tracking-widest px-6">SISWA GABUNGAN (GUEST)</TableCell></TableRow>
                             {[...guestInThisClass, ...mergedStudents].map(s => {
-                               const guestClass = allClasses?.find(c => c.students?.includes(s.id) && c.id !== classroom?.id);
+                               const homeClass = allClasses?.find(c => c.id === s.homeClassId);
                                return (
                                 <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors bg-accent/[0.02]">
                                   <TableCell className="pl-6">
@@ -615,7 +614,7 @@ function TeachingJournalPageContent() {
                                       <span className="text-sm font-bold text-accent">{s.fullName}</span>
                                       <div className="flex items-center gap-2">
                                          <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
-                                         {guestClass && <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">KELAS {guestClass.name}</Badge>}
+                                         {homeClass && <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">ASAL KELAS {homeClass.name}</Badge>}
                                       </div>
                                     </div>
                                   </TableCell>
