@@ -130,6 +130,7 @@ export interface Journal {
   semester: number;
   notes: string;
   createdAt: string;
+  mergedClassIds?: string[];
 }
 
 export interface Assessment {

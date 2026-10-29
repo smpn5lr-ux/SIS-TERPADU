@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useMemo, useEffect, Suspense, useRef } from 'react'
@@ -30,7 +31,9 @@ import {
   Info,
   Check,
   ChevronLeft,
-  Settings
+  Settings,
+  Layers,
+  UserPlus
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -62,7 +65,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
 import { collection, query, where, doc, writeBatch } from "firebase/firestore"
@@ -85,6 +96,7 @@ function TeachingJournalPageContent() {
   const [activeView, setActiveView] = useState<PageView>('list')
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null)
+  const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
   
   const [localJournals, setLocalJournals] = useState<Journal[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -105,20 +117,63 @@ function TeachingJournalPageContent() {
   const classRef = useMemoFirebase(() => db && assignment ? doc(db, 'classes', assignment.classId) : null, [db, assignment])
   const { data: classroom } = useDoc<Classroom>(classRef)
 
+  const allClassesQuery = useMemoFirebase(() => db ? collection(db, 'classes') : null, [db])
+  const { data: allClasses } = useCollection<Classroom>(allClassesQuery)
+
   const studentsQuery = useMemoFirebase(() => db ? query(collection(db, 'applicants'), where('admissionStatus', 'in', ['accepted', 'graduated'])) : null, [db])
   const { data: allAcceptedStudents } = useCollection<Applicant>(studentsQuery)
 
-  const students = useMemo(() => {
+  const [newJournal, setNewJournal] = useState<Partial<Journal>>({
+    meetingNumber: 1,
+    date: new Date().toISOString().split('T')[0],
+    jamKe: "1-2",
+    jp: 2,
+    learningGoal: "",
+    material: "",
+    teachingMethod: "",
+    attendanceDetail: {},
+    absentStudents: [],
+    hasTask: false,
+    taskType: 'task1',
+    taskScores: {},
+    notes: "",
+    mergedClassIds: []
+  })
+
+  const mergedStudents = useMemo(() => {
+    if (!allAcceptedStudents || !newJournal.mergedClassIds || !allClasses) return []
+    const mergedIds = new Set<string>()
+    newJournal.mergedClassIds.forEach(cid => {
+      const cls = allClasses.find(c => c.id === cid)
+      if (cls?.students) cls.students.forEach(sid => mergedIds.add(id))
+    })
+    
+    // Only return students from merged classes that are NOT in the main class
+    return allAcceptedStudents
+      .filter(s => {
+        const isInMerged = newJournal.mergedClassIds?.some(cid => {
+          const cls = allClasses?.find(c => c.id === cid)
+          return cls?.students?.includes(s.id)
+        })
+        const isInMain = classroom?.students?.includes(s.id)
+        return isInMerged && !isInMain && !s.isDeleted
+      })
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+  }, [allAcceptedStudents, newJournal.mergedClassIds, allClasses, classroom])
+
+  const mainStudents = useMemo(() => {
     if (!allAcceptedStudents || !classroom?.students) return []
     return allAcceptedStudents
       .filter(s => classroom.students.includes(s.id) && !s.isDeleted)
       .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [allAcceptedStudents, classroom])
 
+  const allVisibleStudents = useMemo(() => [...mainStudents, ...mergedStudents], [mainStudents, mergedStudents])
+
   const studentsRef = useRef<Applicant[]>([])
   useEffect(() => {
-    studentsRef.current = students
-  }, [students])
+    studentsRef.current = allVisibleStudents
+  }, [allVisibleStudents])
 
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
@@ -147,22 +202,6 @@ function TeachingJournalPageContent() {
     return [...localJournals].sort((a, b) => (a.meetingNumber || 0) - (b.meetingNumber || 0))
   }, [localJournals])
 
-  const [newJournal, setNewJournal] = useState<Partial<Journal>>({
-    meetingNumber: 1,
-    date: new Date().toISOString().split('T')[0],
-    jamKe: "1-2",
-    jp: 2,
-    learningGoal: "",
-    material: "",
-    teachingMethod: "",
-    attendanceDetail: {},
-    absentStudents: [],
-    hasTask: false,
-    taskType: 'task1',
-    taskScores: {},
-    notes: ""
-  })
-
   useEffect(() => {
     if (autoScan && !loadingA && assignment) {
       handleOpenScanner(false);
@@ -171,14 +210,12 @@ function TeachingJournalPageContent() {
 
   const handleOpenScanner = (fromForm: boolean = false) => {
     if (fromForm) {
-      // Jika dari form, gunakan data yang sedang diedit
       const initialScanned = new Set<string>();
       Object.entries(newJournal.attendanceDetail || {}).forEach(([id, status]) => {
         if (status === 'H') initialScanned.add(id);
       });
       scannedIdsRef.current = initialScanned;
     } else {
-      // Jika dari list, gunakan logika "hari ini"
       const today = new Date().toISOString().split('T')[0];
       const existingToday = localJournals.find(j => j.date === today);
       
@@ -200,7 +237,8 @@ function TeachingJournalPageContent() {
           attendanceDetail: {},
           absentStudents: [],
           taskScores: {},
-          teachingMethod: ""
+          teachingMethod: "",
+          mergedClassIds: []
         });
       }
       scannedIdsRef.current = initialScanned;
@@ -236,7 +274,6 @@ function TeachingJournalPageContent() {
     if (scannerRef.current && scannerRef.current.isScanning) {
       await scannerRef.current.stop();
     }
-    // Jika editingJournalId ada, berarti kita dari form
     setActiveView(editingJournalId || newJournal.id?.startsWith('temp-') ? 'form' : 'list');
   };
 
@@ -245,7 +282,7 @@ function TeachingJournalPageContent() {
     const student = currentStudents.find(s => s.id === studentId);
     
     if (!student) {
-      toast({ variant: "destructive", title: "Siswa Tidak Dikenali", description: "QR ini tidak terdaftar." });
+      toast({ variant: "destructive", title: "Siswa Tidak Dikenali", description: "Siswa ini tidak terdaftar di rombel utama maupun rombel gabungan." });
       return;
     }
 
@@ -278,7 +315,7 @@ function TeachingJournalPageContent() {
       semester: activeSemester,
       updatedAt: new Date().toISOString(),
       createdAt: editingJournalId ? localJournals.find(j => j.id === editingJournalId)?.createdAt : new Date().toISOString(),
-      absentStudents: students.filter(s => newJournal.attendanceDetail?.[s.id] !== 'H').map(s => s.id)
+      absentStudents: allVisibleStudents.filter(s => newJournal.attendanceDetail?.[s.id] !== 'H').map(s => s.id)
     } as Journal
 
     setLocalJournals(prev => {
@@ -325,7 +362,9 @@ function TeachingJournalPageContent() {
         }
       })
 
-      students.forEach(s => {
+      // Update assessments only for main students to keep logic consistent
+      // Merged students will have their attendance calculated from THEIR own primary journals
+      mainStudents.forEach(s => {
         const totalMeetings = localJournals.length
         const attendances = localJournals.filter(j => j.attendanceDetail?.[s.id] === 'H').length
         const attendancePercent = totalMeetings > 0 ? Math.round((attendances / totalMeetings) * 100) : 100
@@ -375,6 +414,15 @@ function TeachingJournalPageContent() {
     setIsDeleteDialogOpen(false)
   }
 
+  const toggleMergeClass = (cid: string) => {
+    const current = newJournal.mergedClassIds || []
+    if (current.includes(cid)) {
+      setNewJournal({...newJournal, mergedClassIds: current.filter(id => id !== cid)})
+    } else {
+      setNewJournal({...newJournal, mergedClassIds: [...current, cid]})
+    }
+  }
+
   if (userLoading || loadingA) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-primary" /></div>
 
   if (activeView === 'scanner') {
@@ -397,10 +445,6 @@ function TeachingJournalPageContent() {
              </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex flex-col items-end mr-2">
-               <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest animate-pulse">Auto-Save Aktif</span>
-               <span className="text-[8px] text-muted-foreground">Tersimpan ke Lokal</span>
-            </div>
             <Button onClick={stopScanner} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
               <CheckCircle2 className="w-4 h-4" /> Selesai ({scanCount})
             </Button>
@@ -425,25 +469,29 @@ function TeachingJournalPageContent() {
                     <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                     <h3 className="text-xs font-bold uppercase text-foreground tracking-widest">Siswa Terdeteksi</h3>
                  </div>
-                 <Badge className="bg-primary text-white font-mono px-3 py-1 text-sm">{scanCount} / {students.length}</Badge>
+                 <Badge className="bg-primary text-white font-mono px-3 py-1 text-sm">{scanCount} / {allVisibleStudents.length}</Badge>
               </div>
               <ScrollArea className="flex-1">
                  <div className="p-4 sm:p-6 space-y-3">
                     {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
-                       const s = students.find(x => x.id === id);
+                       const s = allVisibleStudents.find(x => x.id === id);
+                       const isMerged = mergedStudents.some(ms => ms.id === id);
                        return (
-                         <div key={id} className="flex items-center justify-between p-4 bg-card border border-border/50 rounded-2xl animate-in slide-in-from-right-4 shadow-sm group hover:border-primary/30 transition-all">
+                         <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isMerged ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
                             <div className="flex items-center gap-4">
-                               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isMerged ? 'bg-accent/20 text-accent' : 'bg-primary/10 text-primary'}`}>
                                   {s?.fullName?.charAt(0)}
                                </div>
                                <div className="flex flex-col">
                                  <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{s?.fullName}</span>
-                                 <span className="text-[10px] text-muted-foreground font-mono mt-0.5">{s?.NISN}</span>
+                                 <div className="flex items-center gap-2">
+                                    <span className="text-[10px] text-muted-foreground font-mono">{s?.NISN}</span>
+                                    {isMerged && <Badge className="bg-accent h-4 text-[7px] px-1 uppercase">Siswa Gabungan</Badge>}
+                                 </div>
                                </div>
                             </div>
-                            <div className="bg-green-500/10 p-2 rounded-full border border-green-500/20">
-                               <Check className="w-4 h-4 text-green-500" />
+                            <div className={`p-2 rounded-full border ${isMerged ? 'bg-accent/20 border-accent/30' : 'bg-green-500/10 border-green-500/20'}`}>
+                               <Check className={`w-4 h-4 ${isMerged ? 'text-accent' : 'text-green-500'}`} />
                             </div>
                          </div>
                        )
@@ -475,16 +523,21 @@ function TeachingJournalPageContent() {
             </div>
           </div>
           <Button onClick={onSaveLocal} className="gap-2 bg-primary shadow-lg shadow-primary/20 h-11 px-8">
-            <Save className="w-4 h-4" /> Simpan Permanen ke Lokal
+            <Save className="w-4 h-4" /> Simpan Jurnal ke Lokal
           </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-20">
           <div className="lg:col-span-2 space-y-6">
             <Card className="border-border/50 shadow-md">
-              <CardHeader className="bg-muted/10 border-b">
-                <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Informasi Utama</CardTitle>
-                <CardDescription>Rangkuman materi dan detail waktu pertemuan.</CardDescription>
+              <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Informasi Utama</CardTitle>
+                  <CardDescription>Rangkuman materi dan detail waktu pertemuan.</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setIsMergeDialogOpen(true)} className="gap-2 border-accent/20 text-accent hover:bg-accent/5">
+                  <UserPlus className="w-4 h-4" /> Gabung Rombel Lain
+                </Button>
               </CardHeader>
               <CardContent className="p-6 space-y-6">
                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -515,38 +568,118 @@ function TeachingJournalPageContent() {
                  </div>
               </CardContent>
             </Card>
+
             <Card className="border-border/50 shadow-md">
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{students.length})</CardTitle>
-                  <CardDescription>Gunakan Scanner QR untuk absensi instan.</CardDescription>
+                  <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{allVisibleStudents.length})</CardTitle>
+                  <CardDescription>Siswa utama di atas, siswa gabungan di bagian bawah.</CardDescription>
                 </div>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
                     <QrCode className="w-3.5 h-3.5" /> BUKA SCANNER QR
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => { const allH: any = {}; students.forEach(s => allH[s.id] = 'H'); setNewJournal({...newJournal, attendanceDetail: allH}); }} className="h-8 text-[10px] font-bold border-accent/20 text-accent">SET SEMUA HADIR</Button>
                 </div>
               </CardHeader>
               <CardContent className="p-0">
-                 <Table><TableHeader className="bg-muted/20"><TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow></TableHeader>
-                   <TableBody>{students.map(s => (
-                      <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
-                        <TableCell><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
-                        <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
-                          <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-primary text-white border-primary scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
-                      </TableRow>))}
-                   </TableBody></Table>
+                 <ScrollArea className="max-h-[800px]">
+                    <Table>
+                      <TableHeader className="bg-muted/20 sticky top-0 z-10">
+                        <TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA KELAS {assignment?.className}</TableCell></TableRow>
+                        {mainStudents.map(s => (
+                          <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
+                            <TableCell className="pl-6"><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
+                            <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
+                              <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-primary text-white border-primary scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                          </TableRow>
+                        ))}
+
+                        {mergedStudents.length > 0 && (
+                          <>
+                            <TableRow className="bg-accent/10 hover:bg-accent/10"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-accent uppercase tracking-widest px-6">SISWA GABUNGAN (GUEST)</TableCell></TableRow>
+                            {mergedStudents.map(s => {
+                               const guestClass = allClasses?.find(c => c.students?.includes(s.id));
+                               return (
+                                <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors bg-accent/[0.02]">
+                                  <TableCell className="pl-6">
+                                    <div className="flex flex-col">
+                                      <span className="text-sm font-bold text-accent">{s.fullName}</span>
+                                      <div className="flex items-center gap-2">
+                                         <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
+                                         <Badge variant="outline" className="text-[7px] h-3 px-1 border-accent/30 text-accent uppercase font-black">KELAS {guestClass?.name}</Badge>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
+                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-accent text-white border-accent scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                                </TableRow>
+                               )
+                            })}
+                          </>
+                        )}
+                      </TableBody>
+                    </Table>
+                 </ScrollArea>
               </CardContent>
             </Card>
           </div>
+          
           <div className="space-y-6">
              <Card className="border-primary/20 bg-primary/5">
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4" /> Catatan Tambahan</CardTitle></CardHeader>
                 <CardContent className="space-y-4 pt-2"><div className="space-y-2"><Label className="text-[10px] font-bold uppercase">Catatan Guru:</Label><Textarea value={newJournal.notes || ""} onChange={e => setNewJournal({...newJournal, notes: e.target.value})} placeholder="Catatan kelas..." className="text-xs h-32" /></div></CardContent>
              </Card>
+
+             <Card className="border-accent/20 bg-accent/5">
+                <CardHeader className="pb-2"><CardTitle className="text-sm font-bold flex items-center gap-2"><Layers className="w-4 h-4 text-accent" /> Rombel Gabungan</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                   {newJournal.mergedClassIds?.length === 0 ? (
+                      <p className="text-[10px] text-muted-foreground italic leading-relaxed">Tidak ada kelas lain yang bergabung dalam jurnal ini.</p>
+                   ) : (
+                      <div className="flex flex-wrap gap-1.5">
+                        {newJournal.mergedClassIds?.map(cid => {
+                           const cls = allClasses?.find(c => c.id === cid)
+                           return (
+                             <Badge key={cid} className="bg-accent text-white gap-1 py-1 pr-1">
+                               Kelas {cls?.name}
+                               <X className="w-3 h-3 cursor-pointer hover:bg-black/20 rounded-full" onClick={() => toggleMergeClass(cid)} />
+                             </Badge>
+                           )
+                        })}
+                      </div>
+                   )}
+                   <Button variant="outline" size="sm" onClick={() => setIsMergeDialogOpen(true)} className="w-full mt-3 h-8 text-[10px] font-bold border-accent/30 text-accent">UBAH GABUNGAN</Button>
+                </CardContent>
+             </Card>
           </div>
         </div>
+
+        <Dialog open={isMergeDialogOpen} onOpenChange={setIsMergeDialogOpen}>
+          <DialogContent className="sm:max-w-[400px]">
+            <DialogHeader>
+              <DialogTitle>Gabungkan Rombel Lain</DialogTitle>
+              <DialogDescription>Pilih kelas yang siswanya ikut belajar dalam pertemuan ini.</DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <ScrollArea className="h-[300px] border rounded-xl p-4 bg-muted/10">
+                <div className="space-y-2">
+                  {allClasses?.filter(c => c.id !== assignment?.classId).sort((a,b) => a.name.localeCompare(b.name, undefined, {numeric: true})).map(cls => (
+                    <div key={cls.id} className="flex items-center space-x-3 p-2 hover:bg-accent/5 rounded-lg border border-transparent hover:border-accent/20 transition-all cursor-pointer" onClick={() => toggleMergeClass(cls.id)}>
+                      <Checkbox checked={newJournal.mergedClassIds?.includes(cls.id)} onCheckedChange={() => toggleMergeClass(cls.id)} />
+                      <Label className="font-bold text-sm cursor-pointer">Kelas {cls.name}</Label>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setIsMergeDialogOpen(false)} className="w-full h-11 font-bold shadow-xl shadow-primary/20">Selesai Memilih</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }
@@ -567,7 +700,7 @@ function TeachingJournalPageContent() {
         <div className="flex flex-wrap gap-2">
           {isDirty && (<Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">{isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}Simpan Cloud</Button>)}
           <Button variant="outline" onClick={() => handleOpenScanner(false)} className="gap-2 border-primary/30 text-primary hover:bg-primary/5"><ScanLine className="w-4 h-4" /> Absen QR (Hari Ini)</Button>
-          <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}, teachingMethod: ""}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
+          <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}, teachingMethod: "", mergedClassIds: []}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
         </div>
       </div>
 
@@ -580,6 +713,7 @@ function TeachingJournalPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {journals.map((j) => {
               const isTemp = j.id.startsWith('temp-')
+              const studentCount = (mainStudents.length + (j.mergedClassIds?.length || 0) * 30); // Approximate
               const attendCount = Object.values(j.attendanceDetail || {}).filter(v => v === 'H').length;
               return (
                 <Card key={j.id} className={`border-border/50 overflow-hidden bg-card/40 backdrop-blur-sm group hover:border-primary/50 transition-all ${isTemp ? 'border-dashed border-2 border-amber-500/30 bg-amber-500/5' : ''}`}>
@@ -597,15 +731,18 @@ function TeachingJournalPageContent() {
                   </CardHeader>
                   <CardContent className="p-4 space-y-4">
                     <div className="space-y-3">
-                      <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Metode:</Label><p className="mt-0.5 text-xs font-bold text-primary truncate">{j.teachingMethod || "-"}</p></div>
                       <div><Label className="text-[9px] uppercase font-bold text-muted-foreground tracking-widest">Materi:</Label><p className="mt-1 text-xs font-medium line-clamp-2 leading-relaxed h-8">{j.material || "-"}</p></div>
+                      {j.mergedClassIds && j.mergedClassIds.length > 0 && (
+                        <div className="flex items-center gap-1.5 mt-2">
+                           <Badge variant="outline" className="bg-accent/10 border-accent/30 text-accent text-[8px] font-black py-0 px-2">+{j.mergedClassIds.length} KELAS GABUNGAN</Badge>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center justify-between bg-background/50 p-2.5 rounded-xl border border-border/50">
                        <div className="flex items-center gap-2">
                          <div className="p-1.5 bg-accent/10 rounded-lg"><Users className="w-3.5 h-3.5 text-accent" /></div>
-                         <div className="flex flex-col"><span className="text-xs font-bold">{attendCount} / {students.length}</span><span className="text-[8px] text-muted-foreground uppercase font-bold">Hadir</span></div>
+                         <div className="flex flex-col"><span className="text-xs font-bold">{attendCount} Hadir</span><span className="text-[8px] text-muted-foreground uppercase font-bold">Total Presensi</span></div>
                        </div>
-                       <Badge variant="secondary" className="text-[10px] font-mono">{students.length > 0 ? Math.round((attendCount/students.length)*100) : 0}%</Badge>
                     </div>
                   </CardContent>
                 </Card>
