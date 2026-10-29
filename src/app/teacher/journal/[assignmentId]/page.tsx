@@ -123,7 +123,6 @@ function TeachingJournalPageContent() {
   const journalQuery = useMemoFirebase(() => db && assignmentId ? query(collection(db, 'journals'), where('assignmentId', '==', assignmentId)) : null, [db, assignmentId])
   const { data: serverJournals } = useCollection<Journal>(journalQuery)
 
-  // Load buffer from localStorage on mount or when server data is ready
   useEffect(() => {
     if (serverJournals && !isDirty) {
       const savedBuffer = localStorage.getItem(`journal_buffer_${assignmentId}_sem${activeSemester}`);
@@ -136,7 +135,6 @@ function TeachingJournalPageContent() {
     }
   }, [serverJournals, assignmentId, activeSemester]);
 
-  // General persist logic
   useEffect(() => {
     if (isDirty && localJournals.length > 0) {
       localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(localJournals));
@@ -167,37 +165,47 @@ function TeachingJournalPageContent() {
 
   useEffect(() => {
     if (autoScan && !loadingA && assignment) {
-      handleOpenScanner();
+      handleOpenScanner(false);
     }
   }, [autoScan, loadingA, assignment]);
 
-  const handleOpenScanner = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const existingToday = localJournals.find(j => j.date === today);
-    
-    const initialScanned = new Set<string>();
-    if (existingToday) {
-      Object.entries(existingToday.attendanceDetail || {}).forEach(([id, status]) => {
+  const handleOpenScanner = (fromForm: boolean = false) => {
+    if (fromForm) {
+      // Jika dari form, gunakan data yang sedang diedit
+      const initialScanned = new Set<string>();
+      Object.entries(newJournal.attendanceDetail || {}).forEach(([id, status]) => {
         if (status === 'H') initialScanned.add(id);
       });
-      setEditingJournalId(existingToday.id);
-      setNewJournal(existingToday);
+      scannedIdsRef.current = initialScanned;
     } else {
-      setEditingJournalId(null);
-      const nextMeeting = localJournals.length > 0 ? Math.max(...localJournals.map(j => j.meetingNumber)) + 1 : 1;
-      setNewJournal({
-        meetingNumber: nextMeeting,
-        date: today,
-        jamKe: "1-2",
-        jp: 2,
-        attendanceDetail: {},
-        absentStudents: [],
-        taskScores: {},
-        teachingMethod: ""
-      });
+      // Jika dari list, gunakan logika "hari ini"
+      const today = new Date().toISOString().split('T')[0];
+      const existingToday = localJournals.find(j => j.date === today);
+      
+      const initialScanned = new Set<string>();
+      if (existingToday) {
+        Object.entries(existingToday.attendanceDetail || {}).forEach(([id, status]) => {
+          if (status === 'H') initialScanned.add(id);
+        });
+        setEditingJournalId(existingToday.id);
+        setNewJournal(existingToday);
+      } else {
+        setEditingJournalId(null);
+        const nextMeeting = localJournals.length > 0 ? Math.max(...localJournals.map(j => j.meetingNumber)) + 1 : 1;
+        setNewJournal({
+          meetingNumber: nextMeeting,
+          date: today,
+          jamKe: "1-2",
+          jp: 2,
+          attendanceDetail: {},
+          absentStudents: [],
+          taskScores: {},
+          teachingMethod: ""
+        });
+      }
+      scannedIdsRef.current = initialScanned;
     }
     
-    scannedIdsRef.current = initialScanned;
     setActiveView('scanner');
     setTimeout(() => startScanner(), 500);
   };
@@ -228,7 +236,8 @@ function TeachingJournalPageContent() {
     if (scannerRef.current && scannerRef.current.isScanning) {
       await scannerRef.current.stop();
     }
-    setActiveView('list');
+    // Jika editingJournalId ada, berarti kita dari form
+    setActiveView(editingJournalId || newJournal.id?.startsWith('temp-') ? 'form' : 'list');
   };
 
   const handleScanSuccess = (studentId: string) => {
@@ -247,62 +256,15 @@ function TeachingJournalPageContent() {
 
     scannedIdsRef.current.add(studentId);
 
-    // Get current date for checking
-    const today = new Date().toISOString().split('T')[0];
-    
-    // Construct the updated list and journal state atomically to prevent loss
-    let finalTargetJournal: Journal | null = null;
-    
-    setLocalJournals(prev => {
-      const existingIdx = prev.findIndex(j => j.date === today);
-      let updatedList = [...prev];
-      
-      if (existingIdx !== -1) {
-        finalTargetJournal = {
-          ...updatedList[existingIdx],
-          attendanceDetail: { ...updatedList[existingIdx].attendanceDetail, [studentId]: 'H' },
-          absentStudents: currentStudents.filter(s => {
-             const isHadir = s.id === studentId || updatedList[existingIdx].attendanceDetail?.[s.id] === 'H';
-             return !isHadir;
-          }).map(s => s.id),
-          updatedAt: new Date().toISOString()
-        } as Journal;
-        updatedList[existingIdx] = finalTargetJournal;
-      } else {
-        const nextMeeting = prev.length > 0 ? Math.max(...prev.map(j => j.meetingNumber)) + 1 : 1;
-        finalTargetJournal = {
-          id: `temp-${Date.now()}`,
-          assignmentId: assignmentId as string,
-          semester: activeSemester,
-          meetingNumber: nextMeeting,
-          date: today,
-          jamKe: "1-2",
-          jp: 2,
-          learningGoal: "",
-          material: "",
-          teachingMethod: "",
-          kktpAchievement: "",
-          attendanceDetail: { [studentId]: 'H' },
-          absentStudents: currentStudents.filter(s => s.id !== studentId).map(s => s.id),
-          hasTask: false,
-          taskType: null,
-          taskScores: {},
-          notes: "",
-          createdAt: new Date().toISOString()
-        };
-        updatedList.push(finalTargetJournal);
-      }
-      
-      // IMMEDIATE SYNC TO LOCAL STORAGE
-      localStorage.setItem(`journal_buffer_${assignmentId}_sem${activeSemester}`, JSON.stringify(updatedList));
-      
-      return updatedList;
+    setNewJournal(prev => {
+      const updatedAttendance = { ...(prev.attendanceDetail || {}), [studentId]: 'H' as const };
+      const updatedAbsent = currentStudents.filter(s => updatedAttendance[s.id] !== 'H').map(s => s.id);
+      return {
+        ...prev,
+        attendanceDetail: updatedAttendance,
+        absentStudents: updatedAbsent
+      };
     });
-
-    // Sync individual journal state for the UI
-    if (finalTargetJournal) {
-      setNewJournal(finalTargetJournal);
-    }
     
     setIsDirty(true);
     toast({ title: "Berhasil Absen", description: `${student.fullName} hadir.`, className: "bg-green-600 text-white border-none" });
@@ -439,7 +401,7 @@ function TeachingJournalPageContent() {
                <span className="text-[10px] font-bold text-green-500 uppercase tracking-widest animate-pulse">Auto-Save Aktif</span>
                <span className="text-[8px] text-muted-foreground">Tersimpan ke Lokal</span>
             </div>
-            <Button onClick={() => { stopScanner(); onSaveLocal(); }} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
+            <Button onClick={stopScanner} className="bg-primary h-11 px-6 gap-2 shadow-xl shadow-primary/20 font-bold">
               <CheckCircle2 className="w-4 h-4" /> Selesai ({scanCount})
             </Button>
           </div>
@@ -501,6 +463,7 @@ function TeachingJournalPageContent() {
   }
 
   if (activeView === 'form') {
+    const attendCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v === 'H').length;
     return (
       <div className="flex flex-col h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -554,8 +517,16 @@ function TeachingJournalPageContent() {
             </Card>
             <Card className="border-border/50 shadow-md">
               <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
-                <div><CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa</CardTitle><CardDescription>Status kehadiran murid di kelas ini.</CardDescription></div>
-                <Button variant="outline" size="sm" onClick={() => { const allH: any = {}; students.forEach(s => allH[s.id] = 'H'); setNewJournal({...newJournal, attendanceDetail: allH}); }} className="h-8 text-[10px] font-bold border-accent/20 text-accent">SET SEMUA HADIR</Button>
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{students.length})</CardTitle>
+                  <CardDescription>Gunakan Scanner QR untuk absensi instan.</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
+                    <QrCode className="w-3.5 h-3.5" /> BUKA SCANNER QR
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => { const allH: any = {}; students.forEach(s => allH[s.id] = 'H'); setNewJournal({...newJournal, attendanceDetail: allH}); }} className="h-8 text-[10px] font-bold border-accent/20 text-accent">SET SEMUA HADIR</Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
                  <Table><TableHeader className="bg-muted/20"><TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow></TableHeader>
@@ -595,7 +566,7 @@ function TeachingJournalPageContent() {
         </div>
         <div className="flex flex-wrap gap-2">
           {isDirty && (<Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-500/20 gap-2">{isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />}Simpan Cloud</Button>)}
-          <Button variant="outline" onClick={handleOpenScanner} className="gap-2 border-primary/30 text-primary hover:bg-primary/5"><ScanLine className="w-4 h-4" /> Absen QR</Button>
+          <Button variant="outline" onClick={() => handleOpenScanner(false)} className="gap-2 border-primary/30 text-primary hover:bg-primary/5"><ScanLine className="w-4 h-4" /> Absen QR (Hari Ini)</Button>
           <Button onClick={() => { setEditingJournalId(null); setNewJournal({meetingNumber: journals.length + 1, date: new Date().toISOString().split('T')[0], jamKe: "1-2", jp: 2, attendanceDetail: {}, teachingMethod: ""}); setActiveView('form'); }} className="gap-2 shadow-lg shadow-primary/20"><Plus className="w-4 h-4" /> Input Jurnal</Button>
         </div>
       </div>
@@ -644,11 +615,13 @@ function TeachingJournalPageContent() {
         )}
       </div>
 
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?</AlertDialogTitle><AlertDialogDescription>Data akan dihapus dari draf sementara. Pastikan untuk menekan **Simpan Cloud** agar perubahan permanen.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Sekarang</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Suspense fallback={null}>
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <AlertDialogContent><AlertDialogHeader><AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-destructive" /> Hapus Jurnal?</AlertDialogTitle><AlertDialogDescription>Data akan dihapus dari draf sementara. Pastikan untuk menekan **Simpan Cloud** agar perubahan permanen.</AlertDialogDescription></AlertDialogHeader>
+            <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={executeDeleteLocal} className="bg-destructive text-destructive-foreground">Ya, Hapus Sekarang</AlertDialogAction></AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </Suspense>
     </div>
   )
 }
