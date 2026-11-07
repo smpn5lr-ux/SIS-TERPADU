@@ -3,7 +3,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { 
-  Search, Loader2, Eye, Pencil, CloudUpload, CloudOff, CheckCircle2, Info, UserPlus, School
+  Search, Loader2, Eye, Pencil, CloudUpload, CloudOff, CheckCircle2, Info, UserPlus, School, ArrowRightLeft
 } from "lucide-react"
 import { 
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow 
@@ -29,7 +29,7 @@ import {
 import { Label } from "@/components/ui/label"
 import Link from 'next/link'
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase'
-import { collection, query, orderBy, doc, writeBatch, limit, updateDoc, arrayUnion } from 'firebase/firestore'
+import { collection, query, orderBy, doc, writeBatch, limit, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { Applicant, Classroom } from '@/lib/types'
 import { useToast } from '@/hooks/use-toast'
 
@@ -40,11 +40,11 @@ export default function StudentDatabasePage() {
   const [localStudents, setLocalStudents] = useState<Applicant[]>([])
   const [isDirty, setIsDirty] = useState(false)
 
-  // State untuk Gabung Rombel
   const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false)
+  const [isMoveDialogOpen, setIsMoveDialogOpen] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState<Applicant | null>(null)
   const [targetClassId, setTargetClassId] = useState("")
-  const [isProcessingJoin, setIsProcessingJoin] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const { toast } = useToast()
   const db = useFirestore()
@@ -101,14 +101,14 @@ export default function StudentDatabasePage() {
 
   const handleJoinToClass = async () => {
     if (!db || !selectedStudent || !targetClassId) return
-    setIsProcessingJoin(true)
+    setIsProcessing(true)
     try {
       const classRef = doc(db, 'classes', targetClassId)
       const targetClass = classes?.find(c => c.id === targetClassId)
       
       if (targetClass?.students?.includes(selectedStudent.id)) {
         toast({ variant: "destructive", title: "Siswa sudah terdaftar", description: "Siswa ini sudah ada di rombel tujuan." })
-        setIsProcessingJoin(false)
+        setIsProcessing(false)
         return
       }
 
@@ -126,7 +126,54 @@ export default function StudentDatabasePage() {
     } catch (e) {
       toast({ variant: "destructive", title: "Gagal menggabungkan" })
     } finally {
-      setIsProcessingJoin(false)
+      setIsProcessing(false)
+    }
+  }
+
+  const handleMoveToClass = async () => {
+    if (!db || !selectedStudent || !targetClassId) return
+    setIsProcessing(true)
+    const batch = writeBatch(db)
+    
+    try {
+      const targetClass = classes?.find(c => c.id === targetClassId)
+      const oldClassId = selectedStudent.homeClassId
+
+      // 1. Hapus dari kelas lama jika ada
+      if (oldClassId) {
+        batch.update(doc(db, 'classes', oldClassId), {
+          students: arrayRemove(selectedStudent.id)
+        })
+      }
+
+      // 2. Tambah ke kelas baru
+      batch.update(doc(db, 'classes', targetClassId), {
+        students: arrayUnion(selectedStudent.id)
+      })
+
+      // 3. Update status Rombel Utama di profil siswa
+      batch.update(doc(db, 'applicants', selectedStudent.id), {
+        homeClassId: targetClassId,
+        updatedAt: new Date().toISOString()
+      })
+
+      await batch.commit()
+      
+      toast({ 
+        title: "Siswa Berhasil Dipindahkan", 
+        description: `${selectedStudent.fullName} kini resmi menjadi siswa Kelas ${targetClass?.name}.` 
+      })
+      
+      setIsMoveDialogOpen(false)
+      setSelectedStudent(null)
+      setTargetClassId("")
+      
+      // Update local state untuk mencegah desync tampilan
+      setLocalStudents(prev => prev.map(s => s.id === selectedStudent.id ? { ...s, homeClassId: targetClassId } : s))
+    } catch (e) {
+      toast({ variant: "destructive", title: "Gagal memindahkan siswa" })
+    } finally {
+      setIsProcessing(false)
     }
   }
 
@@ -192,7 +239,10 @@ export default function StudentDatabasePage() {
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold gap-1.5 border-primary/20 text-primary" onClick={() => { setSelectedStudent(s); setIsJoinDialogOpen(true); }}>
-                        <UserPlus className="w-3.5 h-3.5" /> GABUNG ROMBEL
+                        <UserPlus className="w-3.5 h-3.5" /> GABUNG
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 text-[10px] font-bold gap-1.5 border-accent/20 text-accent" onClick={() => { setSelectedStudent(s); setIsMoveDialogOpen(true); }}>
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> PINDAH
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
                         <Link href={`/dashboard/students/edit/${s.id}`}><Pencil className="w-3.5 h-3.5" /></Link>
@@ -214,7 +264,7 @@ export default function StudentDatabasePage() {
           <DialogHeader>
             <DialogTitle>Gabungkan ke Rombel</DialogTitle>
             <DialogDescription>
-              Daftarkan <strong>{selectedStudent?.fullName}</strong> ke rombel tambahan. Murid akan tetap terdaftar di rombel aslinya.
+              Daftarkan <strong>{selectedStudent?.fullName}</strong> ke rombel tambahan (Siswa Tamu).
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -231,17 +281,50 @@ export default function StudentDatabasePage() {
                  </SelectContent>
                </Select>
              </div>
-             <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
-                <p className="text-[10px] text-primary leading-relaxed italic">
-                  * Aksi ini hanya menambahkan murid ke rombel tujuan. Status "Rombel Utama" di profil murid tidak akan berubah.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsJoinDialogOpen(false)}>Batal</Button>
+            <Button onClick={handleJoinToClass} disabled={!targetClassId || isProcessing} className="gap-2">
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              Proses Gabung
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isMoveDialogOpen} onOpenChange={setIsMoveDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Pindahkan Rombel Utama</DialogTitle>
+            <DialogDescription>
+              Ubah penempatan resmi <strong>{selectedStudent?.fullName}</strong> ke rombel baru.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+             <div className="space-y-2">
+               <Label className="text-xs uppercase font-bold text-muted-foreground">Pilih Kelas Baru</Label>
+               <Select value={targetClassId} onValueChange={setTargetClassId}>
+                 <SelectTrigger className="h-12">
+                   <SelectValue placeholder="Pilih Kelas Tujuan" />
+                 </SelectTrigger>
+                 <SelectContent>
+                   {classes?.map(c => (
+                     <SelectItem key={c.id} value={c.id}>Kelas {c.name} (Tingkat {c.gradeLevel})</SelectItem>
+                   ))}
+                 </SelectContent>
+               </Select>
+             </div>
+             <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                <p className="text-[10px] text-amber-600 leading-relaxed italic">
+                  * Aksi ini akan mencabut siswa dari kelas lamanya dan menetapkan kelas baru sebagai rumah utamanya.
                 </p>
              </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsJoinDialogOpen(false)}>Batal</Button>
-            <Button onClick={handleJoinToClass} disabled={!targetClassId || isProcessingJoin} className="gap-2">
-              {isProcessingJoin ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              Proses Gabung
+            <Button variant="outline" onClick={() => setIsMoveDialogOpen(false)}>Batal</Button>
+            <Button onClick={handleMoveToClass} disabled={!targetClassId || isProcessing} className="gap-2 bg-accent hover:bg-accent/90">
+              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRightLeft className="w-4 h-4" />}
+              Proses Pindah
             </Button>
           </DialogFooter>
         </DialogContent>

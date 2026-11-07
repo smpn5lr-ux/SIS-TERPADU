@@ -114,7 +114,6 @@ export default function ClassesPage() {
         return
       }
 
-      // Jangan fetch ulang jika ID kelas sama dan data sudah ada di draf
       if (lastFetchedClassId.current === selectedClassForStudents.id && localApplicants.length > 0 && isDirty) return;
 
       setIsLoadingStudents(true)
@@ -158,51 +157,6 @@ export default function ClassesPage() {
     defaultValues: { name: "", gradeLevel: "7", homeroomTeacher: "", capacity: "32" },
   })
 
-  const handleCleanupUnassigned = async () => {
-    if (!db) return;
-    setIsSyncing(true);
-    setIsAuditDialogOpen(false);
-    
-    try {
-      const batch = writeBatch(db);
-      const classesSnap = await getDocs(collection(db, 'classes'));
-      const allAssignedIds = new Set<string>();
-      classesSnap.docs.forEach(d => {
-        const c = d.data() as Classroom;
-        (c.students || []).forEach(id => {
-          if (id) allAssignedIds.add(id);
-        });
-      });
-
-      const studentsSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)));
-      let removedCount = 0;
-      
-      studentsSnap.docs.forEach(d => {
-        if (!allAssignedIds.has(d.id)) {
-          batch.update(d.ref, { 
-            isDeleted: true, 
-            deletedAt: new Date().toISOString() 
-          });
-          removedCount++;
-        }
-      });
-
-      if (removedCount > 0) {
-        await batch.commit();
-        toast({ 
-          title: "Audit Selesai", 
-          description: `${removedCount} murid tanpa rombel telah dipindahkan ke Tempat Sampah.` 
-        });
-      } else {
-        toast({ title: "Audit Selesai", description: "Seluruh murid aktif sudah memiliki rombel." });
-      }
-    } catch (e) {
-      toast({ variant: "destructive", title: "Audit Gagal" });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const onSaveLocal = (values: z.infer<typeof classFormSchema>) => {
     const classData = {
       id: editingClass ? editingClass.id : doc(collection(db!, 'classes')).id,
@@ -234,7 +188,6 @@ export default function ClassesPage() {
       const activeSnap = await getDocs(query(collection(db, 'applicants'), where('isDeleted', '==', false)))
       const allActiveIds = new Set(activeSnap.docs.map(d => d.id))
 
-      // Sync Trash
       idsToTrash.forEach(id => {
         batch.update(doc(db, 'applicants', id), { 
           isDeleted: true, 
@@ -242,12 +195,10 @@ export default function ClassesPage() {
         })
       })
 
-      // Sync Student Updates (Home Class Moving)
       Object.entries(studentUpdates).forEach(([id, updates]) => {
         batch.update(doc(db, 'applicants', id), updates)
       })
 
-      // Sync Classes
       localClasses.forEach(lc => {
         const cleanIds = Array.from(new Set((lc.students || []).filter(id => id && (allActiveIds.has(id) || !idsToTrash.has(id)))));
         
@@ -286,41 +237,50 @@ export default function ClassesPage() {
     const targetClass = localClasses.find(c => c.id === targetClassId)
     if (!targetClass) return
 
-    // Tutup dialog terlebih dahulu untuk mencegah freeze UI pada Radix
+    const studentId = studentToMove.id
+    const studentName = studentToMove.fullName
+
+    // Tutup dialog terlebih dahulu untuk kelancaran UI
     setIsMoveDialogOpen(false)
 
     setTimeout(() => {
-      const sourceClassUpdated = {
-        ...selectedClassForStudents,
-        students: (selectedClassForStudents.students || []).filter(id => id !== studentToMove.id),
-        currentEnrollment: Math.max(0, (selectedClassForStudents.currentEnrollment || 1) - 1)
-      }
-
-      const targetClassUpdated = {
-        ...targetClass,
-        students: Array.from(new Set([...(targetClass.students || []), studentToMove.id])),
-        currentEnrollment: (targetClass.students?.length || 0) + 1
-      }
-
+      // 1. Update list kelas lokal (Hapus dari asal, Tambah ke tujuan)
       setLocalClasses(prev => prev.map(c => {
-        if (c.id === sourceClassUpdated.id) return sourceClassUpdated
-        if (c.id === targetClassUpdated.id) return targetClassUpdated
+        if (c.id === selectedClassForStudents.id) {
+          const filtered = (c.students || []).filter(id => id !== studentId)
+          return { ...c, students: filtered, currentEnrollment: filtered.length }
+        }
+        if (c.id === targetClassId) {
+          const added = Array.from(new Set([...(c.students || []), studentId]))
+          return { ...c, students: added, currentEnrollment: added.length }
+        }
         return c
       }))
 
-      // Rekam update rombel utama siswa agar tersimpan permanen saat sinkron
+      // 2. Rekam update rombel utama siswa di database
       setStudentUpdates(prev => ({
         ...prev,
-        [studentToMove.id]: { ...prev[studentToMove.id], homeClassId: targetClassId }
+        [studentId]: { ...prev[studentId], homeClassId: targetClassId }
       }))
 
-      setLocalApplicants(prev => prev.filter(a => a.id !== studentToMove.id))
-      setSelectedClassForStudents(sourceClassUpdated)
+      // 3. Perbarui tampilan draf siswa yang sedang dibuka
+      setLocalApplicants(prev => prev.filter(a => a.id !== studentId))
+      
+      // 4. Update state tampilan kelas saat ini agar sinkron
+      setSelectedClassForStudents(prev => {
+        if (!prev) return null
+        const filtered = (prev.students || []).filter(id => id !== studentId)
+        return { ...prev, students: filtered, currentEnrollment: filtered.length }
+      })
+
       setIsDirty(true)
       setStudentToMove(null)
       setTargetClassId("")
-      toast({ title: "Siswa Dipindahkan", description: `${studentToMove.fullName} dipindah ke Kelas ${targetClass.name}` })
-    }, 100);
+      toast({ 
+        title: "Siswa Dipindahkan (Draf)", 
+        description: `${studentName} dipindah ke Kelas ${targetClass.name}. Klik Sinkronkan untuk simpan permanen.` 
+      })
+    }, 150);
   }
 
   const handleJoinStudent = () => {
@@ -352,7 +312,7 @@ export default function ClassesPage() {
       setStudentToJoin(null)
       setTargetJoinClassId("")
       toast({ title: "Siswa Digabungkan", description: `${studentToJoin.fullName} kini ikut belajar di Kelas ${targetClass.name}` })
-    }, 100);
+    }, 150);
   }
 
   const handleRemoveStudentFromClass = () => {
@@ -376,7 +336,7 @@ export default function ClassesPage() {
       setIsDirty(true)
       setStudentToRemove(null)
       toast({ title: "Siswa Dihapus ke Tempat Sampah" })
-    }, 100);
+    }, 150);
   }
 
   const handleClearAllStudents = () => {
@@ -398,7 +358,7 @@ export default function ClassesPage() {
       setSelectedClassForStudents(updatedClass)
       setIsDirty(true)
       toast({ title: "Kelas Dikosongkan di Draf" })
-    }, 100);
+    }, 150);
   }
 
   const handleDownloadImportTemplate = () => {
@@ -479,7 +439,6 @@ export default function ClassesPage() {
             }
           }));
 
-          // Catat perubahan homeClassId untuk seluruh siswa yang diimpor
           const newStudentUpdates = { ...studentUpdates }
           matchedIds.forEach(id => {
             newStudentUpdates[id] = { ...newStudentUpdates[id], homeClassId: selectedClassForStudents.id, isDeleted: false }
@@ -807,11 +766,6 @@ export default function ClassesPage() {
                <Button onClick={() => enrollmentFileInputRef.current?.click()} disabled={isImporting}>{isImporting ? <Loader2 className="animate-spin mr-2" /> : <FileSpreadsheet className="mr-2" />} Pilih File Excel</Button>
                <div className="flex flex-col items-center gap-2">
                   <Button variant="outline" onClick={handleDownloadImportTemplate} className="text-xs h-8 gap-2"><Download className="w-3 h-3" /> Unduh Template</Button>
-                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 max-w-[320px]">
-                     <p className="text-[9px] text-amber-700 text-center leading-relaxed">
-                       <strong>PEMULIHAN OTOMATIS:</strong> Sistem akan mencari murid di seluruh database (termasuk yang sudah terhapus) dan memasukkannya kembali ke rombel ini.
-                     </p>
-                  </div>
                </div>
             </div>
           </DialogContent>
@@ -838,8 +792,6 @@ export default function ClassesPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setIsAuditDialogOpen(true)} className="gap-2 border-destructive/20 text-destructive hover:bg-destructive/5" disabled={isSyncing}><ShieldAlert className="w-4 h-4" /> Audit Database</Button>
-          <div className="w-px h-8 bg-border mx-1 hidden md:block"></div>
           {isDirty && (
             <Button onClick={handleSyncToCloud} disabled={isSyncing} className="bg-green-600 gap-2 shadow-lg shadow-green-500/20">
               {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CloudUpload className="w-4 h-4" />} Sinkronkan ke Cloud
@@ -907,13 +859,6 @@ export default function ClassesPage() {
           </Form>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={isAuditDialogOpen} onOpenChange={setIsAuditDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader><ShieldAlert className="w-5 h-5 text-destructive" /><AlertDialogTitle>Audit Database & Bersihkan</AlertDialogTitle><AlertDialogDescription>Tindakan ini memindahkan murid tanpa rombel ke Tempat Sampah.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Batal</AlertDialogCancel><AlertDialogAction onClick={handleCleanupUnassigned} className="bg-destructive">Ya, Bersihkan</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
