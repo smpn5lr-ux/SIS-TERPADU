@@ -226,6 +226,38 @@ function TeachingJournalPageContent() {
     }
   }, [autoScan, loadingA, assignment]);
 
+  // Fungsi untuk memutar suara beep dan mengumumkan nama
+  const playSuccessNotification = (studentName: string) => {
+    try {
+      // 1. Play Tone (Beep)
+      const context = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, context.currentTime); // Nada A5
+      
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      
+      gain.gain.setValueAtTime(0, context.currentTime);
+      gain.gain.linearRampToValueAtTime(0.2, context.currentTime + 0.05);
+      gain.gain.linearRampToValueAtTime(0, context.currentTime + 0.2);
+      
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.2);
+
+      // 2. Text to Speech
+      const utterance = new SpeechSynthesisUtterance(`Hadir, ${studentName}`);
+      utterance.lang = 'id-ID';
+      utterance.rate = 1.1;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.error("Gagal memutar audio:", err);
+    }
+  };
+
   const handleOpenScanner = (fromForm: boolean = false) => {
     if (fromForm) {
       const initialScanned = new Set<string>();
@@ -310,6 +342,9 @@ function TeachingJournalPageContent() {
     }
 
     scannedIdsRef.current.add(studentId);
+
+    // Mainkan suara sukses
+    playSuccessNotification(student.fullName);
 
     setNewJournal(prev => {
       const updatedAttendance = { ...(prev.attendanceDetail || {}), [studentId]: 'H' as const };
