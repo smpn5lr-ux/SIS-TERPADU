@@ -33,7 +33,9 @@ import {
   ChevronLeft,
   Settings,
   Layers,
-  UserPlus
+  UserPlus,
+  UserX,
+  History
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -48,6 +50,7 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
+import { Progress } from "@/components/ui/progress"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -75,6 +78,7 @@ import {
 } from "@/components/ui/dialog"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useUser, useFirestore, useMemoFirebase, useCollection, useDoc } from "@/firebase"
 import { collection, query, where, doc, writeBatch } from "firebase/firestore"
 import { TeacherAssignment, Applicant, Classroom, Journal } from "@/lib/types"
@@ -97,6 +101,7 @@ function TeachingJournalPageContent() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [editingJournalId, setEditingJournalId] = useState<string | null>(null)
   const [isMergeDialogOpen, setIsMergeDialogOpen] = useState(false)
+  const [studentSearchTerm, setStudentSearchTerm] = useState('')
   
   const [localJournals, setLocalJournals] = useState<Journal[]>([])
   const [isDirty, setIsDirty] = useState(false)
@@ -140,27 +145,21 @@ function TeachingJournalPageContent() {
     mergedClassIds: []
   })
 
-  // Identifikasi siswa di rombel ini
   const studentsInThisClass = useMemo(() => {
     if (!allAcceptedStudents || !classroom?.students) return []
     return allAcceptedStudents.filter(s => classroom.students.includes(s.id) && !s.isDeleted)
   }, [allAcceptedStudents, classroom])
 
-  // Murid Utama: Yang menjadikan rombel ini sebagai rumah (homeClassId)
   const primaryStudents = useMemo(() => {
-    return studentsInThisClass.filter(s => {
-       return !s.homeClassId || s.homeClassId === classroom?.id
-    }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+    return studentsInThisClass.filter(s => !s.homeClassId || s.homeClassId === classroom?.id)
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [studentsInThisClass, classroom])
 
-  // Murid Tamu/Gabungan di rombel ini: Terdaftar di sini tapi homeClassId-nya di kelas lain
   const guestInThisClass = useMemo(() => {
-    return studentsInThisClass.filter(s => {
-       return s.homeClassId && s.homeClassId !== classroom?.id
-    }).sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
+    return studentsInThisClass.filter(s => s.homeClassId && s.homeClassId !== classroom?.id)
+      .sort((a, b) => (a.fullName || "").localeCompare(b.fullName || ""))
   }, [studentsInThisClass, classroom])
 
-  // Murid dari rombel lain yang digabung via tombol "Gabung Rombel" di form
   const mergedStudents = useMemo(() => {
     if (!allAcceptedStudents || !newJournal.mergedClassIds || !allClasses) return []
     return allAcceptedStudents
@@ -176,6 +175,18 @@ function TeachingJournalPageContent() {
   }, [allAcceptedStudents, newJournal.mergedClassIds, allClasses, classroom])
 
   const allVisibleStudents = useMemo(() => [...primaryStudents, ...guestInThisClass, ...mergedStudents], [primaryStudents, guestInThisClass, mergedStudents])
+
+  const attendanceGroups = useMemo(() => {
+    const filtered = allVisibleStudents.filter(s => 
+      s.fullName.toLowerCase().includes(studentSearchTerm.toLowerCase()) || 
+      (s.NISN || "").includes(studentSearchTerm)
+    )
+    
+    return {
+      done: filtered.filter(s => newJournal.attendanceDetail?.[s.id]),
+      pending: filtered.filter(s => !newJournal.attendanceDetail?.[s.id])
+    }
+  }, [allVisibleStudents, newJournal.attendanceDetail, studentSearchTerm])
 
   const studentsRef = useRef<Applicant[]>([])
   useEffect(() => {
@@ -432,6 +443,8 @@ function TeachingJournalPageContent() {
 
   if (activeView === 'scanner') {
     const scanCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v === 'H').length;
+    const remainingStudents = allVisibleStudents.filter(s => newJournal.attendanceDetail?.[s.id] !== 'H');
+    
     return (
       <div className="flex flex-col h-[calc(100vh-4rem)] animate-in fade-in duration-300 overflow-hidden">
         <style dangerouslySetInnerHTML={{ __html: `
@@ -469,46 +482,85 @@ function TeachingJournalPageContent() {
            </div>
 
            <div className="bg-background flex flex-col overflow-hidden border-l border-border/50">
-              <div className="p-4 sm:p-5 border-b bg-muted/20 flex items-center justify-between">
-                 <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                    <h3 className="text-xs font-bold uppercase text-foreground tracking-widest">Siswa Terdeteksi</h3>
+              <Tabs defaultValue="scanned" className="flex-1 flex flex-col overflow-hidden">
+                 <div className="p-4 sm:p-5 border-b bg-muted/20 flex items-center justify-between">
+                    <TabsList className="bg-background/50">
+                       <TabsTrigger value="scanned" className="gap-2 text-[10px] uppercase font-bold">
+                          <CheckCircle2 className="w-3 h-3" /> Sudah ({scanCount})
+                       </TabsTrigger>
+                       <TabsTrigger value="remaining" className="gap-2 text-[10px] uppercase font-bold">
+                          <UserX className="w-3 h-3" /> Sisa ({remainingStudents.length})
+                       </TabsTrigger>
+                    </TabsList>
+                    <Badge className="bg-primary text-white font-mono px-3 py-1 text-sm">{scanCount} / {allVisibleStudents.length}</Badge>
                  </div>
-                 <Badge className="bg-primary text-white font-mono px-3 py-1 text-sm">{scanCount} / {allVisibleStudents.length}</Badge>
-              </div>
-              <ScrollArea className="flex-1">
-                 <div className="p-4 sm:p-6 space-y-3">
-                    {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
-                       const s = allVisibleStudents.find(x => x.id === id);
-                       const isGuest = s?.homeClassId && s.homeClassId !== classroom?.id;
-                       return (
-                         <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isGuest ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
-                            <div className="flex items-center gap-4">
-                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isGuest ? 'bg-accent/20 text-accent' : 'bg-primary/10 text-primary'}`}>
-                                  {s?.fullName?.charAt(0)}
+                 
+                 <TabsContent value="scanned" className="flex-1 overflow-hidden m-0">
+                    <ScrollArea className="h-full">
+                       <div className="p-4 sm:p-6 space-y-3">
+                          {Object.entries(newJournal.attendanceDetail || {}).filter(([_,v]) => v === 'H').reverse().map(([id]) => {
+                             const s = allVisibleStudents.find(x => x.id === id);
+                             const isGuest = s?.homeClassId && s.homeClassId !== classroom?.id;
+                             return (
+                               <div key={id} className={`flex items-center justify-between p-4 bg-card border rounded-2xl animate-in slide-in-from-right-4 shadow-sm group transition-all ${isGuest ? 'border-accent/40 bg-accent/5' : 'border-border/50 hover:border-primary/30'}`}>
+                                  <div className="flex items-center gap-4">
+                                     <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isGuest ? 'bg-accent/20 text-accent' : 'bg-primary/10 text-primary'}`}>
+                                        {s?.fullName?.charAt(0)}
+                                     </div>
+                                     <div className="flex flex-col">
+                                       <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{s?.fullName}</span>
+                                       <div className="flex items-center gap-2">
+                                          <span className="text-[10px] text-muted-foreground font-mono">{s?.NISN}</span>
+                                          {isGuest && <Badge className="bg-accent h-4 text-[7px] px-1 uppercase">Siswa Gabungan</Badge>}
+                                       </div>
+                                     </div>
+                                  </div>
+                                  <div className={`p-2 rounded-full border ${isGuest ? 'bg-accent/20 border-accent/30' : 'bg-green-500/10 border-green-500/20'}`}>
+                                     <Check className={`w-4 h-4 ${isGuest ? 'text-accent' : 'text-green-500'}`} />
+                                  </div>
                                </div>
-                               <div className="flex flex-col">
-                                 <span className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{s?.fullName}</span>
-                                 <div className="flex items-center gap-2">
-                                    <span className="text-[10px] text-muted-foreground font-mono">{s?.NISN}</span>
-                                    {isGuest && <Badge className="bg-accent h-4 text-[7px] px-1 uppercase">Siswa Gabungan</Badge>}
-                                 </div>
+                             )
+                          })}
+                          {scanCount === 0 && (
+                            <div className="flex flex-col items-center justify-center py-32 text-center text-muted-foreground/40">
+                              <QrCode className="w-16 h-16 opacity-10 mb-4" />
+                              <p className="text-xs font-medium tracking-wide uppercase">Menunggu Pemindaian...</p>
+                            </div>
+                          )}
+                       </div>
+                    </ScrollArea>
+                 </TabsContent>
+                 
+                 <TabsContent value="remaining" className="flex-1 overflow-hidden m-0">
+                    <ScrollArea className="h-full">
+                       <div className="p-4 sm:p-6 space-y-2">
+                          {remainingStudents.map(s => {
+                             const isGuest = s.homeClassId && s.homeClassId !== classroom?.id;
+                             return (
+                               <div key={s.id} className="flex items-center justify-between p-3 bg-muted/20 border border-dashed rounded-xl opacity-60">
+                                  <div className="flex items-center gap-3">
+                                     <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                                        {s.fullName?.charAt(0)}
+                                     </div>
+                                     <div className="flex flex-col">
+                                        <span className="text-xs font-medium">{s.fullName}</span>
+                                        <span className="text-[8px] font-mono">{s.NISN}</span>
+                                     </div>
+                                  </div>
+                                  {isGuest && <Badge variant="outline" className="text-[7px] h-4">Guest</Badge>}
                                </div>
-                            </div>
-                            <div className={`p-2 rounded-full border ${isGuest ? 'bg-accent/20 border-accent/30' : 'bg-green-500/10 border-green-500/20'}`}>
-                               <Check className={`w-4 h-4 ${isGuest ? 'text-accent' : 'text-green-500'}`} />
-                            </div>
-                         </div>
-                       )
-                    })}
-                    {scanCount === 0 && (
-                      <div className="flex flex-col items-center justify-center py-32 text-center text-muted-foreground/40">
-                        <QrCode className="w-16 h-16 opacity-10 mb-4" />
-                        <p className="text-xs font-medium tracking-wide uppercase">Menunggu Pemindaian...</p>
-                      </div>
-                    )}
-                 </div>
-              </ScrollArea>
+                             )
+                          })}
+                          {remainingStudents.length === 0 && (
+                             <div className="flex flex-col items-center justify-center py-32 text-center">
+                                <CheckCircle2 className="w-12 h-12 text-green-500 opacity-20 mb-3" />
+                                <p className="text-sm font-bold text-green-600/60 uppercase">Seluruh Siswa Hadir</p>
+                             </div>
+                          )}
+                       </div>
+                    </ScrollArea>
+                 </TabsContent>
+              </Tabs>
            </div>
         </div>
       </div>
@@ -516,12 +568,14 @@ function TeachingJournalPageContent() {
   }
 
   if (activeView === 'form') {
-    const attendCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v === 'H').length;
+    const attendCount = Object.values(newJournal.attendanceDetail || {}).filter(v => v).length;
+    const progress = allVisibleStudents.length > 0 ? (attendCount / allVisibleStudents.length) * 100 : 0;
+    
     return (
       <div className="flex flex-col h-full space-y-6 animate-in slide-in-from-bottom-4 duration-500">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => setActiveView('list')} className="rounded-full border"><ArrowLeft className="w-4 h-4" /></Button>
+            <button onClick={() => setActiveView('list')} className="p-2 border rounded-full hover:bg-muted transition-colors"><ArrowLeft className="w-5 h-5" /></button>
             <div>
               <h1 className="text-2xl font-bold">{editingJournalId ? 'Edit Jurnal' : 'Input Jurnal Baru'}</h1>
               <p className="text-muted-foreground text-xs uppercase font-bold text-primary tracking-widest">{assignment?.subjectName}</p>
@@ -575,15 +629,33 @@ function TeachingJournalPageContent() {
             </Card>
 
             <Card className="border-border/50 shadow-md">
-              <CardHeader className="bg-muted/10 border-b flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa ({attendCount}/{allVisibleStudents.length})</CardTitle>
-                  <CardDescription>Daftar absensi siswa di rombel ini.</CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-8 text-[10px] font-bold border-primary/20 text-primary gap-2">
-                    <QrCode className="w-3.5 h-3.5" /> BUKA SCANNER QR
+              <CardHeader className="bg-muted/10 border-b flex flex-col gap-4">
+                <div className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2"><Users className="w-4 h-4 text-accent" /> Kehadiran Siswa</CardTitle>
+                    <CardDescription>Pemisahan data sudah dan belum absen.</CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => handleOpenScanner(true)} className="h-9 text-[10px] font-bold border-primary/20 text-primary gap-2 px-4 shadow-sm bg-background">
+                    <QrCode className="w-4 h-4" /> BUKA SCANNER QR
                   </Button>
+                </div>
+                
+                <div className="space-y-2">
+                   <div className="flex justify-between items-end">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Progress Absensi: {attendCount} / {allVisibleStudents.length}</span>
+                      <span className="text-xs font-black text-primary">{Math.round(progress)}%</span>
+                   </div>
+                   <Progress value={progress} className="h-1.5" />
+                </div>
+
+                <div className="relative">
+                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                   <Input 
+                     placeholder="Cari nama siswa di daftar ini..." 
+                     className="pl-9 h-9 text-xs bg-background/50" 
+                     value={studentSearchTerm}
+                     onChange={(e) => setStudentSearchTerm(e.target.value)}
+                   />
                 </div>
               </CardHeader>
               <CardContent className="p-0">
@@ -593,37 +665,57 @@ function TeachingJournalPageContent() {
                         <TableRow><TableHead className="font-bold text-xs">Nama Siswa</TableHead><TableHead className="text-center w-48 font-bold text-xs uppercase tracking-tighter">Status (H/S/I/A)</TableHead></TableRow>
                       </TableHeader>
                       <TableBody>
-                        <TableRow className="bg-primary/5 hover:bg-primary/5"><TableCell colSpan={2} className="py-2 text-[10px] font-black text-primary uppercase tracking-widest px-6">SISWA UTAMA ROMBEL {assignment?.className}</TableCell></TableRow>
-                        {primaryStudents.map(s => (
-                          <TableRow key={s.id} className="h-14 hover:bg-muted/5 transition-colors">
-                            <TableCell className="pl-6"><div className="flex flex-col"><span className="text-sm font-bold">{s.fullName}</span><span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span></div></TableCell>
-                            <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
-                              <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-primary text-white border-primary scale-110' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
-                          </TableRow>
-                        ))}
-
-                        {(guestInThisClass.length > 0 || mergedStudents.length > 0) && (
+                        {/* GRUP 1: BELUM ABSEN */}
+                        {attendanceGroups.pending.length > 0 && (
                           <>
-                            <TableRow className="bg-accent/10 hover:bg-accent/10 border-t-2 border-accent/30"><TableCell colSpan={2} className="py-3 text-[11px] font-black text-accent uppercase tracking-[0.2em] px-6">DAFTAR SISWA GABUNGAN (GUEST)</TableCell></TableRow>
-                            {[...guestInThisClass, ...mergedStudents].map(s => {
-                               const homeClass = allClasses?.find(c => c.id === s.homeClassId);
-                               return (
-                                <TableRow key={s.id} className="h-16 hover:bg-muted/5 transition-colors bg-accent/[0.04]">
+                            <TableRow className="bg-amber-500/5 hover:bg-amber-500/5"><TableCell colSpan={2} className="py-3 text-[11px] font-black text-amber-600 uppercase tracking-widest px-6 flex items-center gap-2"><UserX className="w-4 h-4" /> BELUM TERISI ({attendanceGroups.pending.length})</TableCell></TableRow>
+                            {attendanceGroups.pending.map(s => {
+                              const isGuest = s.homeClassId && s.homeClassId !== classroom?.id;
+                              return (
+                                <TableRow key={s.id} className="h-16 hover:bg-muted/5 transition-colors">
                                   <TableCell className="pl-6">
                                     <div className="flex flex-col">
-                                      <span className="text-sm font-bold text-accent">{s.fullName}</span>
-                                      <div className="flex items-center gap-2 mt-1">
+                                      <span className={`text-sm font-bold ${isGuest ? 'text-accent' : ''}`}>{s.fullName}</span>
+                                      <div className="flex items-center gap-2 mt-0.5">
                                          <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
-                                         {homeClass && <Badge variant="outline" className="text-[8px] h-4 px-2 border-accent/40 text-accent uppercase font-black bg-white/50">ASAL KELAS {homeClass.name}</Badge>}
+                                         {isGuest && <Badge variant="outline" className="text-[7px] h-3 px-1">GUEST</Badge>}
                                       </div>
                                     </div>
                                   </TableCell>
                                   <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
-                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-10 h-10 rounded-xl text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? 'bg-accent text-white border-accent scale-110 shadow-lg' : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm bg-background hover:bg-muted text-muted-foreground border-border/50`}>{v}</button>))}</div></TableCell>
                                 </TableRow>
-                               )
+                              )
                             })}
                           </>
+                        )}
+
+                        {/* GRUP 2: SUDAH ABSEN */}
+                        {attendanceGroups.done.length > 0 && (
+                          <>
+                            <TableRow className="bg-green-500/5 hover:bg-green-500/5 border-t-2"><TableCell colSpan={2} className="py-3 text-[11px] font-black text-green-600 uppercase tracking-widest px-6 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> SUDAH TERISI ({attendanceGroups.done.length})</TableCell></TableRow>
+                            {attendanceGroups.done.map(s => {
+                              const isGuest = s.homeClassId && s.homeClassId !== classroom?.id;
+                              return (
+                                <TableRow key={s.id} className="h-16 hover:bg-muted/5 transition-colors bg-muted/[0.02] opacity-80">
+                                  <TableCell className="pl-6">
+                                    <div className="flex flex-col">
+                                      <span className={`text-sm font-bold ${isGuest ? 'text-accent' : ''}`}>{s.fullName}</span>
+                                      <div className="flex items-center gap-2 mt-0.5">
+                                         <span className="text-[9px] text-muted-foreground font-mono">{s.NISN}</span>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell><div className="flex justify-center gap-1.5">{['H', 'S', 'I', 'A'].map(v => (
+                                    <button key={v} type="button" onClick={() => { const detail = { ...(newJournal.attendanceDetail || {}) }; detail[s.id] = v as any; setNewJournal({...newJournal, attendanceDetail: detail}); }} className={`w-9 h-9 rounded-lg text-[11px] font-bold transition-all border shadow-sm ${newJournal.attendanceDetail?.[s.id] === v ? (isGuest ? 'bg-accent text-white border-accent' : 'bg-primary text-white border-primary') : 'bg-background hover:bg-muted text-muted-foreground border-border/50'}`}>{v}</button>))}</div></TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </>
+                        )}
+                        
+                        {attendanceGroups.done.length === 0 && attendanceGroups.pending.length === 0 && (
+                           <TableRow><TableCell colSpan={2} className="text-center py-20 text-muted-foreground text-xs italic">Tidak ada siswa ditemukan.</TableCell></TableRow>
                         )}
                       </TableBody>
                     </Table>
@@ -747,6 +839,7 @@ function TeachingJournalPageContent() {
                          <div className="p-1.5 bg-accent/10 rounded-lg"><Users className="w-3.5 h-3.5 text-accent" /></div>
                          <div className="flex flex-col"><span className="text-xs font-bold">{attendCount} Hadir</span><span className="text-[8px] text-muted-foreground uppercase font-bold">Total Presensi</span></div>
                        </div>
+                       <Button variant="ghost" size="sm" asChild className="h-7 text-[9px] font-bold"><Link href={`/teacher/journal/${assignmentId}/detail/${j.id}?semester=${activeSemester}`}>LIHAT DATA</Link></Button>
                     </div>
                   </CardContent>
                 </Card>
